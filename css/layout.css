@@ -1,0 +1,632 @@
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      background: #000;
+      overflow: hidden;
+    }
+    #stage {
+      width: 100%;
+      height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .note {
+      color: #7a8699;
+      font-size: 10px;
+      margin-top: 6px;
+      max-width: 240px;
+    }
+    #settingsPanel button {
+      margin-top: 4px;
+      background: #38bdf8;
+      color: #0a0e14;
+      border: none;
+      border-radius: 4px;
+      padding: 5px 10px;
+      font-size: 12px;
+      cursor: pointer;
+      font-family: inherit;
+    }
+    #settingsPanel button[data-session-mode].active { background: #ffe9a8; outline: 2px solid #b8860b; }
+    #settingsPanel button:hover {
+      background: #62cdfb;
+    }
+    #settingsPanel select {
+      margin-left: 6px;
+    }
+    /* 2026-09(v1.37): スマホ向けの画面上コントローラ(ジョイスティック+A/Bボタン)。
+       半透明にして、下の景色や雪だるまの視界をなるべく邪魔しないようにする。 */
+    #touchControls {
+      position: fixed;
+      inset: 0;
+      display: none; /* JS側でタッチデバイス検出+歩行モード中のみblockにする */
+      pointer-events: none; /* 個々のジョイスティック/ボタンだけにイベントを許可する */
+      z-index: 12;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    #touchJoystickBase {
+      position: fixed;
+      left: 28px;
+      bottom: 28px;
+      width: 116px;
+      height: 116px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.22);
+      border: 2px solid rgba(255, 255, 255, 0.38);
+      touch-action: none;
+      pointer-events: auto;
+    }
+    #touchJoystickNub {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      width: 52px;
+      height: 52px;
+      margin-left: -26px;
+      margin-top: -26px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.5);
+      border: 1px solid rgba(255, 255, 255, 0.6);
+      /* transformはJS側で毎フレーム更新する(親の中心からの相対移動量) */
+    }
+    #touchButtons {
+      position: fixed;
+      right: 28px;
+      bottom: 28px;
+      width: 150px;
+      height: 116px;
+      pointer-events: none;
+    }
+    .touch-btn {
+      position: absolute;
+      width: 68px;
+      height: 68px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.28);
+      border: 2px solid rgba(255, 255, 255, 0.42);
+      color: rgba(255, 255, 255, 0.9);
+      font-family: system-ui, sans-serif;
+      font-size: 20px;
+      font-weight: bold;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      touch-action: none;
+      pointer-events: auto;
+    }
+    .touch-btn.active {
+      background: rgba(255, 255, 255, 0.55);
+    }
+    /* Aボタン(ジャンプ)は右上、Bボタン(走る)は左下気味に配置し、
+       親指で片手操作しやすいよう斜めのクラシックな配置にする。 */
+    #touchBtnA {
+      right: 0;
+      top: 0;
+    }
+    #touchBtnB {
+      right: 62px;
+      bottom: 0;
+    }
+    /* ===== v1.38 ===== */
+    /* 設定・フルスクリーンボタン(と開いている設定パネル)は、フルスクリーンで
+       3秒操作が無いとふわっと消え、操作すると戻る。歩行モード中は常に非表示
+       (Escで歩行を抜けると再表示)。ジョイスティックとA/B/ポーチのボタンは別系統で、
+       この対象ではない。 */
+    .auto-ui {
+      transition: opacity 0.3s ease;
+    }
+    body.ui-hidden .auto-ui {
+      opacity: 0;
+      pointer-events: none;
+    }
+    #settingsPanel .app-header {
+      font-size: 13px;
+      color: #ffe9a8;
+      margin-bottom: 8px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid #333;
+    }
+    #settingsPanel .app-header small {
+      display: block;
+      font-size: 11px;
+      color: #9aa6b6;
+    }
+    /* v1.41: 操作方法(旧・画面下の常時表示ヒントに代わって、設定画面の中へ移動した。
+       今後はインベントリ内の「マニュアル」項目へ移す予定なので、暫定の置き場所)。 */
+    #settingsPanel .manual-help {
+      margin-bottom: 8px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid #333;
+      font-size: 12px;
+      color: #cfd8e3;
+    }
+    #settingsPanel .manual-help summary {
+      cursor: pointer;
+      color: #ffe9a8;
+      font-size: 13px;
+      user-select: none;
+    }
+    #settingsPanel .manual-help-body {
+      margin-top: 6px;
+      line-height: 1.6;
+    }
+    #settingsPanel .manual-help-body p {
+      margin: 0 0 8px;
+    }
+    #settingsPanel .manual-help-body strong {
+      color: #ffe9a8;
+    }
+    #settingsPanel .settings-footer {
+      margin-top: 8px;
+      padding-top: 8px;
+      border-top: 1px solid #333;
+      font-size: 11px;
+      color: #7a8699;
+      line-height: 1.5;
+    }
+    #walkExitBtn {
+      position: fixed;
+      top: 10px;
+      right: 10px;
+      z-index: 25;
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      border: 1px solid rgba(255,255,255,0.3);
+      background: rgba(10, 14, 20, 0.55);
+      color: rgba(255,255,255,0.85);
+      font-size: 18px;
+      line-height: 1;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 0;
+      touch-action: manipulation;
+    }
+    /* ポーチを開くボタン(スマホ)。A/Bボタンの群れの少し上に置く */
+    #touchBtnE {
+      right: 40px;
+      top: -76px;
+      font-size: 24px;
+    }
+    /* ===== v1.43: インベントリ(メイン27 + ホットバー9。Eキー/スマホは👝ボタンで開閉) ===== */
+    #editHint {
+      position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%);
+      z-index: 14; display: none; max-width: min(92vw, 640px); box-sizing: border-box;
+      padding: 8px 14px; border-radius: 8px; background: rgba(40, 30, 18, 0.82); border: 2px solid #b88a52;
+      color: #f6e6c8; font: 12px/1.6 monospace, system-ui, sans-serif; text-align: center; pointer-events: none;
+    }
+    #inventoryPanel {
+      position: fixed;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      z-index: 30;
+      display: none;
+      --inv-slot: clamp(32px, calc((100vw - 64px) / 9 - 6px), 52px);
+      box-sizing: border-box;
+      padding: 12px 14px 10px;
+      border-radius: 10px;
+      background: rgba(58, 38, 22, 0.95);
+      border: 3px solid #b88a52;
+      box-shadow: 0 0 0 2px #3a2616, 0 6px 24px rgba(0,0,0,0.5);
+      color: #f6e6c8;
+      font-family: monospace, system-ui, sans-serif;
+      user-select: none;
+      -webkit-user-select: none;
+      touch-action: none;
+    }
+    #inventoryPanel { max-height: 94vh; overflow-y: auto; }
+    #inventoryPanel .inv-title { font-size: 14px; margin-bottom: 8px; color: #ffe9a8; }
+    .inv-equip { display: flex; gap: 6px; }
+    .inv-equip .inv-equip-cell { display: flex; flex-direction: column; align-items: center; gap: 2px; font-size: 10px; color: #d8c4a0; }
+    .inv-equip .inv-slot { background: rgba(70, 48, 90, 0.5); border-color: #8a6aa8; }
+    .inv-equip .inv-slot:hover { border-color: #c9a8e8; }
+    #inventoryPanel .inv-label { font-size: 11px; color: #d8c4a0; margin: 8px 0 4px; }
+    .inv-grid {
+      display: grid;
+      grid-template-columns: repeat(9, var(--inv-slot));
+      gap: 4px;
+    }
+    .inv-slot {
+      position: relative;
+      width: var(--inv-slot);
+      height: var(--inv-slot);
+      box-sizing: border-box;
+      border-radius: 5px;
+      background: rgba(20, 12, 6, 0.55);
+      border: 2px solid #6b4a28;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: calc(var(--inv-slot) * 0.56);
+      line-height: 1;
+      color: #ffd84a;
+      text-shadow: 0 0 8px rgba(255, 216, 74, 0.45);
+      cursor: pointer;
+    }
+    .inv-slot:hover { border-color: #b88a52; background: rgba(60, 38, 18, 0.65); }
+    .inv-hotbar .inv-slot { background: rgba(40, 62, 70, 0.5); border-color: #55808c; }
+    .inv-hotbar .inv-slot:hover { border-color: #9fd0dc; }
+    .inv-hotbar .inv-slot.selected { border-color: #ffe9a8; box-shadow: 0 0 0 1px #ffe9a8, 0 0 8px rgba(255, 233, 168, 0.5); }
+    .inv-slot .count, #invCursor .count {
+      position: absolute;
+      right: 3px;
+      bottom: 0;
+      font-size: calc(var(--inv-slot) * 0.27);
+      color: #fff;
+      text-shadow: 1px 1px 0 #3a2616, -1px -1px 0 #3a2616, 1px -1px 0 #3a2616, -1px 1px 0 #3a2616;
+    }
+    #inventoryPanel .inv-info { margin-top: 8px; min-height: 32px; font-size: 12px; line-height: 1.5; }
+    #inventoryPanel .inv-info .name { color: #ffe9a8; }
+    #inventoryPanel .inv-info .desc { color: #d8c4a0; }
+    #inventoryPanel .inv-actions { display: flex; gap: 8px; margin-top: 8px; }
+    #inventoryPanel .inv-actions button {
+      flex: 1;
+      padding: 7px 8px;
+      border-radius: 6px;
+      border: 2px solid #b88a52;
+      background: #7a5230;
+      color: #fff3d8;
+      font-family: inherit;
+      font-size: 12px;
+      cursor: pointer;
+      touch-action: manipulation;
+    }
+    #invSplitBtn { display: none; }
+    #invSplitBtn.on { background: #a87f3a; border-color: #ffe9a8; color: #fff; }
+    #invCursor {
+      position: fixed;
+      left: 0; top: 0;
+      z-index: 40;
+      display: none;
+      width: var(--inv-slot, 44px);
+      height: var(--inv-slot, 44px);
+      align-items: center;
+      justify-content: center;
+      font-size: 26px;
+      color: #ffd84a;
+      pointer-events: none;
+      transform: translate(-50%, -50%);
+      filter: drop-shadow(0 2px 4px rgba(0,0,0,0.6));
+    }
+    /* ===== v1.39: ホットバー(枠のない浮かぶアイコン。歩行モード中だけ表示) ===== */
+    #hotbarBar {
+      position: fixed;
+      left: 50%;
+      bottom: 14px;
+      transform: translateX(-50%);
+      z-index: 15;
+      display: none;
+      gap: clamp(1px, 1.1vw, 9px); /* v1.43: 9枠でも狭い画面に収まるよう、画面幅に合わせて詰める */
+      --hb-size: clamp(30px, 8.6vw, 44px);
+      pointer-events: none; /* アイコン自体だけクリック可能にする */
+    }
+    /* v1.41: ステンドグラスの一枚のような、六角形で色つきのアイコン。
+       雪だるまの世界観(クリスマス・教会のステンドグラス的な暖かさ)に寄せている。
+       疑似要素::afterで「鉛線」らしい斜めの筋を重ねている。 */
+    .hotbar-slot {
+      --pane-a: #8fe0ff;
+      --pane-b: #3f9fe0;
+      width: var(--hb-size, 44px);
+      height: var(--hb-size, 44px);
+      box-sizing: border-box;
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+      color: #fff8e6;
+      text-shadow: 0 1px 2px rgba(0, 0, 0, 0.65);
+      opacity: 0.8;
+      transform: translateY(0) scale(0.84);
+      transition: opacity 0.15s ease, transform 0.15s ease, filter 0.15s ease;
+      filter: drop-shadow(0 0 0 rgba(255, 216, 74, 0));
+      pointer-events: auto;
+      touch-action: manipulation;
+      clip-path: polygon(50% 2%, 96% 26%, 96% 74%, 50% 98%, 4% 74%, 4% 26%);
+      background:
+        radial-gradient(circle at 34% 28%, rgba(255, 255, 255, 0.4), rgba(255, 255, 255, 0) 45%),
+        conic-gradient(from 90deg, var(--pane-a), var(--pane-b), var(--pane-a));
+      box-shadow: inset 0 0 0 2px rgba(18, 14, 10, 0.85), inset 0 0 7px rgba(0, 0, 0, 0.35);
+    }
+    .hotbar-slot::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      clip-path: inherit;
+      pointer-events: none;
+      background:
+        linear-gradient(108deg, transparent 46.5%, rgba(20, 16, 10, 0.55) 48.5%, rgba(20, 16, 10, 0.55) 50%, transparent 52%),
+        linear-gradient(18deg, transparent 46.5%, rgba(20, 16, 10, 0.5) 48.5%, rgba(20, 16, 10, 0.5) 50%, transparent 52%);
+    }
+    .hotbar-slot:nth-child(5n+1) { --pane-a: #a7ecff; --pane-b: #3f9fe0; } /* 氷色 */
+    .hotbar-slot:nth-child(5n+2) { --pane-a: #ffd1de; --pane-b: #d94f77; } /* 柊の実 */
+    .hotbar-slot:nth-child(5n+3) { --pane-a: #cbffd9; --pane-b: #3f9f5f; } /* 樅の緑 */
+    .hotbar-slot:nth-child(5n+4) { --pane-a: #fff0b8; --pane-b: #dcaa3f; } /* 金 */
+    .hotbar-slot:nth-child(5n+5) { --pane-a: #ecdcff; --pane-b: #9d7fe0; } /* すみれ */
+    .hotbar-slot.selected {
+      opacity: 1;
+      transform: translateY(-8px) scale(1.16);
+      filter: drop-shadow(0 0 7px rgba(255, 255, 255, 0.55)) drop-shadow(0 0 13px rgba(255, 216, 74, 0.45));
+      box-shadow: inset 0 0 0 2px rgba(255, 236, 180, 0.95), inset 0 0 9px rgba(255, 255, 255, 0.3);
+    }
+    .hotbar-slot .count {
+      position: absolute;
+      right: 7px;
+      bottom: 3px;
+      font-size: 10px;
+      color: #fff;
+      text-shadow: 1px 1px 0 #000, -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000;
+    }
+    #touchBtnAction {
+      right: 118px;
+      top: -76px;
+      font-size: 22px;
+    }
+    /* v1.42: タイトル画面。3Dシーンは背後で既に動いているので、薄い暗幕越しに
+       世界がぼんやり見える(完全な黒画面にはしない)。 */
+    #titleScreen {
+      position: fixed;
+      inset: 0;
+      z-index: 60;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(6, 10, 16, 0.72);
+      backdrop-filter: blur(1.5px);
+      transition: opacity 0.45s ease;
+    }
+    #titleScreen.hidden {
+      opacity: 0;
+      pointer-events: none;
+    }
+    #titleScreen .title-card {
+      text-align: center;
+      color: #f3ecd9;
+      font-family: monospace, system-ui, sans-serif;
+      padding: 0 20px;
+    }
+    #titleScreen .title-jp {
+      font-size: clamp(28px, 6vw, 46px);
+      letter-spacing: 0.08em;
+      text-shadow: 0 0 18px rgba(255, 233, 168, 0.5), 0 2px 6px rgba(0, 0, 0, 0.6);
+    }
+    #titleScreen .title-en {
+      margin-top: 4px;
+      font-size: clamp(11px, 2vw, 14px);
+      letter-spacing: 0.15em;
+      color: #b9c3d1;
+    }
+    #titleScreen .title-buttons {
+      margin-top: 34px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      align-items: center;
+    }
+    #titleScreen .title-buttons button {
+      width: min(240px, 70vw);
+      padding: 12px 0;
+      font-family: inherit;
+      font-size: 16px;
+      letter-spacing: 0.1em;
+      color: #fff8e6;
+      background: rgba(30, 24, 16, 0.55);
+      border: 1px solid rgba(255, 233, 168, 0.55);
+      border-radius: 6px;
+      cursor: pointer;
+      touch-action: manipulation;
+      transition: background 0.15s ease, transform 0.1s ease;
+    }
+    #titleScreen .title-buttons button.mode-btn {
+      display: flex; flex-direction: column; align-items: center; gap: 3px;
+      padding: 10px 0;
+    }
+    #titleScreen .mode-name { font-size: 16px; letter-spacing: 0.1em; }
+    #titleScreen .mode-hint { font-size: 10.5px; letter-spacing: 0.04em; color: #cdbf9a; }
+    #titleScreen .title-buttons button:hover {
+      background: rgba(90, 68, 28, 0.6);
+    }
+    #titleScreen .title-buttons button:active {
+      transform: scale(0.97);
+    }
+    #titleScreen .title-footer {
+      margin-top: 30px;
+      font-size: 11px;
+      color: #7a8699;
+      display: flex;
+      gap: 10px;
+      justify-content: center;
+    }
+    #error-banner {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      background: #7a1a1a;
+      color: #fff;
+      font-family: monospace, sans-serif;
+      font-size: 12px;
+      padding: 8px 12px;
+      display: none;
+      z-index: 20;
+      white-space: pre-wrap;
+    }
+    #audioStartBtn {
+      display: block;
+      width: 100%;
+      background: #f0a63a;
+      color: #1a1206;
+      border: none;
+      border-radius: 4px;
+      padding: 7px 10px;
+      font-size: 13px;
+      cursor: pointer;
+      font-family: monospace, system-ui, sans-serif;
+    }
+    #audioStartBtn:hover {
+      background: #ffc266;
+    }
+    #audioStartBtn[disabled] {
+      background: rgba(74, 74, 58, 0.85);
+      color: #9a9a8a;
+      cursor: default;
+    }
+    #debugPanel {
+      position: fixed;
+      top: 10px;
+      right: 10px;
+      background: rgba(10, 14, 20, 0.85);
+      color: #9dffb0;
+      font-family: monospace, system-ui, sans-serif;
+      font-size: 11px;
+      line-height: 1.5;
+      padding: 8px 12px;
+      border-radius: 8px;
+      border: 1px solid rgba(255,255,255,0.1);
+      z-index: 10;
+      white-space: pre;
+      pointer-events: none;
+    }
+    #debugPanel .hint {
+      color: #7a8699;
+    }
+    /* v1.44: 「星を今すぐ落とす」はデバッグ情報から、設定パネルの「Events」セクションへ移した。 */
+    #eventsList { display: flex; flex-direction: column; gap: 6px; }
+    #eventsList .event-note { font-size: 11px; opacity: 0.75; }
+
+    #settingsIconBtn, #fullscreenIconBtn {
+      position: fixed;
+      top: 10px;
+      left: 10px;
+      z-index: 20;
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      border: 1px solid rgba(255,255,255,0.15);
+      background: rgba(10, 14, 20, 0.85);
+      color: #eee;
+      font-size: 20px;
+      line-height: 1;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0;
+      /* スマホでのタップ操作でも押しやすいよう十分な大きさを確保 */
+      touch-action: manipulation;
+    }
+    /* 2026-09: スマホ対応。Fキーが使えないスマホでもフルスクリーンに
+       できるよう、設定アイコンの隣に常時タップ可能なボタンを置く。 */
+    #fullscreenIconBtn {
+      left: 56px;
+    }
+    #settingsPanel {
+      position: fixed;
+      top: 56px;
+      left: 10px;
+      z-index: 20;
+      background: rgba(10, 14, 20, 0.92);
+      color: #eee;
+      font-size: 13px;
+      line-height: 1.6;
+      padding: 10px 14px;
+      border-radius: 8px;
+      border: 1px solid rgba(255,255,255,0.15);
+      display: none;
+      min-width: 240px;
+      max-width: 320px;
+      max-height: calc(100vh - 76px);
+      overflow-y: auto;
+      font-family: monospace, system-ui, sans-serif;
+    }
+    #settingsPanel label {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      cursor: pointer;
+    }
+    #settingsPanel > .settings-toplevel {
+      margin-bottom: 8px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid #333;
+    }
+    #settingsPanel details {
+      margin-bottom: 6px;
+      border-bottom: 1px solid #2a2f38;
+      padding-bottom: 6px;
+    }
+    #settingsPanel details:last-child {
+      border-bottom: none;
+    }
+    #settingsPanel summary {
+      cursor: pointer;
+      color: #38bdf8;
+      font-size: 12.5px;
+      padding: 4px 0;
+      user-select: none;
+    }
+    #settingsPanel summary:hover {
+      color: #62cdfb;
+    }
+    #settingsPanel details > *:not(summary) {
+      margin-top: 6px;
+    }
+    #settingsPanel .field {
+      display: block;
+      margin-bottom: 6px;
+    }
+    #gameClock {
+      font-size: 14px;
+      color: #ffe9a8;
+    }
+
+/* ============================================================
+   v1.57: 公開版・保存(E7)・更新通知・管理者表示
+   ============================================================ */
+.sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+/* デバッグ用の表示は、管理者になる(html に is-admin が付く)まで隠す。JSが動かなくても出ない。管理者でなければ、起動の後にDOMからも取り除く。 */
+html:not(.is-admin) [data-admin-only] { display: none !important; }
+#adminBadge { position: fixed; right: 6px; bottom: 6px; z-index: 9000; font: 11px/1 system-ui, sans-serif; color: #fff; background: rgba(120, 30, 30, 0.75); padding: 3px 7px; border-radius: 10px; pointer-events: none; }
+#titleScreen h1.title-jp { margin: 0; font-weight: inherit; }
+#titleScreen .title-world { margin: 6px 0 2px; font-size: 13px; opacity: 0.85; min-height: 1.2em; }
+.update-note { display: inline-block; margin-left: 8px; font-size: 11px; color: #9ec9ff; text-decoration: underline dotted; opacity: 0.85; cursor: pointer; }
+.update-note[hidden] { display: none; }
+.small-note { font-size: 11px; opacity: 0.75; margin-top: 3px; }
+.save-banner { position: fixed; left: 50%; top: 10px; transform: translateX(-50%); z-index: 9100; max-width: min(92vw, 560px); background: rgba(40, 24, 10, 0.94); color: #ffe9c4; border: 1px solid #b9853a; border-radius: 8px; padding: 10px 14px; font-size: 13px; line-height: 1.5; }
+.save-banner[hidden] { display: none; }
+.save-banner button { margin-top: 6px; margin-right: 6px; }
+/* ワールドのプレビュー(作ったばかり。気に入ったら始める/作り直す) */
+.preview-bar { position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%); z-index: 9050; width: min(94vw, 520px); box-sizing: border-box; background: rgba(8, 18, 32, 0.9); color: #eaf3ff; border: 1px solid #4a6a92; border-radius: 12px; padding: 12px 14px; text-align: center; font-size: 13px; }
+.preview-bar[hidden] { display: none; }
+.preview-bar .pv-title { font-size: 15px; margin-bottom: 4px; }
+.preview-bar .pv-row { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin-top: 8px; }
+body.preview-mode #titleScreen { display: none; }
+/* ユーザー・ワールドの管理画面 */
+.world-overlay { position: fixed; inset: 0; z-index: 9200; display: none; align-items: center; justify-content: center; background: rgba(2, 8, 18, 0.78); }
+.world-overlay.open { display: flex; }
+.world-card { width: min(94vw, 560px); max-height: 88vh; overflow: auto; box-sizing: border-box; background: #0f1f33; color: #eaf3ff; border: 1px solid #3c5a82; border-radius: 14px; padding: 18px 18px 16px; font-family: system-ui, "Hiragino Sans", "Noto Sans JP", sans-serif; }
+.world-card h2 { margin: 0 0 8px; font-size: 18px; font-weight: 600; }
+.world-note { margin: 0 0 12px; font-size: 13px; opacity: 0.85; line-height: 1.55; }
+.world-msg { margin: 0 0 10px; padding: 7px 10px; border-radius: 8px; font-size: 13px; }
+.world-msg.error { background: rgba(140, 40, 40, 0.5); border: 1px solid #c25a5a; }
+.world-msg.info { background: rgba(40, 90, 140, 0.4); border: 1px solid #5a8ac2; }
+.world-list { list-style: none; margin: 0 0 12px; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.world-list li { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; background: rgba(255, 255, 255, 0.05); border-radius: 10px; padding: 8px 10px; }
+.world-name { display: flex; flex-direction: column; gap: 2px; min-width: 0; overflow-wrap: anywhere; }
+.world-meta { font-size: 11px; opacity: 0.7; }
+.world-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.world-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 8px 0; }
+.world-row input[type=text] { flex: 1 1 12em; min-width: 0; padding: 8px 10px; border-radius: 8px; border: 1px solid #4a6a92; background: #0a1626; color: #fff; font-size: 14px; }
+.world-btn { padding: 8px 12px; border-radius: 8px; border: 1px solid #4a6a92; background: #1b3354; color: #eaf3ff; font-size: 13px; cursor: pointer; min-height: 36px; }
+.world-btn:hover { background: #24436b; }
+.world-btn:focus-visible, .world-row input:focus-visible { outline: 2px solid #9ec9ff; outline-offset: 2px; }
+.world-btn.primary { background: #2d6cb5; border-color: #6aa5e8; }
+.world-btn.primary:hover { background: #3a7bc9; }
+.world-btn.danger { background: #5a2323; border-color: #a85a5a; }
+.world-btn.danger:hover { background: #733030; }
+.world-btn.plain { background: transparent; }
+.world-btn.small { padding: 5px 9px; min-height: 30px; font-size: 12px; }
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }

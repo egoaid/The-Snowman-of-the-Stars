@@ -1,0 +1,40 @@
+// recipes.js
+// クラフトのレシピ(データ + 実行)。あまり作業ゲームにはしたくないので、レシピは少なく、
+// 入力は1種類・出力は1種類という素直な形に絞っている。クラフトの画面(インベントリ内のクラフト)は
+// まだ無い。ここではレシピと、全か無かで実行する関数だけを用意する。
+//
+// 流れ:  倒木(丸太) →[インベントリのクラフト]→ 木材×10 →[クラフト]→ 作業台 / チェスト
+//        流れ星の「星」 →[クラフト]→ 星のかけら×10
+//        (おもちゃ作りなどは、今後 作業台で。星のかけらが必要)
+// 倒木は、丸太に変えずにそのまま置いて使うこともできる(橋・立てかけ。物理フェーズ)。
+//
+// 注意: 作業台・チェストに必要な木材の数は、ユーザー指定がまだ無いため暫定値(TENTATIVE)。
+
+import { isKnownItem } from './items.js';
+
+export const LOG_TO_WOOD = 10;        // 倒木(丸太)1個 → 木材10個(ユーザー指定)
+export const STAR_TO_SHARDS = 10;     // 星1個 → 星のかけら10個(ユーザー指定)
+export const TENTATIVE = { craftingTableWood: 4, chestWood: 8 }; // 暫定値
+
+export const RECIPES = [
+  { id: 'log_to_wood',      name: '丸太を木材にする',     station: 'inventory', input: { id: 'log', count: 1 },   output: { id: 'wood', count: LOG_TO_WOOD } },
+  { id: 'star_to_shards',   name: '星を星のかけらにする', station: 'inventory', input: { id: 'star', count: 1 },  output: { id: 'star_shard', count: STAR_TO_SHARDS } },
+  { id: 'crafting_table',   name: '作業台を作る',         station: 'inventory', input: { id: 'wood', count: TENTATIVE.craftingTableWood }, output: { id: 'crafting_table', count: 1 }, tentative: true },
+  { id: 'chest',            name: 'チェストを作る',       station: 'inventory', input: { id: 'wood', count: TENTATIVE.chestWood },         output: { id: 'chest', count: 1 }, tentative: true },
+];
+
+export function getRecipe(id) { return RECIPES.find((r) => r.id === id) || null; }
+
+/** そのレシピを、いまのインベントリで作れるか(材料があり、出力が入る)。実際には作らない。 */
+export function canCraft(inventory, recipeId) {
+  const r = getRecipe(recipeId);
+  if (!r) return false;
+  return inventory.count(r.input.id) >= r.input.count;
+}
+
+/** レシピを実行する。全か無か(材料が足りない/出力が入らなければ何も変えずfalse)。 */
+export function craft(inventory, recipeId) {
+  const r = getRecipe(recipeId);
+  if (!r || !isKnownItem(r.input.id) || !isKnownItem(r.output.id)) return false;
+  return inventory.convert(r.input.id, r.input.count, r.output.id, r.output.count);
+}

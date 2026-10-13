@@ -1,0 +1,37 @@
+# 星の雪だるま — The Snowman of the Stars
+# 検索エンジンと、AI(生成AI・AI検索)のクローラーを歓迎します。
+User-agent: *
+Allow: /
+
+# AI系のクローラー(明示的に許可)
+User-agent: GPTBot
+Allow: /
+
+User-agent: OAI-SearchBot
+Allow: /
+
+User-agent: ChatGPT-User
+Allow: /
+
+User-agent: ClaudeBot
+Allow: /
+
+User-agent: Claude-SearchBot
+Allow: /
+
+User-agent: Claude-User
+Allow: /
+
+User-agent: PerplexityBot
+Allow: /
+
+User-agent: Google-Extended
+Allow: /
+
+User-agent: Applebot-Extended
+Allow: /
+
+User-agent: CCBot
+Allow: /
+
+Sitemap: https://egoaid.github.io/The-Snowman-of-the-Stars/sitemap.xml

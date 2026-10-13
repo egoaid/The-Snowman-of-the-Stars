@@ -1,0 +1,24 @@
+# 星の雪だるま — The Snowman of the Stars
+
+> 雪だるまが暮らす3Dの自然を、歩いて、眺めて、物を動かして楽しむ、ブラウザで遊べる箱庭アプリ。川・雨・風・虫・鳥・焚き火などの環境音は、サンプル音源を使わず、すべてその場で生成される。無料・インストール不要・スマホ対応。
+> A calm 3D browser sandbox where a snowman lives in a generated natural world. Walk around, watch, and rearrange things. All ambient sounds (river, rain, wind, insects, birds, campfire) are synthesized live with the Web Audio API — no audio samples. Free, no install, mobile-friendly.
+
+重要な点 / Key facts:
+- 種類 / Type: ブラウザで動く静的なWebアプリ(PWA)。サーバーは無く、アカウントも不要。 / A static web app (PWA). No server, no account.
+- 遊び方 / Modes: 歩行モード(自分で歩く)、見守りモード(雪だるまの暮らしを眺める)、編集モード(丸太などを動かす)。 / Walk, Watch (the snowman lives on its own), Edit (move logs and objects).
+- 世界 / World: ユーザーを作り、ワールド名を付けると、地形(起伏と川)が自動生成される。気に入らなければ何度でも作り直せる。ユーザーごとに複数のワールドを保存できる。 / Create a user and a named world; terrain and river are procedurally generated, re-roll until you like it. Each user can keep many worlds.
+- 変化 / Dynamics: 実際の時刻と季節に合わせた昼夜・季節、ランダムな天候(晴れ・曇り・雨・雷雨・雪)、積雪。 / Real-time day-night and season, random weather (rain, thunderstorm, snow), snow accumulation.
+- 音 / Sound: 川は気泡の共鳴(Minnaert共鳴)を元にした合成。雨・風・虫・鳥・焚き火・足音・丸太の衝突音もすべて合成。 / River sound is synthesized from bubble resonance; rain, wind, insects, birds, fire, footsteps and log impacts are all procedural.
+- プライバシー / Privacy: 保存データはすべて、利用者のブラウザ内(localStorage)だけに置かれ、外部へ送信されない。アクセス解析・広告・Cookieは使わない。 / All save data stays in the browser (localStorage). No analytics, ads, or cookies.
+- 技術 / Tech: Three.js(描画)、cannon-es(物理)、Web Audio API(音)、Service Worker(オフライン)、Screen Wake Lock API(スマホの画面を消さない)。 / Three.js, cannon-es, Web Audio API, Service Worker, Screen Wake Lock API.
+- 対応環境 / Requirements: WebGLとWeb Audioが使える最近のブラウザ(Chrome・Edge・Firefox・Safari)。 / A recent browser with WebGL and Web Audio.
+- ライセンス / License: All rights reserved(© 2026 egoaid)。 / All rights reserved.
+
+## アプリ / App
+- [星の雪だるま(アプリ本体) / The app](https://egoaid.github.io/The-Snowman-of-the-Stars/): そのまま遊べる。 / Play in the browser.
+
+## ドキュメント / Docs
+- [README](https://github.com/egoaid/The-Snowman-of-the-Stars/blob/main/README.md): 遊び方・操作方法・保存・プライバシー。 / How to play, controls, saving, privacy.
+
+## Optional
+- [sitemap.xml](https://egoaid.github.io/The-Snowman-of-the-Stars/sitemap.xml)

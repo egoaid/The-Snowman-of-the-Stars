@@ -1,0 +1,1735 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>星の雪だるま — The Snowman of the Stars</title>
+  <meta name="description" content="雪だるまが暮らす3Dの自然を、歩いて、眺めて、物を動かして楽しむ、ブラウザで遊べる箱庭。川・雨・風・虫・鳥・焚き火の環境音はすべてその場で生成。無料・インストール不要・スマホ対応。">
+  <meta name="robots" content="index,follow,max-image-preview:large">
+  <meta name="theme-color" content="#0b1a2e">
+  <meta name="color-scheme" content="dark">
+  <meta name="application-name" content="星の雪だるま">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="星の雪だるま">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="canonical" href="https://egoaid.github.io/The-Snowman-of-the-Stars/">
+  <link rel="alternate" hreflang="ja" href="https://egoaid.github.io/The-Snowman-of-the-Stars/">
+  <link rel="alternate" hreflang="x-default" href="https://egoaid.github.io/The-Snowman-of-the-Stars/">
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="icons/favicon-16.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="icons/apple-touch-icon.png">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="星の雪だるま — The Snowman of the Stars">
+  <meta property="og:title" content="星の雪だるま — 環境音が生まれる3D箱庭">
+  <meta property="og:description" content="雪だるまが暮らす3Dの自然を、歩いて、眺めて、物を動かして楽しむ、ブラウザで遊べる箱庭。環境音はすべてその場で生成。無料・インストール不要。">
+  <meta property="og:url" content="https://egoaid.github.io/The-Snowman-of-the-Stars/">
+  <meta property="og:image" content="https://egoaid.github.io/The-Snowman-of-the-Stars/icons/og-image.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="星空の下、帽子とマフラーの雪だるまが立つ雪原のイラスト">
+  <meta property="og:locale" content="ja_JP">
+  <meta property="og:locale:alternate" content="en_US">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="星の雪だるま — The Snowman of the Stars">
+  <meta name="twitter:description" content="A calm 3D browser sandbox where a snowman lives in a generated natural world. Walk, watch, and rearrange. Ambient sounds are synthesized live.">
+  <meta name="twitter:image" content="https://egoaid.github.io/The-Snowman-of-the-Stars/icons/og-image.png">
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "WebApplication",
+    "name": "星の雪だるま",
+    "alternateName": "The Snowman of the Stars",
+    "url": "https://egoaid.github.io/The-Snowman-of-the-Stars/",
+    "description": "雪だるまが暮らす3Dの自然を、歩いたり、眺めたり、物を動かしたりして楽しむ、ブラウザで遊べる箱庭アプリ。川・雨・風・虫・鳥・焚き火などの環境音はすべてその場で生成され、サンプル音源は使っていない。ユーザーとワールドごとに、この端末のブラウザ内へ保存できる。",
+    "inLanguage": ["ja", "en"],
+    "applicationCategory": "MultimediaApplication",
+    "operatingSystem": "Any (modern web browser, desktop and mobile)",
+    "browserRequirements": "Requires JavaScript, WebGL and Web Audio",
+    "isAccessibleForFree": true,
+    "offers": { "@type": "Offer", "price": "0", "priceCurrency": "JPY" },
+    "image": "https://egoaid.github.io/The-Snowman-of-the-Stars/icons/og-image.png",
+    "author": { "@type": "Person", "name": "egoaid" },
+    "featureList": ["歩行・見守り・編集の3つのモード", "昼夜・季節・天候(雨・雷・雪)の変化", "その場で生成される環境音(サンプル音源なし)", "ユーザーとワールドごとの保存(端末内)", "オフライン対応(PWA)"]
+  }
+  </script>
+  <link rel="stylesheet" href="css/layout.css">
+</head>
+<body>
+  <noscript>
+    <main style="max-width:640px;margin:40px auto;padding:0 16px;color:#eaf3ff;font-family:system-ui,sans-serif;line-height:1.7">
+      <h1>星の雪だるま — The Snowman of the Stars</h1>
+      <p>雪だるまが暮らす3Dの自然を、歩いたり、眺めたり、物を動かしたりして楽しむ、ブラウザで遊べる箱庭アプリです。川・雨・風・虫・鳥・焚き火などの環境音は、すべてその場で生成されます。このアプリの利用にはJavaScriptが必要です。ブラウザの設定でJavaScriptを有効にしてください。</p>
+      <p>A calm 3D browser sandbox where a snowman lives in a generated natural world. Walk around, watch, and rearrange things. All ambient sounds (river, rain, wind, insects, birds, campfire) are synthesized live. JavaScript is required.</p>
+    </main>
+  </noscript>
+  <section class="sr-only" aria-label="アプリの説明">
+    <h2>星の雪だるまについて</h2>
+    <p>雪だるまが暮らす3Dの自然を舞台にした、ブラウザで遊べる箱庭アプリです。歩行モードで自分で歩く、見守りモードで雪だるまの暮らしを眺める、編集モードで丸太などを動かす、の3つの遊び方があります。昼夜・季節・天候が変わり、環境音はすべてその場で生成されます。ユーザーとワールドを作って、ワールドごとにこの端末のブラウザ内へ保存できます。無料で、インストールは不要です。スマートフォンにも対応しています。</p>
+  </section>
+
+  <div id="error-banner"></div>
+
+  <!-- v1.42: タイトル画面(マイクラ方式)。スタート/設定の2択。裏では既に3Dシーンの
+       読み込みが始まっているので、「スタート」を押した瞬間に世界が見える。 -->
+  <div id="titleScreen">
+    <div class="title-card">
+      <h1 class="title-jp" id="titleScreenJa"></h1>
+      <div class="title-world" id="titleWorldInfo"></div>
+      <div class="title-en" id="titleScreenEn"></div>
+      <div class="title-buttons">
+        <button id="titleWalkBtn" class="mode-btn" type="button" data-mode="walk"><span class="mode-name">歩行モード</span><span class="mode-hint">自分で歩いて世界をめぐる</span></button>
+        <button id="titleWatchBtn" class="mode-btn" type="button" data-mode="watch"><span class="mode-name">見守りモード</span><span class="mode-hint">雪だるまの暮らしを眺める</span></button>
+        <button id="titleEditBtn" class="mode-btn" type="button" data-mode="edit"><span class="mode-name">編集モード</span><span class="mode-hint">雪だるまが歩く世界で、物を動かす</span></button>
+        <button id="titleWorldBtn" type="button">ユーザー・ワールド</button>
+        <button id="titleSettingsBtn" type="button">設定</button>
+      </div>
+      <div class="title-footer">
+        <span id="titleVersionFooter"></span><a id="titleUpdateNote" class="update-note" href="#" hidden></a>
+        <span id="titleCopyrightFooter"></span>
+      </div>
+    </div>
+  </div>
+
+  <button id="settingsIconBtn" class="auto-ui" type="button" title="設定">⚙️</button>
+  <button id="fullscreenIconBtn" class="auto-ui" type="button" title="フルスクリーン">⛶</button>
+  <button id="walkExitBtn" type="button" title="歩行を終える">✕</button>
+  <div id="settingsPanel" class="auto-ui">
+    <div class="app-header"><span id="appTitleHeader"></span><small id="appTitleEnHeader"></small></div>
+    <details class="manual-help">
+      <summary>操作方法</summary>
+      <div class="manual-help-body">
+        <p><strong>PC</strong><br>
+        WASD: 移動 / マウス: 視点 / Space: ジャンプ / Shift: 走る(押している間)<br>
+        V: 視点切替(一人称・三人称) / E: インベントリの開閉 / 1〜9・ホイール: ホットバー選択<br>
+        左クリック: 狙っている物へアクション / Esc: 歩行モードを終える</p>
+        <p><strong>スマートフォン</strong><br>
+        画面左のジョイスティック: 移動 / A: ジャンプ / B: 走る(押している間)<br>
+        👝: インベントリの開閉 / ✦: 狙っている物へアクション / 画面右上の✕: 歩行モードを終える<br>
+        ホットバーのアイコンをタップ: 持つ物を選ぶ</p>
+      </div>
+    </details>
+    <div class="settings-toplevel">
+      <button id="audioStartBtn">🔊 音を有効にする</button>
+    </div>
+    <!-- v1.56-H3: 音量。環境音(川・雨・風・虫・鳥・焚き火・雷・蜂)と効果音(足音・拾う/置く・チェスト・丸太・星の鈴・UI)を別々に。音を有効にする前でも動かせる。 -->
+    <div class="settings-toplevel" id="volumeSection">
+      <label class="field">
+        🌿 環境音の音量:
+        <input type="range" id="ambientVolumeSlider" min="0" max="150" step="5" value="100" style="width:50%;">
+        <span id="ambientVolumeValue" style="display:inline-block; min-width:3.2em; text-align:right;">100%</span>
+      </label>
+      <label class="field">
+        🔔 効果音の音量:
+        <input type="range" id="sfxVolumeSlider" min="0" max="150" step="5" value="100" style="width:50%;">
+        <span id="sfxVolumeValue" style="display:inline-block; min-width:3.2em; text-align:right;">100%</span>
+      </label>
+      <div style="font-size:11px; opacity:0.75; margin-top:2px;">環境音は川・雨・風・虫・鳥・焚き火・雷、効果音は足音・拾う/置く・チェスト・丸太・星の鈴の音です。</div>
+    </div>
+    <!-- v1.57 / E7: ユーザー・ワールドと保存。画面をつけたままにする(Screen Wake Lock) -->
+    <div class="settings-toplevel" id="worldSection">
+      <div id="settingsWorldInfo" class="small-note"></div>
+      <button id="worldSwitchBtn" type="button">👤 ユーザー・ワールドを切り替える</button>
+      <button id="saveNowBtn" type="button">💾 今すぐ保存</button>
+      <div id="saveStatus" class="small-note"></div>
+      <label>
+        <input type="checkbox" id="wakeLockCheckbox"> 画面をつけたままにする
+      </label>
+      <div id="wakeLockNote" class="small-note"></div>
+    </div>
+    <div class="settings-toplevel" data-admin-only>
+      <label>
+        <input type="checkbox" id="debugVisibleCheckbox"> デバッグ情報(FPS等)を表示
+      </label>
+    </div>
+
+    <div class="settings-toplevel">
+      <label class="field">
+        💧 水面の品質:
+        <select id="waterQualitySelect">
+          <option value="high">高(雨の波紋・流れ・きらめき)</option>
+          <option value="standard">標準(波紋を少なく・軽め)</option>
+          <option value="off">オフ(水面処理なし・最軽量)</option>
+        </select>
+      </label>
+      <div style="font-size:11px; opacity:0.75; margin-top:2px;">動作が重い端末では「標準」か「オフ」にしてください(⚙️のデバッグ表示でFPSを確認できます)。</div>
+    </div>
+
+    <details open>
+      <summary>🌦️ 天候・季節</summary>
+      <label class="field">
+        季節:
+        <select id="seasonSelect">
+          <option value="auto" selected>自動(実際の暦に合わせる)</option>
+          <option value="spring">春</option>
+          <option value="tsuyu">梅雨</option>
+          <option value="summer">夏</option>
+          <option value="typhoon">台風シーズン</option>
+          <option value="autumn">秋</option>
+          <option value="winter">冬</option>
+        </select>
+      </label>
+      <label class="field">
+        天候(手動切替):
+        <select id="weatherSelect">
+          <option value="auto" selected>自動(季節に応じて変化)</option>
+          <option value="clear">晴れ</option>
+          <option value="rain">雨</option>
+          <option value="storm">雷雨</option>
+          <option value="snow">雪</option>
+          <option value="rainbow-debug">虹(デバッグ表示)</option>
+        </select>
+      </label>
+      <div style="font-size:11px; color:#9aa;">
+        「自動」では梅雨に雨が増え、台風シーズンに雷雨が増え、冬は雪になるなど、
+        季節ごとに天候の傾向が変わります。
+      </div>
+    </details>
+
+    <details>
+      <summary>🕐 時刻</summary>
+      <div id="gameClock">🕐 --:--</div>
+      <label class="field">時刻をジャンプ:
+        <select id="timeSelect">
+          <option value="morning">朝</option>
+          <option value="day" selected>昼</option>
+          <option value="evening">夕</option>
+          <option value="night">夜</option>
+        </select>
+      </label>
+      <div style="font-size:11px; color:#9aa;">
+        現実の20分でゲーム内1日が経過します(マインクラフト相当の速さ)。
+      </div>
+    </details>
+
+    <details>
+      <summary>🚶 移動・視点</summary>
+      <div id="sessionModeRow" style="display:flex; gap:4px; margin-bottom:6px;">
+        <button type="button" data-session-mode="walk" style="flex:1;">歩行</button>
+        <button type="button" data-session-mode="watch" style="flex:1;">見守り</button>
+        <button type="button" data-session-mode="edit" style="flex:1;">編集</button>
+      </div>
+      <button id="walkModeBtn">歩行モードにする(WASD)</button>
+      <br>
+      <button id="cycleViewBtn">視点を切替(一人称/三人称)</button>
+      <br>
+      <button id="wanderBtn">見守りモード(自動で歩き回る)</button>
+      <br>
+      <label style="font-size:0.85em;">
+        <input type="checkbox" id="cinemaCheckbox"> 自動カメラ(見守りモード中、シネマティックに撮影)
+      </label>
+    </details>
+
+    <details data-admin-only>
+      <summary>🍂 紅葉・落ち葉デバッグ</summary>
+      実際の日付を待たずに、秋の色づき・落葉・落ち葉の量を確認できます。
+      <br>
+      <label>
+        <input type="checkbox" id="autumnDebugCheckbox"> 秋の進み具合を強制する
+      </label>
+      <br>
+      <input type="range" id="autumnDebugSlider" min="0" max="100" value="50" style="width:70%;" disabled>
+      <span id="autumnDebugValue">50%</span>
+      <div style="font-size:11px; color:#9aa;">
+        0%=色づく前、35%=黄、65%=橙、100%=落葉しきった状態。チェックを外すと実際の日付に戻ります。
+      </div>
+      <button id="leafBurstBtn" type="button">🍁 今すぐ枯れ葉を100枚散らす</button>
+    </details>
+
+    <details>
+      <summary>🌳 広葉樹の枝ぶり</summary>
+      キャンプの目印である大木(1本)と、背景の森の広葉樹、それぞれの
+      枝分かれの段数・本数・枝先の葉の数・葉の塊の大きさ、および広葉樹
+      全体の本数(比率)を調整できます。段数・本数を増やすほど描画コール数
+      (負荷)が増える点にご注意ください。
+      変更は「この設定で生成し直す」ボタンでページを再読み込みするまで
+      反映されません(木は起動時に一度だけ作られるため)。
+      <div style="margin-top:6px; padding-top:6px; border-top:1px dashed #555;">
+        <strong>大木(1本、思い切り複雑にできます)</strong><br>
+        段数:
+        <select id="broadleafFullTiersSelect">
+          <option value="2">2段(軽量)</option>
+          <option value="3">3段(既定・豊か)</option>
+          <option value="4">4段(かなり豊か・重め)</option>
+        </select>
+        <br>
+        一次枝の本数: <input type="range" id="broadleafFullP1Slider" min="2" max="6" value="3" style="width:50%;">
+        <span id="broadleafFullP1Value">3</span>
+        <br>
+        二次枝の本数(一次枝あたり、2段以上): <input type="range" id="broadleafFullP2Slider" min="2" max="4" value="3" style="width:50%;">
+        <span id="broadleafFullP2Value">3</span>
+        <br>
+        <span id="broadleafFullP3Row">
+          三次枝の本数(二次枝あたり、3段以上): <input type="range" id="broadleafFullP3Slider" min="2" max="4" value="3" style="width:50%;">
+          <span id="broadleafFullP3Value">3</span>
+        </span>
+        <br>
+        <span id="broadleafFullP4Row">
+          四次枝の本数(三次枝あたり、4段のときのみ): <input type="range" id="broadleafFullP4Slider" min="1" max="3" value="2" style="width:50%;" disabled>
+          <span id="broadleafFullP4Value">2</span>
+        </span>
+        <br>
+        枝先の葉の数(まとまり具合): <input type="range" id="broadleafFullLeavesSlider" min="1" max="3" value="2" style="width:50%;">
+        <span id="broadleafFullLeavesValue">2</span>
+      </div>
+      <div style="margin-top:8px; padding-top:6px; border-top:1px dashed #555;">
+        <strong>背景の森の広葉樹(数が多いので控えめ推奨)</strong><br>
+        段数:
+        <select id="broadleafSimpleTiersSelect">
+          <option value="1">1段(既定・軽量)</option>
+          <option value="2">2段(やや豊か・重め)</option>
+        </select>
+        <br>
+        一次枝の本数: <input type="range" id="broadleafSimpleP1Slider" min="4" max="8" value="6" style="width:50%;">
+        <span id="broadleafSimpleP1Value">6</span>
+        <br>
+        <span id="broadleafSimpleP2Row">
+          二次枝の本数(一次枝あたり、2段のときのみ): <input type="range" id="broadleafSimpleP2Slider" min="2" max="4" value="2" style="width:50%;" disabled>
+          <span id="broadleafSimpleP2Value">2</span>
+        </span>
+        <br>
+        枝先の葉の数(まとまり具合): <input type="range" id="broadleafSimpleLeavesSlider" min="1" max="2" value="2" style="width:50%;">
+        <span id="broadleafSimpleLeavesValue">2</span>
+      </div>
+      <div style="margin-top:8px; padding-top:6px; border-top:1px dashed #555;">
+        葉の塊の大きさ(大木・背景共通): <input type="range" id="broadleafLeafScaleSlider" min="70" max="180" value="110" style="width:50%;">
+        <span id="broadleafLeafScaleValue">110%</span>
+        <br>
+        広葉樹の本数(針葉樹に対する比率): <input type="range" id="broadleafRatioSlider" min="0" max="15" value="0" style="width:50%;">
+        <span id="broadleafRatioValue">5%</span>
+      </div>
+      <br>
+      <button id="broadleafShapeApplyBtn" type="button">この設定で生成し直す(再読み込み)</button>
+    </details>
+
+    <details data-admin-only>
+      <summary>🌍 地形の自動生成(手動・管理者用)</summary>
+      オフのときは今までどおりの固定の地形・川です。オンにしてページを
+      再読み込みすると、シード値から地形の起伏と川の形を生成し直します
+      (シード値は表示・変更できるので、同じ地形をあとで再現できます)。
+      <br>
+      <label>
+        <input type="checkbox" id="worldGenCheckbox"> 地形の自動生成を有効にする
+      </label>
+      <br>
+      シード: <input type="number" id="worldGenSeedInput" style="width:8em;" step="1">
+      <button id="worldGenRandomizeBtn" type="button">🎲 ランダムなシードにする</button>
+      <br>
+      <button id="worldGenApplyBtn" type="button">この設定で生成し直す(再読み込み)</button>
+      <div style="margin-top:8px; padding-top:6px; border-top:1px dashed #555;">
+        気に入った地形は名前を付けて保存できます(JSONファイルとして
+        ダウンロード。他の人にファイルやシード値を渡せば同じ地形を再現できます)。
+        <br>
+        名前: <input type="text" id="worldGenNameInput" style="width:12em;" placeholder="例: 大きな丘の草原">
+        <button id="worldGenSaveBtn" type="button">💾 名前を付けて保存</button>
+        <br>
+        <button id="worldGenLoadFileBtn" type="button">📂 JSONファイルを読み込む</button>
+        <input type="file" id="worldGenLoadFileInput" accept="application/json" style="display:none;">
+        <br>
+        この端末に保存した地形:
+        <select id="worldGenLocalList" style="max-width:14em;">
+          <option value="">(なし)</option>
+        </select>
+        <button id="worldGenLocalLoadBtn" type="button">呼び出す</button>
+        <button id="worldGenLocalDeleteBtn" type="button">削除</button>
+      </div>
+    </details>
+
+    <!-- v1.44: イベント(試したいイベントを起こすボタンの置き場)。デバッグの数値表示とは別物。
+         ボタンはJS側の登録式(registerSettingsEvent)で増やせる。 -->
+    <details id="eventsSection" data-admin-only>
+      <summary>🎬 イベント (Events)</summary>
+      <div id="eventsList"></div>
+    </details>
+
+    <div class="note" id="mainDescriptionNote">
+      Three.jsによる3Dシーンです。地形の高さを実際にサンプリングして
+      木・テント・焚き火を配置しているため、2D版で起きていた
+      「木が川の中に立つ」等の矛盾が構造的に起きない設計にしています。
+    </div>
+    <div class="settings-footer">
+      <div><span id="appVersionFooter"></span><a id="appUpdateNote" class="update-note" href="#" hidden></a></div>
+      <div id="appCopyrightFooter"></div>
+    </div>
+  </div>
+
+  <!-- v1.43: インベントリ(Eキー/スマホは👝ボタンで開閉)。歩行モード中だけ開ける。
+       メイン27枠+ホットバー9枠。ホットバーもインベントリの一部なので「ホットバーへ移す」操作は無い。 -->
+  <!-- v1.46: 編集(観察)モードの案内。Tabで入る/出る。 -->
+  <div id="editHint" role="status"></div>
+
+  <div id="inventoryPanel" role="dialog" aria-label="インベントリ">
+    <div class="inv-title">👝 インベントリ</div>
+    <div class="inv-label">装備(頭・胴・手・足)</div>
+    <div id="invEquip" class="inv-equip"></div>
+    <div id="invChestWrap" style="display:none">
+      <div class="inv-label">🧰 チェスト(Shift+クリックで、持ち物と移し替え)</div>
+      <div id="invChestGrid" class="inv-grid"></div>
+    </div>
+    <div class="inv-label">持ち物</div>
+    <div id="invMainGrid" class="inv-grid"></div>
+    <div class="inv-label">ホットバー</div>
+    <div id="invHotbarGrid" class="inv-grid inv-hotbar"></div>
+    <div id="invInfo" class="inv-info"></div>
+    <div class="inv-actions">
+      <button id="invSplitBtn" type="button">半分ずつ</button>
+      <button id="invCloseBtn" type="button">閉じる</button>
+    </div>
+  </div>
+  <div id="invCursor"></div>
+
+
+  <!-- 2026-09(v1.37): スマホ向けの画面上コントローラ。タッチデバイスかつ
+       歩行モード中のみJSで表示する。半透明にしてあり、見た目や配置は
+       CSS(#touchControls以下)で調整できる。 -->
+  <div id="touchControls">
+    <div id="touchJoystickBase">
+      <div id="touchJoystickNub"></div>
+    </div>
+    <div id="touchButtons">
+      <div id="touchBtnA" class="touch-btn" title="ジャンプ">A</div>
+      <div id="touchBtnB" class="touch-btn" title="走る(押している間)">B</div>
+      <div id="touchBtnE" class="touch-btn" title="インベントリ">👝</div>
+      <div id="touchBtnAction" class="touch-btn" title="アクション">✦</div>
+    </div>
+  </div>
+
+  <div id="previewBar" class="preview-bar" hidden role="region" aria-label="ワールドのプレビュー">
+    <div class="pv-title" id="previewTitle"></div>
+    <div id="previewSeed" class="small-note"></div>
+    <div class="pv-row">
+      <button id="previewStartBtn" class="world-btn primary" type="button">このワールドで始める</button>
+      <button id="previewRerollBtn" class="world-btn" type="button">🎲 作り直す</button>
+      <button id="previewCancelBtn" class="world-btn plain" type="button">やめる</button>
+    </div>
+  </div>
+  <div id="saveBanner" class="save-banner" hidden role="alert"></div>
+
+  <div id="debugPanel" data-admin-only>計測中…<div class="hint">左上の⚙️で表示/非表示</div></div>
+
+  <div id="stage"></div>
+  <div id="hotbarBar"></div>
+
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "./vendor/three.module.min.js",
+        "cannon-es": "./vendor/cannon-es.js"
+      }
+    }
+  </script>
+
+  <!-- 環境音エンジン(Web Audio API。window.SoundEngine に登録される) -->
+  <script src="js/audio/context.js"></script>
+  <script src="js/audio/river.js"></script>
+  <script src="js/audio/fire.js"></script>
+  <script src="js/audio/wind.js"></script>
+  <script src="js/audio/insects.js"></script>
+  <script src="js/audio/birds.js"></script>
+  <script src="js/audio/rain.js"></script>
+  <script src="js/audio/thunder.js"></script>
+  <script src="js/audio/footsteps.js"></script>
+  <script src="js/audio/bees.js"></script>
+  <script src="js/audio/star-bells.js"></script>
+  <script src="js/audio/gather-sounds.js"></script>
+  <script src="js/audio/ui-sounds.js"></script>
+  <script src="js/audio/sfx.js"></script>
+
+  <script type="module">
+    import { APP } from './js/config.js';
+    import { ITEM_DEFS } from './js/items.js';
+    import { MAIN_SLOTS, HOTBAR_SLOTS } from './js/inventory.js';
+    import { EQUIP_SLOTS, EQUIP_AREA, EQUIP_LABEL } from './js/equipment.js';
+    import { SESSION_MODES } from './js/session-mode.js';
+    import { createSaveStore } from './js/save/save-store.js';
+    import { createWorldUi } from './js/save/save-ui.js';
+    import { isAdmin, handleAdminUrl, applyAdminGate } from './js/admin.js';
+    import { createWakeLock } from './js/wake-lock.js';
+    import { createUpdateChecker } from './js/update-check.js';
+
+    // v1.57: 管理者・保存・ワールドの判定は main() の中で行う(読み込み時の外側では何もしない)。
+    //   ADMIN の初期値 true は、main() が正しい値に置き換えるまでの仮の値。デバッグ表示は、CSS側で「管理者になるまで隠す」。
+    let ADMIN = true;
+    let worldUi = null;
+    let playAllowed = true; // main() が、ワールドを選ぶまでは false にする
+
+    // --- v1.38: タイトル・バージョン・著作権表記は js/config.js の1か所から反映する ---
+    document.title = `${APP.titleJa} — ${APP.titleEn}`;
+    document.getElementById('appTitleHeader').textContent = APP.titleJa;
+    document.getElementById('appTitleEnHeader').textContent = APP.titleEn;
+    document.getElementById('appVersionFooter').textContent = `v${APP.version}`;
+    document.getElementById('appCopyrightFooter').textContent = APP.copyright;
+    // v1.42: タイトル画面(マイクラ方式)にも同じ表記を出す
+    document.getElementById('titleScreenJa').textContent = APP.titleJa;
+    document.getElementById('titleScreenEn').textContent = APP.titleEn;
+    document.getElementById('titleVersionFooter').textContent = `v${APP.version}`;
+    document.getElementById('titleCopyrightFooter').textContent = APP.copyright;
+
+    const titleScreen = document.getElementById('titleScreen');
+    const titleSettingsBtn = document.getElementById('titleSettingsBtn');
+    /** タイトル画面を閉じる。裏では既にシーンが動いているので、ここでは表示を消すだけ。 */
+    function dismissTitleScreen() {
+      titleScreen.classList.add('hidden');
+    }
+    // v1.50 Phase C: 起動時に3つのモード(歩行/見守り/編集)から選ぶ。どのモードも音はON。
+    // シーンの準備前に押された場合は、準備でき次第そのモードを適用する(pendingSessionMode)。
+    let pendingSessionMode = null;
+    function applyModeUi(id) {
+      const m = SESSION_MODES[id];
+      if (!m) return;
+      // 設定パネル側の表示を実際の状態に合わせる
+      wanderBtn.textContent = m.wander ? '見守りモードを解除' : '見守りモード(自動で歩き回る)';
+      cinemaCheckbox.checked = m.autoCamera;
+      document.querySelectorAll('[data-session-mode]').forEach((b) => b.classList.toggle('active', b.dataset.sessionMode === id));
+      if (!m.edit) editHint.style.display = 'none';
+    }
+    function startSessionMode(id) {
+      const scene = sceneRefForTouch;
+      if (!scene) { pendingSessionMode = id; return false; }
+      scene.setSessionMode(id);
+      applyModeUi(id);
+      // 「開始」のクリック自体がユーザー操作(ジェスチャー)なので、ここで音を有効化する
+      // (v1.42と同じ。失敗しても設定画面の🔊ボタンで後から試せる)。
+      scene.startAudio().catch(() => {});
+      return true;
+    }
+    document.querySelectorAll('#titleScreen .mode-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        if (!playAllowed) { if (worldUi) worldUi.open(); return; } // 公開版: ユーザーとワールドを選ぶまでは始めない
+        dismissTitleScreen();
+        const id = btn.dataset.mode;
+        if (!startSessionMode(id)) {
+          // シーンがまだ無い: 音の有効化は準備完了後に試みる(ジェスチャーが切れる場合は🔊ボタンで)
+          pendingSessionMode = id;
+        }
+      });
+    });
+    titleSettingsBtn.addEventListener('click', (e) => {
+      // 設定パネルには「パネルの外側をクリックしたら閉じる」処理があり、このクリックが
+      // documentまで伝播すると、開いた直後に外側クリックと誤認されて閉じてしまうため止める。
+      e.stopPropagation();
+      dismissTitleScreen();
+      settingsPanel.style.display = 'block';
+      noteUiActivity();
+    });
+
+    const stage = document.getElementById('stage');
+    const timeSelect = document.getElementById('timeSelect');
+    const weatherSelect = document.getElementById('weatherSelect');
+    const seasonSelect = document.getElementById('seasonSelect');
+    const errorBanner = document.getElementById('error-banner');
+    const walkModeBtn = document.getElementById('walkModeBtn');
+    const cycleViewBtn = document.getElementById('cycleViewBtn');
+    const wanderBtn = document.getElementById('wanderBtn');
+    const cinemaCheckbox = document.getElementById('cinemaCheckbox');
+    const worldGenCheckbox = document.getElementById('worldGenCheckbox');
+    const worldGenSeedInput = document.getElementById('worldGenSeedInput');
+    const worldGenRandomizeBtn = document.getElementById('worldGenRandomizeBtn');
+    const worldGenApplyBtn = document.getElementById('worldGenApplyBtn');
+    const worldGenNameInput = document.getElementById('worldGenNameInput');
+    const worldGenSaveBtn = document.getElementById('worldGenSaveBtn');
+    const worldGenLoadFileBtn = document.getElementById('worldGenLoadFileBtn');
+    const worldGenLoadFileInput = document.getElementById('worldGenLoadFileInput');
+    const worldGenLocalList = document.getElementById('worldGenLocalList');
+    const worldGenLocalLoadBtn = document.getElementById('worldGenLocalLoadBtn');
+    const worldGenLocalDeleteBtn = document.getElementById('worldGenLocalDeleteBtn');
+    const audioStartBtn = document.getElementById('audioStartBtn');
+    const gameClockEl = document.getElementById('gameClock');
+    const debugPanel = document.getElementById('debugPanel');
+
+    // --- スマホ向けの画面上コントローラ(v1.37) ---
+    // ジョイスティック(移動)+Aボタン(ジャンプ)+Bボタン(押している間走る)。
+    // タッチデバイスでのみ表示し、歩行モードに入っている間だけ操作を有効にする。
+    const isTouchDevice = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
+    const touchControls = document.getElementById('touchControls');
+    const touchJoystickBase = document.getElementById('touchJoystickBase');
+    const touchJoystickNub = document.getElementById('touchJoystickNub');
+    const touchBtnA = document.getElementById('touchBtnA');
+    const touchBtnB = document.getElementById('touchBtnB');
+    let sceneRefForTouch = null; // initScene()完了後にsetSceneForTouchControls()で渡す
+    function setSceneForTouchControls(s) { sceneRefForTouch = s; }
+
+    function setTouchControlsVisible(visible) {
+      if (!isTouchDevice) return;
+      touchControls.style.display = visible ? 'block' : 'none';
+      if (visible && sceneRefForTouch) sceneRefForTouch.enableTouchControls();
+      if (!visible && sceneRefForTouch) {
+        // 歩行モードを抜けた時、スティックを離し忘れた状態のまま
+        // 移動し続けてしまわないようにリセットしておく。
+        sceneRefForTouch.setVirtualMove(0, 0);
+        sceneRefForTouch.setVirtualRun(false);
+      }
+    }
+
+    // --- ジョイスティック(円の中でつまみをドラッグ、離すと中央へ戻る) ---
+    {
+      const JOY_RADIUS = 58; // #touchJoystickBaseの半径相当(CSSの width/2 とだいたい合わせる)
+      let activeTouchId = null;
+      function setNub(dx, dz) {
+        // dx: 左右(-1〜1、右が正)、dz: 前後(-1〜1、前が正、画面奥へ倒す=前進)
+        touchJoystickNub.style.transform = `translate(${dx * (JOY_RADIUS - 26)}px, ${-dz * (JOY_RADIUS - 26)}px)`;
+      }
+      function updateFromPoint(clientX, clientY) {
+        const rect = touchJoystickBase.getBoundingClientRect();
+        const cx = rect.left + rect.width / 2;
+        const cy = rect.top + rect.height / 2;
+        let dx = (clientX - cx) / JOY_RADIUS;
+        let dy = (clientY - cy) / JOY_RADIUS; // 画面下方向が正
+        const len = Math.hypot(dx, dy);
+        if (len > 1) { dx /= len; dy /= len; }
+        const dz = -dy; // 画面上(スティックを奥へ)= 前進 = z正
+        setNub(dx, dz);
+        if (sceneRefForTouch) sceneRefForTouch.setVirtualMove(dx, dz);
+      }
+      function resetNub() {
+        setNub(0, 0);
+        if (sceneRefForTouch) sceneRefForTouch.setVirtualMove(0, 0);
+      }
+      touchJoystickBase.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        const t = e.changedTouches[0];
+        activeTouchId = t.identifier;
+        updateFromPoint(t.clientX, t.clientY);
+      }, { passive: false });
+      touchJoystickBase.addEventListener('touchmove', (e) => {
+        e.preventDefault();
+        for (const t of e.changedTouches) {
+          if (t.identifier === activeTouchId) updateFromPoint(t.clientX, t.clientY);
+        }
+      }, { passive: false });
+      function onJoystickEnd(e) {
+        for (const t of e.changedTouches) {
+          if (t.identifier === activeTouchId) {
+            activeTouchId = null;
+            resetNub();
+          }
+        }
+      }
+      touchJoystickBase.addEventListener('touchend', onJoystickEnd);
+      touchJoystickBase.addEventListener('touchcancel', onJoystickEnd);
+    }
+
+    // --- Aボタン(ジャンプ)・Bボタン(押している間走る) ---
+    touchBtnA.addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      touchBtnA.classList.add('active');
+      if (sceneRefForTouch) sceneRefForTouch.triggerJump();
+    }, { passive: false });
+    touchBtnA.addEventListener('touchend', () => touchBtnA.classList.remove('active'));
+    touchBtnA.addEventListener('touchcancel', () => touchBtnA.classList.remove('active'));
+
+    touchBtnB.addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      touchBtnB.classList.add('active');
+      if (sceneRefForTouch) sceneRefForTouch.setVirtualRun(true);
+    }, { passive: false });
+    function releaseBtnB() {
+      touchBtnB.classList.remove('active');
+      if (sceneRefForTouch) sceneRefForTouch.setVirtualRun(false);
+    }
+    touchBtnB.addEventListener('touchend', releaseBtnB);
+    touchBtnB.addEventListener('touchcancel', releaseBtnB);
+
+    // v1.39: スマホの「アクション」ボタン(PCの左クリックに相当)
+    const touchBtnAction = document.getElementById('touchBtnAction');
+    touchBtnAction.addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      touchBtnAction.classList.add('active');
+      if (sceneRefForTouch) sceneRefForTouch.triggerInteract();
+    }, { passive: false });
+    touchBtnAction.addEventListener('touchend', () => touchBtnAction.classList.remove('active'));
+    touchBtnAction.addEventListener('touchcancel', () => touchBtnAction.classList.remove('active'));
+
+    // --- 水面の品質(2026-09 v1.27)。マインクラフトの「描画設定」のように、処理能力の
+    //     低いPC・端末では水面処理を軽く/オフにできる。この端末に保存する。
+    //     初期値: 保存済みの設定があればそれ、無ければタッチ端末は「標準」、PCは「高」。 ---
+    const WATER_QUALITY_KEY = 'ambient-soundscape.waterQuality';
+    const waterQualitySelect = document.getElementById('waterQualitySelect');
+    const autumnDebugCheckbox = document.getElementById('autumnDebugCheckbox');
+    const autumnDebugSlider = document.getElementById('autumnDebugSlider');
+    const autumnDebugValue = document.getElementById('autumnDebugValue');
+    const leafBurstBtn = document.getElementById('leafBurstBtn');
+    function loadWaterQuality() {
+      try {
+        const saved = localStorage.getItem(WATER_QUALITY_KEY);
+        if (saved === 'off' || saved === 'standard' || saved === 'high') return saved;
+      } catch (e) { /* localStorageが使えない環境(プライベートブラウジング等)では既定値 */ }
+      const isTouch = (navigator.maxTouchPoints || 0) > 0 && window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
+      return isTouch ? 'standard' : 'high';
+    }
+    const initialWaterQuality = loadWaterQuality();
+    waterQualitySelect.value = initialWaterQuality;
+
+    // --- 広葉樹の枝ぶり設定(2026-09、v1.34) ---
+    // 水面品質と同じくこの端末のlocalStorageに保存する。木はシーン起動時に
+    // 一度だけ作られるため、水面品質と違って「設定を変えたその場で」ではなく
+    // 「保存してページを再読み込み」した時に反映される(worldGenの生成し直しと同じ考え方)。
+    const BROADLEAF_SHAPE_KEY = 'ambient-soundscape.broadleafShape';
+    const BROADLEAF_SHAPE_DEFAULT = {
+      full: { tiers: 3, branchCounts: [3, 3, 3, 2], leavesPerTwig: 2, leafSizeScale: 1.1 },
+      simple: { tiers: 1, branchCounts: [6, 2, 2, 2], leavesPerTwig: 2, leafSizeScale: 1.1 },
+      // v1.41: 広葉樹は当面「地形に生成しない」方針にしたため、既定の比率を0にした。
+      // 広葉樹そのものの生成プログラム(createBroadleafTree、テント脇の大木、
+      // このファイル内のスライダー類)はすべて残してあり、この値を戻すだけで
+      // 元通り生成されるようにしてある。テント脇の大木は広葉樹だが、この比率とは
+      // 無関係に(スケール2.2で)常に生成される。
+      ratio: 0,
+    };
+    function loadBroadleafShape() {
+      try {
+        const saved = localStorage.getItem(BROADLEAF_SHAPE_KEY);
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (parsed && parsed.full && parsed.simple && Number.isFinite(parsed.ratio)) return parsed;
+        }
+      } catch (e) { /* localStorageが使えない、または壊れた保存値の場合は既定値 */ }
+      return BROADLEAF_SHAPE_DEFAULT;
+    }
+    const initialBroadleafShape = loadBroadleafShape();
+
+    const broadleafFullTiersSelect = document.getElementById('broadleafFullTiersSelect');
+    const broadleafFullP1Slider = document.getElementById('broadleafFullP1Slider');
+    const broadleafFullP1Value = document.getElementById('broadleafFullP1Value');
+    const broadleafFullP2Slider = document.getElementById('broadleafFullP2Slider');
+    const broadleafFullP2Value = document.getElementById('broadleafFullP2Value');
+    const broadleafFullP3Slider = document.getElementById('broadleafFullP3Slider');
+    const broadleafFullP3Value = document.getElementById('broadleafFullP3Value');
+    const broadleafFullP4Slider = document.getElementById('broadleafFullP4Slider');
+    const broadleafFullP4Value = document.getElementById('broadleafFullP4Value');
+    const broadleafFullLeavesSlider = document.getElementById('broadleafFullLeavesSlider');
+    const broadleafFullLeavesValue = document.getElementById('broadleafFullLeavesValue');
+    const broadleafSimpleTiersSelect = document.getElementById('broadleafSimpleTiersSelect');
+    const broadleafSimpleP1Slider = document.getElementById('broadleafSimpleP1Slider');
+    const broadleafSimpleP1Value = document.getElementById('broadleafSimpleP1Value');
+    const broadleafSimpleP2Slider = document.getElementById('broadleafSimpleP2Slider');
+    const broadleafSimpleP2Value = document.getElementById('broadleafSimpleP2Value');
+    const broadleafSimpleLeavesSlider = document.getElementById('broadleafSimpleLeavesSlider');
+    const broadleafSimpleLeavesValue = document.getElementById('broadleafSimpleLeavesValue');
+    const broadleafLeafScaleSlider = document.getElementById('broadleafLeafScaleSlider');
+    const broadleafLeafScaleValue = document.getElementById('broadleafLeafScaleValue');
+    const broadleafRatioSlider = document.getElementById('broadleafRatioSlider');
+    const broadleafRatioValue = document.getElementById('broadleafRatioValue');
+    const broadleafShapeApplyBtn = document.getElementById('broadleafShapeApplyBtn');
+
+    broadleafFullTiersSelect.value = String(initialBroadleafShape.full.tiers);
+    broadleafFullP1Slider.value = initialBroadleafShape.full.branchCounts[0];
+    broadleafFullP2Slider.value = initialBroadleafShape.full.branchCounts[1];
+    broadleafFullP3Slider.value = initialBroadleafShape.full.branchCounts[2];
+    broadleafFullP4Slider.value = initialBroadleafShape.full.branchCounts[3];
+    broadleafFullLeavesSlider.value = initialBroadleafShape.full.leavesPerTwig;
+    broadleafSimpleTiersSelect.value = String(initialBroadleafShape.simple.tiers);
+    broadleafSimpleP1Slider.value = initialBroadleafShape.simple.branchCounts[0];
+    broadleafSimpleP2Slider.value = initialBroadleafShape.simple.branchCounts[1];
+    broadleafSimpleLeavesSlider.value = initialBroadleafShape.simple.leavesPerTwig;
+    broadleafLeafScaleSlider.value = Math.round(initialBroadleafShape.full.leafSizeScale * 100);
+    broadleafRatioSlider.value = Math.round(initialBroadleafShape.ratio * 100);
+    function refreshBroadleafShapeLabels() {
+      broadleafFullP1Value.textContent = broadleafFullP1Slider.value;
+      broadleafFullP2Value.textContent = broadleafFullP2Slider.value;
+      broadleafFullP3Value.textContent = broadleafFullP3Slider.value;
+      broadleafFullP4Value.textContent = broadleafFullP4Slider.value;
+      broadleafFullLeavesValue.textContent = broadleafFullLeavesSlider.value;
+      broadleafSimpleP1Value.textContent = broadleafSimpleP1Slider.value;
+      broadleafSimpleP2Value.textContent = broadleafSimpleP2Slider.value;
+      broadleafSimpleLeavesValue.textContent = broadleafSimpleLeavesSlider.value;
+      broadleafLeafScaleValue.textContent = `${broadleafLeafScaleSlider.value}%`;
+      broadleafRatioValue.textContent = `${broadleafRatioSlider.value}%`;
+      // 段数に応じて、その先の段のスライダーを無効化する(意味のない値にならないように)
+      const fullTiers = Number(broadleafFullTiersSelect.value);
+      broadleafFullP3Slider.disabled = fullTiers < 3;
+      broadleafFullP4Slider.disabled = fullTiers < 4;
+      const simpleTiers = Number(broadleafSimpleTiersSelect.value);
+      broadleafSimpleP2Slider.disabled = simpleTiers < 2;
+    }
+    refreshBroadleafShapeLabels();
+    [broadleafFullTiersSelect, broadleafFullP1Slider, broadleafFullP2Slider, broadleafFullP3Slider, broadleafFullP4Slider,
+      broadleafFullLeavesSlider, broadleafSimpleTiersSelect, broadleafSimpleP1Slider, broadleafSimpleP2Slider,
+      broadleafSimpleLeavesSlider, broadleafLeafScaleSlider, broadleafRatioSlider].forEach((el) => {
+      el.addEventListener('input', refreshBroadleafShapeLabels);
+      el.addEventListener('change', refreshBroadleafShapeLabels);
+    });
+    broadleafShapeApplyBtn.addEventListener('click', () => {
+      const leafScale = Number(broadleafLeafScaleSlider.value) / 100;
+      const toSave = {
+        full: {
+          tiers: Number(broadleafFullTiersSelect.value),
+          branchCounts: [Number(broadleafFullP1Slider.value), Number(broadleafFullP2Slider.value), Number(broadleafFullP3Slider.value), Number(broadleafFullP4Slider.value)],
+          leavesPerTwig: Number(broadleafFullLeavesSlider.value),
+          leafSizeScale: leafScale,
+        },
+        simple: {
+          tiers: Number(broadleafSimpleTiersSelect.value),
+          branchCounts: [Number(broadleafSimpleP1Slider.value), Number(broadleafSimpleP2Slider.value), 2, 2],
+          leavesPerTwig: Number(broadleafSimpleLeavesSlider.value),
+          leafSizeScale: leafScale,
+        },
+        ratio: Number(broadleafRatioSlider.value) / 100,
+      };
+      try { localStorage.setItem(BROADLEAF_SHAPE_KEY, JSON.stringify(toSave)); } catch (e) { /* 保存できない環境では次回起動時は既定値に戻る */ }
+      location.reload();
+    });
+
+
+    // --- 地形の自動生成: URLのクエリパラメータ(?worldgen=1&seed=12345)で
+    //     状態を保持する。チェックボックス/シード欄はこのURLと同期させ、
+    //     「この設定で生成し直す」ボタンで新しいURLへ再読み込みする方式にする
+    //     (シーンをその場で丸ごと作り直すより、ページ再読み込みの方が
+    //     既存の初期化コードに手を入れずに済み、事故が少ない)。
+    const urlParams = new URLSearchParams(location.search);
+    const worldGenEnabledFromUrl = urlParams.get('worldgen') === '1'; // 手動の地形生成の入口(管理者だけが使う。main()で ADMIN と合わせて manualWorldGen を決める)
+    const seedFromUrl = parseInt(urlParams.get('seed'), 10);
+    const initialSeed = Number.isFinite(seedFromUrl) ? seedFromUrl : Math.floor(Math.random() * 1e9);
+    worldGenCheckbox.checked = worldGenEnabledFromUrl;
+    worldGenSeedInput.value = initialSeed;
+
+    worldGenRandomizeBtn.addEventListener('click', () => {
+      worldGenSeedInput.value = Math.floor(Math.random() * 1e9);
+    });
+    worldGenApplyBtn.addEventListener('click', () => {
+      const params = new URLSearchParams(location.search);
+      if (worldGenCheckbox.checked) {
+        params.set('worldgen', '1');
+        params.set('seed', String(parseInt(worldGenSeedInput.value, 10) || 0));
+      } else {
+        params.delete('worldgen');
+        params.delete('seed');
+      }
+      location.search = params.toString();
+    });
+
+    // --- 地形プリセットの保存・読み込み ---
+    // 2026-09: 「気に入った地形を名前を付けて保存・読み込みできるように」
+    // という要望に対応。保存する中身はシード値だけ(地形は完全にシードから
+    // 再生成できるため、これで十分)。
+    //   - JSONファイルとしてダウンロード/アップロード → 他の人とファイルや
+    //     シード値をやり取りできる
+    //   - あわせて、この端末のlocalStorageにも一覧を保持し、ファイルを
+    //     やり取りしなくてもすぐ呼び出せるようにする(補助的な機能)
+    const LOCAL_PRESETS_KEY = 'ambientSoundscape3d_terrainPresets';
+
+    function loadLocalPresets() {
+      try {
+        const raw = localStorage.getItem(LOCAL_PRESETS_KEY);
+        const list = raw ? JSON.parse(raw) : [];
+        return Array.isArray(list) ? list : [];
+      } catch (e) {
+        return [];
+      }
+    }
+    function saveLocalPresets(list) {
+      try {
+        localStorage.setItem(LOCAL_PRESETS_KEY, JSON.stringify(list));
+      } catch (e) {
+        // localStorageが使えない環境(プライベートブラウジング等)では
+        // 無視する。JSONファイルでの保存・読み込みは引き続き使える。
+      }
+    }
+    function refreshLocalPresetSelect() {
+      const list = loadLocalPresets();
+      worldGenLocalList.innerHTML = '';
+      if (list.length === 0) {
+        const opt = document.createElement('option');
+        opt.value = '';
+        opt.textContent = '(なし)';
+        worldGenLocalList.appendChild(opt);
+        return;
+      }
+      for (const preset of list) {
+        const opt = document.createElement('option');
+        opt.value = String(preset.seed);
+        opt.textContent = `${preset.name}(seed:${preset.seed})`;
+        worldGenLocalList.appendChild(opt);
+      }
+    }
+    refreshLocalPresetSelect();
+
+    function buildPresetJson(name, seed) {
+      return {
+        app: 'ambient-soundscape-3d',
+        presetType: 'terrain',
+        name,
+        seed,
+        createdAt: new Date().toISOString(),
+      };
+    }
+
+    worldGenSaveBtn.addEventListener('click', () => {
+      const name = (worldGenNameInput.value || '').trim() || `地形-${new Date().toLocaleDateString('ja-JP')}`;
+      const seed = parseInt(worldGenSeedInput.value, 10) || 0;
+      const preset = buildPresetJson(name, seed);
+
+      // JSONファイルとしてダウンロード
+      const blob = new Blob([JSON.stringify(preset, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${name.replace(/[\\/:*?"<>|]/g, '_')}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      // この端末のlocalStorageにも追加(同名があれば上書き)
+      const list = loadLocalPresets().filter((p) => p.name !== name);
+      list.push({ name, seed });
+      saveLocalPresets(list);
+      refreshLocalPresetSelect();
+    });
+
+    function applyLoadedPreset(preset) {
+      if (!preset || typeof preset.seed !== 'number' && typeof preset.seed !== 'string') {
+        alert('地形プリセットのファイルとして認識できませんでした(seedが見つかりません)。');
+        return;
+      }
+      const seed = parseInt(preset.seed, 10);
+      if (!Number.isFinite(seed)) {
+        alert('シード値が不正です。');
+        return;
+      }
+      worldGenCheckbox.checked = true;
+      worldGenSeedInput.value = seed;
+      if (preset.name) worldGenNameInput.value = preset.name;
+      // 実際に地形へ反映するには再読み込みが必要なので、ここでは欄への
+      // 反映だけ行い、ボタンの案内を出す(誤操作でいきなり再読み込みされる
+      // ことを避けるため)。
+      worldGenApplyBtn.textContent = 'この設定で生成し直す(再読み込み) ▶ 読み込み済み・反映するにはクリック';
+    }
+
+    worldGenLoadFileBtn.addEventListener('click', () => {
+      worldGenLoadFileInput.click();
+    });
+    worldGenLoadFileInput.addEventListener('change', () => {
+      const file = worldGenLoadFileInput.files && worldGenLoadFileInput.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        try {
+          const preset = JSON.parse(String(reader.result));
+          applyLoadedPreset(preset);
+        } catch (e) {
+          alert('JSONファイルの読み込みに失敗しました。');
+        }
+      };
+      reader.readAsText(file);
+      worldGenLoadFileInput.value = '';
+    });
+
+    worldGenLocalLoadBtn.addEventListener('click', () => {
+      const seed = worldGenLocalList.value;
+      if (!seed) return;
+      const list = loadLocalPresets();
+      const preset = list.find((p) => String(p.seed) === seed);
+      if (preset) applyLoadedPreset(preset);
+    });
+    worldGenLocalDeleteBtn.addEventListener('click', () => {
+      const seed = worldGenLocalList.value;
+      if (!seed) return;
+      const list = loadLocalPresets().filter((p) => String(p.seed) !== seed);
+      saveLocalPresets(list);
+      refreshLocalPresetSelect();
+    });
+
+    const hourMap = { morning: 6, day: 12, evening: 18, night: 22 };
+
+    // --- 設定アイコン(左上の歯車)。デバッグ情報(FPS等)の表示切替。 ---
+    // 2026-09: 以前はF3キーのみの切替だったが、ブラウザによってはF3が
+    // ブラウザ自体の検索機能に奪われて効かないことがあり、またスマホには
+    // そもそも物理キーボードが無いため、常にタップ操作で開ける設定アイコン
+    // 方式に変更した(F3はデスクトップ向けの補助的なショートカットとして
+    // 残す)。
+    const settingsIconBtn = document.getElementById('settingsIconBtn');
+    const settingsPanel = document.getElementById('settingsPanel');
+    const debugVisibleCheckbox = document.getElementById('debugVisibleCheckbox');
+
+    let debugVisible = false; // 2026-09: 初期状態は非表示に変更(スマホでの見やすさを優先)
+    function setDebugVisible(v) {
+      debugVisible = v;
+      debugPanel.style.display = debugVisible ? 'block' : 'none';
+      debugVisibleCheckbox.checked = debugVisible;
+    }
+    setDebugVisible(debugVisible);
+    // v1.44: 設定パネルの「Events」セクション。試したいイベントを起こすボタンを、登録式で並べる。
+    // (v1.41〜v1.43では、デバッグ情報の下の「星を今すぐ落とす」ボタンだった。デバッグの
+    // 数値表示と、イベントの引き金は別物なので分けた。)今後イベントが増えたら、
+    // registerSettingsEvent({ id, label, run }) を1行足すだけでよい。
+    const eventsList = document.getElementById('eventsList');
+    const settingsEvents = [];
+    function registerSettingsEvent(ev) {
+      if (!ev || !ev.id || typeof ev.run !== 'function' || settingsEvents.some((e) => e.id === ev.id)) return false;
+      settingsEvents.push(ev);
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.dataset.eventId = ev.id;
+      btn.textContent = ev.label || ev.id;
+      btn.addEventListener('click', () => { try { ev.run(); } catch (err) { console.error('イベント実行に失敗:', ev.id, err); } });
+      eventsList.appendChild(btn);
+      return true;
+    }
+    // v1.46: 編集(観察)モード(Tabで入る/出る)。斜め上から世界を見て、倒木を持ち上げて置ける。
+    const editHint = document.getElementById('editHint');
+    function setEditHint(st) {
+      if (!st || !st.editing) { editHint.style.display = 'none'; return; }
+      if (st.holding) {
+        editHint.textContent = st.mode === 'rotate'
+          ? '回転: 赤・緑・青の輪をドラッグ(Shiftで15度刻み) / G:移動に戻る / 何もない所をクリックかSpaceで離す'
+          : '移動: 赤(X)・緑(高さ)・青(Z)の矢印をドラッグ / 丸太をドラッグで水平移動 / R:回転 / 何もない所をクリックかSpaceで離す';
+      } else {
+        editHint.textContent = '編集モード: 倒木をクリックでつかむ / 右ドラッグ:視点を回す / 中ドラッグかWASD:移動 / ホイール:ズーム / Tab:戻る';
+      }
+      editHint.style.display = 'block';
+    }
+    function toggleEditMode() {
+      if (!sceneRefForTouch) return false;
+      const on = sceneRefForTouch.toggleEditMode();
+      if (!on) editHint.style.display = 'none';
+      return on;
+    }
+    document.addEventListener('keydown', (e) => {
+      if (e.code !== 'Tab' || e.repeat) return;
+      const tag = (document.activeElement && document.activeElement.tagName) || '';
+      if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAR' + 'EA') return;
+      if (!sceneRefForTouch || sceneRefForTouch.getMode() === 'walk') return; // 歩行中は何もしない(Tabの標準動作は残す)
+      e.preventDefault();
+      toggleEditMode();
+    });
+    registerSettingsEvent({ id: 'editMode', label: '🪵 編集モードを切り替え (Tab)', run: toggleEditMode });
+    registerSettingsEvent({ id: 'dropStar', label: '★ 星を今すぐ落とす', run: () => { if (sceneRefForTouch) sceneRefForTouch.debugTriggerStar(); } });
+    registerSettingsEvent({ id: 'dropLanterns', label: '🎃 ジャック・オー・ランタンを地面に落とす(3つ)', run: () => { if (sceneRefForTouch) { sceneRefForTouch.debugDropLanterns(3); settingsPanel.style.display = 'none'; } } });
+    registerSettingsEvent({ id: 'giveLanterns', label: '🎃 ジャック・オー・ランタンを持ち物に入れる(3個)', run: () => { if (sceneRefForTouch) { sceneRefForTouch.debugGiveLanterns(3); settingsPanel.style.display = 'none'; } } });
+    registerSettingsEvent({ id: 'fillPouch', label: '🎒 ポーチをいっぱいにして、チェストへしまいに行かせる', run: () => { if (sceneRefForTouch) { sceneRefForTouch.debugFillPouchToChest(); settingsPanel.style.display = 'none'; } } });
+
+    settingsIconBtn.addEventListener('click', () => {
+      settingsPanel.style.display = settingsPanel.style.display === 'block' ? 'none' : 'block';
+    });
+    // 設定パネルの外側をタップ/クリックしたら閉じる(スマホでの使い勝手を優先)
+    document.addEventListener('click', (e) => {
+      if (settingsPanel.style.display !== 'block') return;
+      if (e.target === settingsIconBtn || settingsPanel.contains(e.target)) return;
+      settingsPanel.style.display = 'none';
+    });
+    debugVisibleCheckbox.addEventListener('change', () => {
+      setDebugVisible(debugVisibleCheckbox.checked);
+    });
+
+    document.addEventListener('keydown', (e) => {
+      if (e.code !== 'F3' || !ADMIN) return; // 公開版: FPS表示は管理者だけ
+      const tag = (document.activeElement && document.activeElement.tagName) || '';
+      if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
+      e.preventDefault();
+      setDebugVisible(!debugVisible);
+    });
+
+    function formatDebugStats(s) {
+      const h = Math.floor(s.gameHour);
+      const m = Math.floor((s.gameHour - h) * 60);
+      const lines = [
+        `FPS: ${s.fps.toFixed(1)}  (${s.frameMs.toFixed(2)} ms/frame)`,
+        `mode: ${s.mode}${s.cameraView ? ' / view: ' + s.cameraView : ''}${s.wander ? ' / 見守り中' : ''}  weather: ${s.weather}${s.weatherAuto ? '(自動)' : ''}  season: ${s.season || '-'}`,
+        `time: ${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`,
+        `pos: x=${s.camera.x.toFixed(1)} y=${s.camera.y.toFixed(1)} z=${s.camera.z.toFixed(1)}`,
+        `walkSpeed(設定値): ${s.walkSpeed !== undefined ? s.walkSpeed.toFixed(2) + ' m/s' : '-'}`,
+        `terrain: ${s.terrainSize}m  water: ${s.waterQuality || '-'}`,
+        `leaves: falling ${s.leafFalling ?? '-'} / piled ${s.leafPiled ?? '-'} (autumn ${s.autumnProgress !== undefined ? Math.round(s.autumnProgress * 100) + '%' : '-'})`,
+        `drawCalls: ${s.drawCalls}  triangles: ${s.triangles}`,
+        `geometries: ${s.geometries}  textures: ${s.textures}`,
+      ];
+      return lines.join('\n') + '\n' + '(左上の⚙️で表示/非表示)';
+    }
+
+    // --- フルスクリーン表示の切り替え(Fキー、またはスマホ用の⛶ボタン) ---
+    // 2026-09: 以前はFキーのみの対応だったが、スマホには物理キーボードが
+    // 無いため全画面にする手段が無かった。左上に常時タップできるボタン
+    // (#fullscreenIconBtn)を追加し、スマホからも操作できるようにする。
+    function toggleFullscreen() {
+      if (!document.fullscreenElement) {
+        document.documentElement.requestFullscreen().catch((e) => {
+          console.warn('フルスクリーンに切り替えられませんでした:', e);
+        });
+      } else {
+        document.exitFullscreen();
+      }
+    }
+    document.addEventListener('keydown', (e) => {
+      if (e.code !== 'KeyF') return;
+      // 入力系の要素にフォーカスがある時は割り込まない
+      const tag = (document.activeElement && document.activeElement.tagName) || '';
+      if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
+      toggleFullscreen();
+    });
+    const fullscreenIconBtn = document.getElementById('fullscreenIconBtn');
+    fullscreenIconBtn.addEventListener('click', () => toggleFullscreen());
+
+    // --- Screen Wake Lock: フルスクリーン中にスマホがスリープしないように ---
+    // 2026-09: 新規追加。「フルスクリーン表示の時にスリープが入らないように」
+    // との要望。Wake Lock APIはユーザー操作の延長でないと取得できない
+    // ブラウザが多いため、フルスクリーンボタンのクリックに合わせて取得する。
+    // 非対応ブラウザ(旧バージョンのSafari等)では例外を捕まえて黙って
+    // スキップし、アプリ自体は通常通り動作する。
+    let wakeLockSentinel = null;
+    let wakeLockWanted = false;
+    async function acquireWakeLock() {
+      if (!('wakeLock' in navigator)) return;
+      try {
+        wakeLockSentinel = await navigator.wakeLock.request('screen');
+        wakeLockSentinel.addEventListener('release', () => {
+          wakeLockSentinel = null;
+        });
+      } catch (e) {
+        // 許可されない・非対応の場合はここで諦める(致命的ではない)
+        console.warn('Wake Lockを取得できませんでした:', e);
+      }
+    }
+    function releaseWakeLock() {
+      wakeLockWanted = false;
+      if (wakeLockSentinel) {
+        wakeLockSentinel.release().catch(() => {});
+        wakeLockSentinel = null;
+      }
+    }
+    document.addEventListener('fullscreenchange', () => {
+      if (document.fullscreenElement) {
+        wakeLockWanted = true;
+        acquireWakeLock();
+        fullscreenIconBtn.title = 'フルスクリーン解除';
+      } else {
+        releaseWakeLock();
+        fullscreenIconBtn.title = 'フルスクリーン';
+      }
+    });
+    // タブがバックグラウンドから復帰した際、ブラウザによってはWake Lockが
+    // 自動的に解放されているため、フルスクリーン継続中なら再取得する。
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible' && wakeLockWanted && document.fullscreenElement) {
+        acquireWakeLock();
+      }
+    });
+
+    // ================================================================
+    // v1.38: UIの自動フェード / 歩行の解除ボタン / ポーチ
+    // ================================================================
+
+    // --- 設定・フルスクリーンUIの自動フェード ---
+    // フルスクリーン中に約3秒操作が無ければ、opacityでふわっと消す(display:noneにはしない)。
+    // マウス移動・クリック・タッチ・キー・ホイールで再表示し、また3秒で消える。
+    // 設定パネルは、開いていて(マウスが乗っている/中にフォーカスがある)間は消さない。
+    // 歩行モード中は常に非表示。Escで歩行を抜けると再表示する。
+    // ジョイスティックとA/B/ポーチのボタンは別系統なので、ここでは触らない。
+    // リスナーはここで1度だけ登録する(再登録しない)。
+    const UI_IDLE_MS = 3000;
+    let uiWalking = false;
+    let lastUiActivity = performance.now();
+    let uiIdleTimer = null;
+    function settingsBusy() {
+      return settingsPanel.style.display === 'block'
+        && (settingsPanel.matches(':hover') || settingsPanel.contains(document.activeElement));
+    }
+    function applyUiVisibility() {
+      const idle = performance.now() - lastUiActivity >= UI_IDLE_MS;
+      const hide = uiWalking || (!!document.fullscreenElement && idle && !settingsBusy());
+      document.body.classList.toggle('ui-hidden', hide);
+      return hide;
+    }
+    function armUiTimer() {
+      if (uiIdleTimer) { clearTimeout(uiIdleTimer); uiIdleTimer = null; }
+      if (!document.fullscreenElement || uiWalking) return;
+      const remain = UI_IDLE_MS - (performance.now() - lastUiActivity);
+      uiIdleTimer = setTimeout(() => {
+        uiIdleTimer = null;
+        if (!applyUiVisibility()) armUiTimer(); // 設定パネル操作中などで消せなかった時は、あとでもう一度
+      }, Math.max(remain + 20, 400));
+    }
+    function noteUiActivity() {
+      lastUiActivity = performance.now();
+      if (!uiWalking) document.body.classList.remove('ui-hidden');
+      armUiTimer();
+    }
+    ['mousemove', 'mousedown', 'touchstart', 'keydown', 'wheel'].forEach((type) => {
+      document.addEventListener(type, noteUiActivity, { passive: true });
+    });
+    document.addEventListener('fullscreenchange', () => { noteUiActivity(); applyUiVisibility(); });
+
+    // --- 歩行の解除(スマホにはEscが無いので、歩行中だけ画面の隅に✕を出す) ---
+    const walkExitBtn = document.getElementById('walkExitBtn');
+    walkExitBtn.addEventListener('click', () => { if (sceneRefForTouch) sceneRefForTouch.exitWalkMode(); });
+
+    // --- v1.43: インベントリ(メイン27 + ホットバー9。Minecraft風) ---
+    // Eキー(スマホは👝ボタン)で開閉。歩行モード中だけ開ける。開いている間は移動を止め、
+    // デスクトップではマウスを使えるようポインターロックを一時的に解放する(歩行モードは抜けない)。
+    // 操作:
+    //   左クリック=持ち上げる/置く(違う種類は入れ替え)  右クリック=半分持ち上げる/1個置く
+    //   ドラッグ=スロットからスロットへ移動  Shift+クリック=メイン⇄ホットバーへ転送
+    //   数字キー1〜9=(スロットにカーソルを載せて)そのホットバー枠と入れ替え / E・Esc=閉じる
+    //   スマホ=タップで持ち上げ/置く。「半分ずつ」をオンにすると右クリック相当。
+    // 操作のルール自体は js/inventory.js に集約してある(ここは描画と入力の橋渡しだけ)。
+    const inventoryPanel = document.getElementById('inventoryPanel');
+    const invMainGrid = document.getElementById('invMainGrid');
+    const invHotbarGrid = document.getElementById('invHotbarGrid');
+    const invInfo = document.getElementById('invInfo');
+    const invSplitBtn = document.getElementById('invSplitBtn');
+    const invCloseBtn = document.getElementById('invCloseBtn');
+    const invCursor = document.getElementById('invCursor');
+    const touchBtnE = document.getElementById('touchBtnE');
+    const invSlotEls = { main: [], hotbar: [], chest: [] };
+    for (const sl of EQUIP_SLOTS) invSlotEls[EQUIP_AREA(sl)] = [];
+    const invEquipEl = document.getElementById('invEquip');
+    const invChestWrap = document.getElementById('invChestWrap');
+    const invChestGrid = document.getElementById('invChestGrid');
+    let invHover = null;       // { area, index }: いまマウスが載っているスロット
+    let invDrag = null;        // ドラッグ元 { area, index, x, y }
+    let invSplitMode = false;  // スマホ: タップを「右クリック」として扱う
+
+    function makeInvSlot(area, i, parent) {
+      const el = document.createElement('div');
+      el.className = 'inv-slot';
+      el.dataset.area = area;
+      el.dataset.index = String(i);
+      parent.appendChild(el);
+      invSlotEls[area].push(el);
+    }
+    for (let i = 0; i < MAIN_SLOTS; i++) makeInvSlot('main', i, invMainGrid);
+    for (let i = 0; i < HOTBAR_SLOTS; i++) makeInvSlot('hotbar', i, invHotbarGrid);
+    for (let i = 0; i < 27; i++) makeInvSlot('chest', i, invChestGrid);
+    for (const sl of EQUIP_SLOTS) { // 装備スロット(頭・胴・手・足)
+      const cell = document.createElement('div'); cell.className = 'inv-equip-cell';
+      makeInvSlot(EQUIP_AREA(sl), 0, cell);
+      const lab = document.createElement('div'); lab.textContent = EQUIP_LABEL[sl]; cell.appendChild(lab);
+      invEquipEl.appendChild(cell);
+    }
+
+    /** スロット1つ分の表示(アイコン・個数・ツールチップ)。ホットバーのHUDと共通。 */
+    function fillSlotEl(el, stack) {
+      el.textContent = '';
+      el.title = '';
+      if (!stack) return;
+      const def = ITEM_DEFS[stack.id];
+      if (!def) return;
+      el.textContent = def.icon;
+      el.title = def.name;
+      if (stack.count > 1) {
+        const c = document.createElement('span');
+        c.className = 'count';
+        c.textContent = String(stack.count);
+        el.appendChild(c);
+      }
+    }
+    const getInv = () => (sceneRefForTouch ? sceneRefForTouch.getInventory() : null);
+    function isInventoryOpen() { return inventoryPanel.style.display === 'block'; }
+
+    function renderInvInfo(snap) {
+      invInfo.textContent = '';
+      let stack = null;
+      if (invHover) stack = (snap[invHover.area] || (snap.ext && snap.ext[invHover.area]) || [])[invHover.index];
+      if (!stack && snap.cursor) stack = snap.cursor;
+      const def = stack && ITEM_DEFS[stack.id];
+      if (!def) return;
+      const n = document.createElement('div'); n.className = 'name'; n.textContent = def.name;
+      const d = document.createElement('div'); d.className = 'desc'; d.textContent = def.description;
+      invInfo.append(n, d);
+    }
+    function renderInventory(snap) {
+      snap = snap || getInv();
+      if (!snap) return;
+      snap.main.forEach((st, i) => fillSlotEl(invSlotEls.main[i], st));
+      snap.hotbar.forEach((st, i) => {
+        fillSlotEl(invSlotEls.hotbar[i], st);
+        invSlotEls.hotbar[i].classList.toggle('selected', i === snap.selected);
+      });
+      const ext = snap.ext || {};
+      invChestWrap.style.display = ext.chest ? 'block' : 'none';
+      for (const name of Object.keys(invSlotEls)) {
+        if (name === 'main' || name === 'hotbar') continue;
+        const arr = ext[name]; invSlotEls[name].forEach((el, i) => fillSlotEl(el, arr ? arr[i] : null));
+      }
+      if (snap.cursor) { fillSlotEl(invCursor, snap.cursor); invCursor.style.display = 'flex'; }
+      else { invCursor.style.display = 'none'; invCursor.textContent = ''; }
+      renderInvInfo(snap);
+    }
+    function moveInvCursor(e) { invCursor.style.left = e.clientX + 'px'; invCursor.style.top = e.clientY + 'px'; }
+    function slotFromEvent(e) {
+      const t = document.elementFromPoint(e.clientX, e.clientY);
+      const el = t && t.closest ? t.closest('.inv-slot') : null;
+      return el ? { area: el.dataset.area, index: Number(el.dataset.index) } : null;
+    }
+
+    inventoryPanel.addEventListener('contextmenu', (e) => e.preventDefault());
+    inventoryPanel.addEventListener('pointerdown', (e) => {
+      const sl = slotFromEvent(e);
+      if (!sl || !sceneRefForTouch) return;
+      e.preventDefault();
+      const button = (e.button === 2 || (e.pointerType === 'touch' && invSplitMode)) ? 2 : 0;
+      const hadCursor = !!getInv().cursor;
+      sceneRefForTouch.clickInventorySlot(sl.area, sl.index, button, { shift: e.shiftKey });
+      invHover = sl;
+      // 左ボタンで「持ち上げた」ならドラッグ元として覚える。ボタンを離した位置で置く。
+      invDrag = (button === 0 && !hadCursor && !e.shiftKey && getInv().cursor)
+        ? { area: sl.area, index: sl.index, x: e.clientX, y: e.clientY } : null;
+      moveInvCursor(e);
+      renderInventory();
+    });
+    document.addEventListener('pointermove', (e) => {
+      if (!isInventoryOpen()) return;
+      moveInvCursor(e);
+      const sl = slotFromEvent(e);
+      if ((sl && (!invHover || sl.area !== invHover.area || sl.index !== invHover.index)) || (!sl && invHover)) {
+        invHover = sl;
+        const snap = getInv(); if (snap) renderInvInfo(snap);
+      }
+    });
+    document.addEventListener('pointerup', (e) => {
+      const drag = invDrag;
+      invDrag = null;
+      if (!drag || !isInventoryOpen() || !sceneRefForTouch) return;
+      if (Math.hypot(e.clientX - drag.x, e.clientY - drag.y) < 8) return; // クリック扱い: 持ち上げたまま、次のクリックで置く
+      const sl = slotFromEvent(e);
+      const target = sl && !(sl.area === drag.area && sl.index === drag.index) ? sl : drag; // スロット外なら元の場所へ戻す
+      sceneRefForTouch.clickInventorySlot(target.area, target.index, 0, {});
+      renderInventory();
+    });
+
+    function openInventory() {
+      if (!sceneRefForTouch) return;
+      if (!sceneRefForTouch.setInventoryOpen(true)) return;
+      inventoryPanel.style.display = 'block';
+      invSplitBtn.style.display = isTouchDevice ? 'block' : 'none';
+      renderInventory();
+    }
+    function closeInventory() {
+      if (sceneRefForTouch && sceneRefForTouch.closeChestUi) sceneRefForTouch.closeChestUi(); // チェストの画面も閉じる(ふたも閉じる)
+      inventoryPanel.style.display = 'none';
+      invCursor.style.display = 'none';
+      invDrag = null; invHover = null;
+      invSplitMode = false; invSplitBtn.classList.remove('on');
+      if (sceneRefForTouch) sceneRefForTouch.setInventoryOpen(false);
+    }
+    function toggleInventory() { if (isInventoryOpen()) closeInventory(); else openInventory(); }
+    invCloseBtn.addEventListener('click', closeInventory);
+    invSplitBtn.addEventListener('click', () => { invSplitMode = !invSplitMode; invSplitBtn.classList.toggle('on', invSplitMode); });
+    touchBtnE.addEventListener('touchstart', (e) => { e.preventDefault(); toggleInventory(); }, { passive: false });
+
+    document.addEventListener('keydown', (e) => {
+      const tag = (document.activeElement && document.activeElement.tagName) || '';
+      if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
+      if (e.code === 'KeyQ') { // v1.56: 手に持っている物を1個、前に置く
+        if (e.repeat) return;
+        if (!sceneRefForTouch || sceneRefForTouch.getMode() !== 'walk' || isInventoryOpen()) return;
+        sceneRefForTouch.placeHeldItem();
+        return;
+      }
+      if (e.code === 'KeyE') {
+        if (e.repeat) return;
+        if (!sceneRefForTouch || sceneRefForTouch.getMode() !== 'walk') return;
+        toggleInventory();
+        return;
+      }
+      if (!isInventoryOpen()) return;
+      if (e.code === 'Escape') { e.preventDefault(); closeInventory(); return; }
+      const m = /^Digit([1-9])$/.exec(e.code || '');
+      if (m) {
+        e.preventDefault();
+        const n = Number(m[1]) - 1;
+        if (invHover) sceneRefForTouch.inventoryHotkeySwap(invHover.area, invHover.index, n); // 載せているスロットと、そのホットバー枠を入れ替える
+        else sceneRefForTouch.selectHotbar(n);
+      }
+    });
+
+    // --- ホットバー(常時表示の小さな持ち物選択。ホットバーはインベントリの一部) ---
+    const hotbarBar = document.getElementById('hotbarBar');
+    for (let i = 0; i < HOTBAR_SLOTS; i++) {
+      const slot = document.createElement('div');
+      slot.className = 'hotbar-slot';
+      slot.dataset.index = String(i);
+      slot.addEventListener('click', () => { if (sceneRefForTouch) sceneRefForTouch.selectHotbar(i); });
+      hotbarBar.appendChild(slot);
+    }
+    function renderHotbar(snap) {
+      snap = snap || getInv();
+      if (!snap) return;
+      [...hotbarBar.children].forEach((el, i) => {
+        el.classList.toggle('selected', i === snap.selected);
+        fillSlotEl(el, snap.hotbar[i]);
+      });
+    }
+    function selectHotbarByNumberKey(e) {
+      if (!sceneRefForTouch || sceneRefForTouch.getMode() !== 'walk') return;
+      if (isInventoryOpen()) return; // 開いている間は、スロットとの入れ替えとして上で処理する
+      const n = Number(e.code.replace('Digit', ''));
+      if (!Number.isInteger(n) || n < 1 || n > HOTBAR_SLOTS) return;
+      sceneRefForTouch.selectHotbar(n - 1);
+    }
+    document.addEventListener('keydown', (e) => {
+      const tag = (document.activeElement && document.activeElement.tagName) || '';
+      if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
+      if (e.code && e.code.startsWith('Digit')) selectHotbarByNumberKey(e);
+    });
+    // マウスホイールでホットバーを送る(歩行モード中のみ。ページの拡大縮小等は妨げない)
+    document.addEventListener('wheel', (e) => {
+      if (!sceneRefForTouch || sceneRefForTouch.getMode() !== 'walk' || isInventoryOpen()) return;
+      if (e.deltaY > 0) sceneRefForTouch.hotbarNext(); else if (e.deltaY < 0) sceneRefForTouch.hotbarPrev();
+    }, { passive: true });
+    // 左クリックでアクション(PC版。歩行モード中のみ。UIボタン類のクリックと衝突しないよう
+    // #stage(canvas)自体への直接クリックだけを見る。インベントリを開いている間は何もしない)。
+    document.getElementById('stage').addEventListener('mousedown', (e) => {
+      if (isInventoryOpen()) return;
+      if (!sceneRefForTouch || sceneRefForTouch.getMode() !== 'walk') return;
+      if (e.button === 0) sceneRefForTouch.triggerInteract();
+      else if (e.button === 2) sceneRefForTouch.placeHeldItem(true); // v1.56: 右クリックで、手に持った物を狙った地面に置く(マイクラと同じ)
+    });
+    // 歩行中は、右クリックでメニューを出さない(置く操作に使うため)
+    document.getElementById('stage').addEventListener('contextmenu', (e) => {
+      if (sceneRefForTouch && sceneRefForTouch.getMode() === 'walk') e.preventDefault();
+    });
+
+    /** 歩行モードの出入りに伴うUIの切り替え(onModeChangeから呼ぶ)。 */
+    function uiOnModeChange(mode) {
+      uiWalking = mode === 'walk';
+      if (uiWalking) {
+        settingsPanel.style.display = 'none'; // 歩行中は設定パネルも閉じておく
+      } else {
+        closeInventory(); // 歩行を抜けたらインベントリも閉じる
+        noteUiActivity(); // Escで歩行を抜けたら、設定UIをすぐ再表示する
+      }
+      walkExitBtn.style.display = isTouchDevice && uiWalking ? 'flex' : 'none';
+      touchBtnAction.style.display = isTouchDevice && uiWalking ? 'flex' : 'none';
+      hotbarBar.style.display = uiWalking ? 'flex' : 'none';
+      if (uiWalking) renderHotbar();
+      applyUiVisibility();
+      armUiTimer();
+    }
+
+    function showError(prefix, e) {
+      errorBanner.style.display = 'block';
+      errorBanner.textContent = prefix + (e && e.message ? e.message : e);
+      console.error(e);
+    }
+
+    window.addEventListener('error', (e) => {
+      showError('エラー: ', e.error || e.message);
+    });
+    window.addEventListener('unhandledrejection', (e) => {
+      showError('エラー(Promise): ', e.reason);
+    });
+
+    async function main() {
+        // --- v1.57: 保存先。ブラウザが保存を禁止している(プライベートモード等)時は、そのタブの間だけのメモリに退避する ---
+        const memoryStore = (() => { const m = new Map(); return { getItem: (k) => (m.has(k) ? m.get(k) : null), setItem: (k, v) => { m.set(k, String(v)); }, removeItem: (k) => { m.delete(k); } }; })();
+        const storageOk = (() => { try { localStorage.setItem('snowman._t', '1'); localStorage.removeItem('snowman._t'); return true; } catch (e) { return false; } })();
+        const storage = storageOk ? localStorage : memoryStore;
+
+        // --- v1.57: 管理者モード(?admin=1 でパスフレーズ、?admin=0 で解除)。管理者でなければ、デバッグ用の表示は出さない ---
+        const adminRedirect = await handleAdminUrl({
+          search: location.search, storage, adminHash: APP.adminHash, cryptoObj: globalThis.crypto,
+          ask: Object.assign((m) => prompt(m), { alert: (m) => alert(m) }),
+          reload: (qs) => location.replace(location.pathname + (qs ? `?${qs}` : '')),
+        });
+        if (adminRedirect) await new Promise(() => {}); // ページを移動中。以降は実行しない
+        ADMIN = isAdmin(storage, APP.adminHash);
+        if (ADMIN) document.documentElement.classList.add('is-admin'); // 管理者になるまで、デバッグ用の表示はCSSで隠れている
+
+        // --- v1.57 / E7: ユーザー・ワールドの保存(この端末のブラウザ内だけ) ---
+        const store = createSaveStore(storage);
+        store.purgeStalePreviews();
+        const manualWorldGen = ADMIN && new URLSearchParams(location.search).get('worldgen') === '1'; // 管理者の手動の地形生成(保存しない)
+        const current = manualWorldGen ? { ok: false } : store.getCurrent();
+        playAllowed = manualWorldGen || (current.ok && current.world.status === 'ready'); // ワールドを選ぶまでは、モードを始められない
+      let initScene;
+      try {
+        // ここを動的importにしているのは、three.js本体の読み込みに
+        // 失敗した場合でも、静的importと違いここでちゃんとcatchできて
+        // 「真っ暗で何も表示されない」まま原因不明になるのを防ぐため。
+        ({ initScene } = await import('./js/visual3d/scene3d.js'));
+      } catch (e) {
+        showError(
+          '3Dシーンの読み込みに失敗しました。ページを再読み込みしてください。直らない場合は、'
+          + 'ブラウザを最新にするか、別のブラウザをお試しください(WebGLが使える必要があります)。詳細: ',
+          e
+        );
+        return;
+      }
+
+      try {
+        const scene = initScene(stage, {
+          // 起動時は指定しない = 実際の現在時刻に同期してスタートする。
+          // その後はゲーム内時計が自動で進む(現実20分でゲーム内1日)。
+          worldGen: manualWorldGen ? { enabled: true, seed: initialSeed } : (current.ok ? { enabled: true, seed: current.world.seed } : null), // 公開版: 選んだワールドのシードで地形を作る
+          waterQuality: initialWaterQuality,
+          broadleafShape: initialBroadleafShape,
+          broadleafRatioOverride: initialBroadleafShape.ratio,
+          forceHalloween: urlParams.get('halloween') === '1', // 確認用: 期間外でもジャック・オー・ランタンを地表に出す
+          onChestUi: () => { if (!isInventoryOpen()) { openInventory(); } if (sceneRefForTouch) sceneRefForTouch.openChestUi(); renderInventory(); },
+          onModeChange: (mode) => {
+            setTouchControlsVisible(mode === 'walk');
+            uiOnModeChange(mode);
+          },
+          onEditModeChange: (st) => { setEditHint(st); },
+          onTimeChange: (hour) => {
+            const h = Math.floor(hour);
+            const m = Math.floor((hour - h) * 60);
+            const text = `🕐 ${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+            if (gameClockEl.textContent !== text) gameClockEl.textContent = text;
+          },
+          onDebugUpdate: (stats) => {
+            if (!debugVisible) return;
+            debugPanel.textContent = formatDebugStats(stats);
+          },
+        });
+        setSceneForTouchControls(scene); // v1.37: スマホの画面上コントローラから操作できるようにする
+        if (ADMIN) window.__snowmanScene = scene; // 開発・検証用。管理者だけ(公開版の訪問者には出さない)
+        // v1.50: 設定パネルの「歩行/見守り/編集」ボタン。起動画面で選んだモードがシーン準備前だった場合はここで適用する。
+        document.querySelectorAll('#sessionModeRow [data-session-mode]').forEach((b) => {
+          b.addEventListener('click', () => startSessionMode(b.dataset.sessionMode));
+        });
+        if (pendingSessionMode) { const id = pendingSessionMode; pendingSessionMode = null; startSessionMode(id); }
+        // v1.39: ホットバーの表示更新は、リスナーとして1度だけ登録する(モード切替のたびに
+        // 登録し直すと、見守り/歩行を行き来するたびにリスナーが増え続けてしまうため)。
+        // v1.41: 併せて、選択スロットが実際に変わった時だけ、控えめな効果音を鳴らす
+        // (拾って自動で空きスロットに入った時などは、選択自体は変わらないので鳴らさない)。
+        let lastHotbarSelected = null;
+        scene.onInventoryChange((snapshot) => {
+          if (lastHotbarSelected !== null && snapshot.selected !== lastHotbarSelected) {
+            const ui = window.SoundEngine && window.SoundEngine.UiSounds;
+            if (ui) ui.playHotbarSelect();
+          }
+          lastHotbarSelected = snapshot.selected;
+          renderHotbar(snapshot);
+          if (isInventoryOpen()) renderInventory(snapshot);
+        });
+        renderHotbar(); // 起動直後の空のホットバー(歩行モードに入った時すぐ枠が見えるように)
+        // 開発用: ?starTest 付きで開いた時だけ、コンソールから window.snowmanDebug で操作できる
+        // (例: snowmanDebug.debugTriggerStar() で今すぐ星を落とす)。通常のUIには何も出さない。
+        if (ADMIN && new URLSearchParams(location.search).has('starTest')) window.snowmanDebug = scene;
+        const worldGenInfo = scene.getWorldGenInfo();
+        scene.setWeatherAuto(true); // 天候セレクトの既定値(自動)に合わせる
+
+        // ================================================================
+        // v1.57 / E7: ユーザー・ワールドの読み込み、プレビュー、自動保存
+        // ================================================================
+        const $ = (id) => document.getElementById(id);
+        const banner = $('saveBanner'), saveStatusEl = $('saveStatus');
+        const showBanner = (text, buttons = []) => {
+          banner.textContent = '';
+          const p = document.createElement('div'); p.textContent = text; banner.appendChild(p);
+          for (const b of buttons) {
+            const x = document.createElement('button'); x.type = 'button'; x.className = 'world-btn small'; x.textContent = b.label;
+            x.addEventListener('click', () => { banner.hidden = true; if (b.onClick) b.onClick(); });
+            banner.appendChild(x);
+          }
+          banner.hidden = false;
+        };
+        let autosaveOn = false;
+        let lastRev = null; // 最後に読んだ/保存した保存データの目印。別のタブが保存したかを見つけるのに使う
+        const hhmm = (d) => `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+        function updateWorldInfo() {
+          const t = current.ok ? `👤 ${current.userName}　🌍 ${current.world.name}` : (manualWorldGen ? '管理者の手動生成(保存しません)' : 'ユーザー・ワールドを選んでください');
+          $('titleWorldInfo').textContent = t; $('settingsWorldInfo').textContent = t;
+        }
+        function saveNow(manual = false) {
+          if (!autosaveOn || !current.ok) { if (manual) saveStatusEl.textContent = '保存できる状態ではありません。'; return; }
+          try {
+            const r = store.saveWorldState(current.userId, current.worldId, scene.captureWorldState(), { expectRev: lastRev });
+            if (r.ok) { lastRev = r.rev; saveStatusEl.textContent = `最終保存 ${hhmm(new Date())}${storageOk ? '' : '(このタブの間だけ)'}`; }
+            else if (r.code === 'conflict') {
+              // 同じワールドを、別のタブでも開いて、そちらが保存した。古い内容で上書きして失わないよう、選ぶまで自動保存を止める
+              autosaveOn = false; saveStatusEl.textContent = '別のタブで保存されたため、このタブの保存を止めています。';
+              showBanner('このワールドは、別のタブで保存されました。このタブの内容で上書きすると、別のタブで進めた分が消えます。', [
+                { label: '別のタブの内容を読み込む(再読み込み)', onClick: () => location.reload() },
+                { label: 'このタブの内容で上書きする', onClick: () => { lastRev = r.rev; autosaveOn = true; saveNow(true); } },
+              ]);
+            } else { saveStatusEl.textContent = `保存できませんでした: ${r.error}`; if (manual) showBanner(`保存できませんでした: ${r.error}`); }
+          } catch (e) { console.warn('[save]', e); saveStatusEl.textContent = '保存できませんでした。'; }
+        }
+        worldUi = createWorldUi({
+          store,
+          hasCurrentWorld: () => current.ok && current.world.status === 'ready',
+          onEnterWorld: (userId, worldId) => {
+            if (current.ok && current.worldId === worldId && current.world.status === 'ready') { worldUi.close(); return; } // いま開いているワールド
+            saveNow(); store.setCurrent(userId, worldId); location.reload();
+          },
+          onCreatePreview: (userId, world) => { saveNow(); store.setCurrent(userId, world.id); location.reload(); },
+        });
+        $('titleWorldBtn').addEventListener('click', (e) => { e.stopPropagation(); worldUi.open(); });
+        $('worldSwitchBtn').addEventListener('click', () => { settingsPanel.style.display = 'none'; worldUi.open(); });
+        $('saveNowBtn').addEventListener('click', () => saveNow(true));
+        updateWorldInfo();
+        if (!storageOk) showBanner('この環境ではブラウザの保存が使えません。ワールドの保存は、このタブを開いている間だけ有効です(プライベートモードやサイトデータの設定をご確認ください)。', [{ label: 'わかりました' }]);
+
+        if (manualWorldGen) {
+          // 管理者の手動生成: ワールドの保存とは無関係
+        } else if (!current.ok) {
+          worldUi.open(); // 初回、または選んだワールドが無くなった時: まず、ユーザーとワールドを作る
+        } else if (current.world.status === 'preview') {
+          // 作ったばかりのワールド: 見て、気に入れば始める。気に入らなければ作り直す(古い地形は残らない)
+          document.body.classList.add('preview-mode');
+          const bar = $('previewBar'); bar.hidden = false;
+          $('previewTitle').textContent = `「${current.world.name}」の地形ができました`;
+          $('previewSeed').textContent = `${current.userName} さんのワールド ・ シード ${current.world.seed} ・ 気に入らなければ、何度でも作り直せます`;
+          $('previewStartBtn').addEventListener('click', () => {
+            const r = store.confirmWorld(current.userId, current.worldId);
+            if (!r.ok) { showBanner(r.error); return; }
+            current.world.status = 'ready'; playAllowed = true; autosaveOn = true;
+            bar.hidden = true; document.body.classList.remove('preview-mode'); updateWorldInfo(); saveNow();
+          });
+          $('previewRerollBtn').addEventListener('click', () => { const r = store.rerollWorld(current.userId, current.worldId); if (!r.ok) { showBanner(r.error); return; } location.reload(); });
+          $('previewCancelBtn').addEventListener('click', () => { store.deleteWorld(current.userId, current.worldId); store.clearCurrent(); location.reload(); });
+        } else {
+          const loaded = store.loadWorldState(current.userId, current.worldId);
+          if (loaded.ok) {
+            lastRev = loaded.rev ?? null;
+            if (loaded.state) { const r = scene.restoreWorldState(loaded.state); if (r.skipped) console.warn(`[save] ${r.skipped}件は戻せませんでした`); }
+            autosaveOn = true;
+          } else {
+            // 壊れている/新しすぎる保存データ。勝手に上書きして失わないよう、選ぶまで自動保存を止める
+            showBanner(`保存データを読み込めませんでした(${loaded.error})。ワールドの地形はそのまま使えます。`, [
+              { label: 'このまま新しく始める(今の保存データは上書きされます)', onClick: () => { lastRev = store.peekRev(current.worldId); autosaveOn = true; saveNow(); } },
+              { label: 'ワールドの選択へ', onClick: () => worldUi.open() },
+            ]);
+          }
+        }
+        setInterval(() => saveNow(), 30000);
+        document.addEventListener('visibilitychange', () => { if (document.hidden) saveNow(); });
+        window.addEventListener('pagehide', () => saveNow());
+        if (worldGenInfo.enabled) {
+          const noteEl = document.getElementById('mainDescriptionNote');
+          if (noteEl) {
+            const seedNote = document.createElement('div');
+            seedNote.style.marginTop = '4px';
+            seedNote.textContent = `🌱 自動生成された地形(シード: ${worldGenInfo.seed})を表示中です。`;
+            noteEl.parentElement.insertBefore(seedNote, noteEl.nextSibling);
+          }
+        }
+        // 2026-09(v1.31): 紅葉・落ち葉デバッグ。チェックを入れている間だけ、
+        // スライダーの値(0〜100%)を秋の進み具合として強制する。
+        // 外すとnullを渡して実際の日付ベースの計算に戻す。
+        function applyAutumnDebug() {
+          if (autumnDebugCheckbox.checked) {
+            scene.setAutumnDebugProgress(Number(autumnDebugSlider.value) / 100);
+          } else {
+            scene.setAutumnDebugProgress(null);
+          }
+        }
+        autumnDebugCheckbox.addEventListener('change', () => {
+          autumnDebugSlider.disabled = !autumnDebugCheckbox.checked;
+          applyAutumnDebug();
+        });
+        autumnDebugSlider.addEventListener('input', () => {
+          autumnDebugValue.textContent = `${autumnDebugSlider.value}%`;
+          applyAutumnDebug();
+        });
+        leafBurstBtn.addEventListener('click', () => {
+          scene.burstLeafFall(100);
+        });
+        waterQualitySelect.addEventListener('change', () => {
+          scene.setWaterQuality(waterQualitySelect.value);
+          try { localStorage.setItem(WATER_QUALITY_KEY, waterQualitySelect.value); } catch (e) { /* 保存できなくても動作は続ける */ }
+        });
+        timeSelect.addEventListener('change', () => {
+          scene.setHour(hourMap[timeSelect.value]);
+        });
+        weatherSelect.addEventListener('change', () => {
+          if (weatherSelect.value === 'auto') {
+            scene.setWeatherAuto(true);
+          } else {
+            scene.setWeather(weatherSelect.value);
+          }
+        });
+        seasonSelect.addEventListener('change', () => {
+          scene.setSeason(seasonSelect.value === 'auto' ? null : seasonSelect.value);
+        });
+        document.addEventListener('fullscreenchange', () => scene.resize());
+        walkModeBtn.addEventListener('click', () => {
+          scene.enterWalkMode(); // 既定で三人称(後ろ姿)の視点から開始(見守りモードは自動的に解除される)。視点はVキー/ボタンで切替
+          wanderBtn.textContent = '見守りモード(自動で歩き回る)';
+        });
+        cycleViewBtn.addEventListener('click', () => {
+          scene.cycleCameraView();
+        });
+        document.addEventListener('keydown', (e) => {
+          if (e.code !== 'KeyV') return;
+          const tag = (document.activeElement && document.activeElement.tagName) || '';
+          if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
+          if (scene.getMode() !== 'walk') return; // 歩行モード中のみ視点切替
+          scene.cycleCameraView();
+        });
+        wanderBtn.addEventListener('click', () => {
+          const next = !scene.isWandering();
+          scene.setWander(next);
+          wanderBtn.textContent = next
+            ? '見守りモードを解除'
+            : '見守りモード(自動で歩き回る)';
+          if (!next) {
+            // 見守りモードを解除したら自動カメラも一緒に切る
+            cinemaCheckbox.checked = false;
+            scene.setCinemaMode(false);
+          }
+        });
+        cinemaCheckbox.addEventListener('change', () => {
+          scene.setCinemaMode(cinemaCheckbox.checked);
+        });
+        // v1.56-H3: 環境音・効果音の音量(0〜150%、既定100%)。値はブラウザに保存して、次回の起動でも使う。
+        {
+          const KEY_AMB = 'snowman.ambientVolume', KEY_SFX = 'snowman.sfxVolume';
+          const load = (k) => { try { const v = parseInt(localStorage.getItem(k), 10); return Number.isFinite(v) ? Math.max(0, Math.min(150, v)) : 100; } catch (e) { return 100; } };
+          const save = (k, v) => { try { localStorage.setItem(k, String(v)); } catch (e) { /* 保存できなくても動く */ } };
+          const bind = (sliderId, labelId, key, apply) => {
+            const slider = document.getElementById(sliderId), label = document.getElementById(labelId);
+            if (!slider || !label) return;
+            const set = (v, persist) => { slider.value = String(v); label.textContent = v + '%'; apply(v / 100); if (persist) save(key, v); };
+            set(load(key), false);
+            slider.addEventListener('input', () => set(parseInt(slider.value, 10), true));
+          };
+          bind('ambientVolumeSlider', 'ambientVolumeValue', KEY_AMB, (v) => window.SoundEngine.setAmbientVolume(v));
+          bind('sfxVolumeSlider', 'sfxVolumeValue', KEY_SFX, (v) => window.SoundEngine.setSfxVolume(v));
+        }
+        audioStartBtn.addEventListener('click', async () => {
+          audioStartBtn.disabled = true;
+          audioStartBtn.textContent = '🔊 有効化中...';
+          try {
+            await scene.startAudio();
+            audioStartBtn.textContent = '🔊 音は有効です';
+          } catch (err) {
+            audioStartBtn.disabled = false;
+            audioStartBtn.textContent = '🔊 音を有効にする(再試行)';
+            console.error(err);
+          }
+        });
+        // ----- v1.57: 画面をつけたままにする(Screen Wake Lock)。スマホの自動スリープを抑える -----
+        {
+          const cb = $('wakeLockCheckbox'), note = $('wakeLockNote');
+          const wake = createWakeLock({ onChange: (active) => { note.textContent = active ? '画面は消えません(このタブを見ている間)' : (cb.checked ? '一時的に解除されています(画面に戻ると、かけ直します)' : ''); } });
+          if (!wake.supported) { cb.checked = false; cb.disabled = true; note.textContent = 'このブラウザ・端末では使えません。'; }
+          else {
+            const pref = storage.getItem('snowman.wakeLock') !== '0'; // 既定はオン
+            cb.checked = pref; if (pref) wake.enable();
+            cb.addEventListener('change', () => { storage.setItem('snowman.wakeLock', cb.checked ? '1' : '0'); if (cb.checked) wake.enable(); else { wake.disable(); note.textContent = ''; } });
+          }
+        }
+        // ----- v1.57: 新しい版のお知らせ(バージョン表記の横に、控えめに)。Service Workerも同じタイミングで更新する -----
+        {
+          const notes = [$('titleUpdateNote'), $('appUpdateNote')];
+          let swReg = null;
+          const applyUpdate = (e) => {
+            e.preventDefault();
+            saveNow();
+            const done = () => location.reload();
+            if (swReg && swReg.waiting) { navigator.serviceWorker.addEventListener('controllerchange', done, { once: true }); swReg.waiting.postMessage('SKIP_WAITING'); setTimeout(done, 2500); }
+            else done();
+          };
+          for (const n of notes) n.addEventListener('click', applyUpdate);
+          const checker = createUpdateChecker({ currentVersion: APP.version, onUpdate: (v) => { for (const n of notes) { n.textContent = `新しい版 v${v} があります(再読み込み)`; n.hidden = false; } } });
+          setTimeout(() => checker.check({ force: true }), 5000);
+          document.addEventListener('visibilitychange', () => { if (!document.hidden) { checker.check(); if (swReg) swReg.update().catch(() => {}); } });
+          setInterval(() => checker.check({ force: true }), 15 * 60 * 1000);
+          // Service Worker(オフライン対応・更新)。localhost(開発・検証)では、?sw=1 を付けた時だけ登録する
+          const swOk = 'serviceWorker' in navigator && (location.protocol === 'https:' && location.hostname !== 'localhost' || new URLSearchParams(location.search).get('sw') === '1');
+          if (swOk) navigator.serviceWorker.register('service-worker.js').then((reg) => { swReg = reg; }).catch((e) => console.warn('[sw]', e));
+        }
+        applyAdminGate(document, ADMIN); // 公開版: 管理者でなければ、デバッグ用の表示をDOMから取り除く(初期化が終わったあとに)
+      } catch (err) {
+        showError('エラー: ', err);
+      }
+    }
+
+    main();
+  </script>
+
+</body>
+</html>

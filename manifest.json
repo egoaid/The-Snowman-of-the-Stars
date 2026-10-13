@@ -1,0 +1,22 @@
+{
+  "id": "./",
+  "name": "星の雪だるま — The Snowman of the Stars",
+  "short_name": "星の雪だるま",
+  "description": "雪だるまが暮らす3Dの自然を、歩いて、眺めて、物を動かして楽しむ箱庭。環境音はすべてその場で生成されます。",
+  "lang": "ja",
+  "dir": "ltr",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "display_override": ["fullscreen", "standalone", "minimal-ui"],
+  "orientation": "any",
+  "background_color": "#0b1a2e",
+  "theme_color": "#0b1a2e",
+  "categories": ["entertainment", "games", "lifestyle"],
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-192-maskable.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
+    { "src": "icons/icon-512-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
