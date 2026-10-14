@@ -59,6 +59,7 @@ export function rayPlaneHit(origin, dir, c, n) {
   return new THREE.Vector3().copy(origin).addScaledVector(dir, t);
 }
 
+const COARSE_POINTER = !!(typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
 function buildGizmo() {
   const group = new THREE.Group();
   group.visible = false;
@@ -87,7 +88,7 @@ function buildGizmo() {
 
     const ringGroup = new THREE.Group();
     const ring = new THREE.Mesh(new THREE.TorusGeometry(1, 0.03, 8, 56), mk(color));
-    const ringHit = new THREE.Mesh(new THREE.TorusGeometry(1, 0.14, 6, 40), hitMat);
+    const ringHit = new THREE.Mesh(new THREE.TorusGeometry(1, COARSE_POINTER ? 0.3 : 0.14, 6, 40), hitMat); // スマホは指が太いので当たり判定の管を太くする
     ringGroup.add(ring, ringHit); orientRing(ringGroup, axis);
     for (const m of [ring, ringHit]) { m.userData = { kind: 'rotate', axis, base: color, visual: m === ring }; handles.push(m); }
     rotate.add(ringGroup);
@@ -105,12 +106,19 @@ export function createEditMode({ camera, domElement, orbitControls, scene, logSy
   let hoverHandle = null;
   const pose = { pos: new THREE.Vector3(), quat: new THREE.Quaternion() }; // つかんでいる丸太の姿勢(この値を物理へ渡す)
   const keys = new Set();
+  let savedTouchAction = '';
   const raycaster = new THREE.Raycaster();
   const ndc = new THREE.Vector2();
   const saved = { buttons: { ...orbitControls.mouseButtons } };
 
   const gizmo = buildGizmo();
   const hitMeshes = gizmo.handles.filter((h) => !h.userData.visual);
+  // v1.58: スマホは指が太いので、矢印・輪の当たり判定(見えない部分)を大きくする。見た目は変えない。
+  if (COARSE_POINTER) {
+    for (const h of hitMeshes) {
+      if (h.userData.kind === 'move') h.scale.set(2.2, 1, 2.2); // 矢印の当たり判定を太く(輪はbuildGizmo側で太い管にしてある)
+    }
+  }
   scene.add(gizmo.group);
   gizmo.group.traverse((o) => { o.renderOrder = 1000; });
   const markerMat = new THREE.MeshBasicMaterial({ color: 0xffe066, wireframe: true, transparent: true, opacity: 0.85, depthTest: false });
@@ -233,7 +241,8 @@ export function createEditMode({ camera, domElement, orbitControls, scene, logSy
       if (beginDrag('body', ray, e)) setCursor('grabbing');
       return;
     }
-    if (held) releaseHeld(); // 何もない所をクリック: 離す(落ちる)
+    // v1.58: スマホでは、何もない所のドラッグは視点の回転に使うので、離さない(専用の「離す」ボタンで離す)
+    if (held && e.pointerType !== 'touch') releaseHeld(); // 何もない所をクリック: 離す(落ちる)
   }
   function onPointerMove(e) {
     if (!enabled) return;
@@ -267,6 +276,8 @@ export function createEditMode({ camera, domElement, orbitControls, scene, logSy
   function enable() {
     if (enabled) return;
     enabled = true;
+    savedTouchAction = domElement.style.touchAction;
+    domElement.style.touchAction = 'none'; // v1.58: ドラッグ中にブラウザのスクロール等が割り込まないようにする
     // 右ドラッグ=回転 / 中ドラッグ=パン / ホイール=ズーム / 左=つかむ(OrbitControlsは左を使わない)
     orbitControls.mouseButtons.LEFT = -1;
     orbitControls.mouseButtons.MIDDLE = THREE.MOUSE.PAN;
@@ -294,6 +305,7 @@ export function createEditMode({ camera, domElement, orbitControls, scene, logSy
     if (!enabled) return;
     if (held) releaseHeld(); // つかんだまま抜けても、丸太は落として置かれる
     enabled = false; hover = null; drag = null; keys.clear();
+    domElement.style.touchAction = savedTouchAction;
     marker.visible = false; dropRing.visible = false; gizmo.group.visible = false;
     orbitControls.mouseButtons.LEFT = saved.buttons.LEFT;
     orbitControls.mouseButtons.MIDDLE = saved.buttons.MIDDLE;
@@ -372,6 +384,10 @@ export function createEditMode({ camera, domElement, orbitControls, scene, logSy
     isEnabled: () => enabled,
     isHolding: () => !!held,
     getMode: () => mode,
+    /** v1.58: スマホの画面ボタンから、移動/回転を切り替える(つかんでいる時だけ)。 */
+    setMode(m) { if (!held || (m !== 'move' && m !== 'rotate')) return; mode = m; notify(); },
+    /** v1.58: スマホの「離す」ボタン。つかんでいる丸太を離す(落ちて置かれる)。 */
+    release() { releaseHeld(); },
     _internals: { grabLog, releaseHeld, onPointerMove, onPointerDown, onPointerUp, onKeyDown, onKeyUp, getHeld: () => held, getHover: () => hover, getPose: () => pose, getDrag: () => drag, gizmo, marker, dropRing },
   };
 }

@@ -189,6 +189,7 @@ export function createWalkControls(domElement, onExit, playableRadius = Infinity
     virtualRun = !!running;
   }
   function enableVirtualControls() {
+    if (!virtualActive) syncBodyYaw(); // 初めて有効になる時だけ、体の向きをカメラの向きに合わせる
     virtualActive = true;
   }
 
@@ -277,12 +278,13 @@ export function createWalkControls(domElement, onExit, playableRadius = Infinity
 
     if (move.lengthSq() > 0) {
       move.normalize();
-      if (virtualActive) {
-        // タッチ操作にはマウスの視点操作が無いため、雪だるま自身の向き
-        // (lookRigのヨー)を実際に移動している方向へ合わせる
-        // (スティックを倒した方向を向いて歩く、一般的な操作感)。
-        const yaw = Math.atan2(move.x, move.z);
-        lookRig.rotation.set(0, yaw, 0);
+      if (virtualActive && !controls.isLocked) {
+        // v1.58: 以前は、移動方向で「カメラの向き(lookRig)」を直接書き換えていた。
+        // スティックの向きはカメラ基準なので、横や後ろへ倒すと毎フレーム
+        // 「今の向きからさらに90度」回り続け、画面が高速に回転して操作不能になっていた。
+        // 今は、カメラの向き(lookRig)はそのままにして、雪だるまの体の向き(bodyYaw)だけを
+        // 移動方向へなめらかに回す。カメラは、画面のドラッグ(addLook)で回す。
+        turnBodyToward(Math.atan2(move.x, move.z), delta);
       }
       playerPos.addScaledVector(move, speed * delta);
       lastMoveDir.copy(move); moveAge = 0;
@@ -317,6 +319,35 @@ export function createWalkControls(domElement, onExit, playableRadius = Infinity
     } else assistPress = 0;
 
     updateVertical(delta);
+  }
+
+  // ---- v1.58: タッチ操作の「体の向き」と「カメラの向き」の分離 ----
+  const BODY_TURN_RATE = 14; // rad/s: 体が歩く方向へ向き直る速さ
+  let bodyYaw = 0;
+  const lookEuler = new THREE.Euler(0, 0, 0, 'YXZ');
+  function lookRigYaw() {
+    lookRig.getWorldDirection(lookEuler._dir || (lookEuler._dir = new THREE.Vector3()));
+    return Math.atan2(lookEuler._dir.x, lookEuler._dir.z);
+  }
+  function syncBodyYaw() { bodyYaw = lookRigYaw(); }
+  function turnBodyToward(target, dt) {
+    let diff = target - bodyYaw;
+    diff = Math.atan2(Math.sin(diff), Math.cos(diff)); // -π..π
+    const step = BODY_TURN_RATE * dt;
+    bodyYaw += Math.max(-step, Math.min(step, diff));
+  }
+  /** 雪だるまの向き。ポインターロック中(マウス)・キーボードはカメラの向き、画面のパッド操作中は体の向き。 */
+  function getHeading() {
+    return (virtualActive && !controls.isLocked) ? bodyYaw : lookRigYaw();
+  }
+  /** 向きを指定する(テレポート等)。カメラも体も同じ向きにそろえる。 */
+  function setHeading(h) { lookRig.rotation.set(0, h, 0); syncBodyYaw(); } // 従来どおりlookRigへ設定し、体の向きもそこにそろえる
+  /** 画面のドラッグで視点を回す(マウスと同じ向き: 右へドラッグ=右を向く)。dx,dyはラジアン。 */
+  function addLook(dx, dy) {
+    lookEuler.setFromQuaternion(lookRig.quaternion);
+    lookEuler.y -= dx;
+    lookEuler.x = Math.max(-1.4, Math.min(1.4, lookEuler.x - dy));
+    lookRig.quaternion.setFromEuler(lookEuler);
   }
 
   // v1.58: iPhone(iOS Safari)などには Pointer Lock API(requestPointerLock)が無い。
@@ -370,6 +401,7 @@ export function createWalkControls(domElement, onExit, playableRadius = Infinity
     dispose,
     get isLocked() { return controls.isLocked; },
     pointerLockSupported, // v1.58: false=iPhone等(バーチャルパッドで操作)
+    getHeading, setHeading, addLook, syncBodyYaw, // v1.58: 体の向き / カメラの向き(ドラッグ視点)の分離
     // 一人称視点の手・雪だるまキャラクターの歩行アニメーションを動かす
     // ために、現在いずれかの移動キー/仮想入力が押されているかを外部から
     // 参照できるようにする。

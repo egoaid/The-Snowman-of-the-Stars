@@ -2133,6 +2133,7 @@ export function initScene(mountEl, options = {}) {
     // 現在のカメラの位置・向きから引き継ぐ(急に視点が飛ばないように)
     walk.playerPos.set(playerSnowman.group.position.x, 0, playerSnowman.group.position.z);
     walk.lookRig.quaternion.copy(camera.quaternion);
+    walk.syncBodyYaw(); // v1.58: 歩行モードに入るたび、体の向きを今のカメラの向きにそろえる
     walk.lock();
     if (options.onModeChange) options.onModeChange(mode);
   }
@@ -3413,8 +3414,7 @@ export function initScene(mountEl, options = {}) {
       snowHeading = wander.heading; snowWalking = wander.walking;
     } else if (mode === 'walk') {
       snowX = walk.playerPos.x; snowZ = walk.playerPos.z;
-      walk.lookRig.getWorldDirection(walkLookDirScratch);
-      snowHeading = Math.atan2(walkLookDirScratch.x, walkLookDirScratch.z);
+      snowHeading = walk.getHeading(); // v1.58: パッド操作中は体の向き(カメラとは別)
       snowWalking = walk.isMoving();
     } else {
       // 未操作(orbit)かつ見守りモードでもない: 雪だるまはその場で待機
@@ -3694,9 +3694,33 @@ export function initScene(mountEl, options = {}) {
   }
   animate();
 
+  // v1.58(スマホのフルスクリーン): 480×270を整数倍にしか拡大しないと、縦横比の違うスマホ画面では
+  // 小さく中央に置かれて大きな余白ができる。スマホ(pointer: coarse)では、画面の縦横比に合わせて
+  // 描画バッファの幅・高さを変え、整数倍(ピクセルの粗さを保つ)で画面全体を埋める。
+  // PCは従来どおり 480×270 の整数倍(余白が出ても、ピクセル表現を優先)。
+  const coarsePointer = !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
+  let bufW = BUFFER_WIDTH, bufH = BUFFER_HEIGHT;
   function resize() {
-    const scaleX = mountEl.clientWidth / BUFFER_WIDTH;
-    const scaleY = mountEl.clientHeight / BUFFER_HEIGHT;
+    const cw = mountEl.clientWidth, ch = mountEl.clientHeight;
+    if (coarsePointer && cw > 0 && ch > 0) {
+      const raw = ch / BUFFER_HEIGHT;
+      const lo = Math.max(1, Math.floor(raw)), hi = Math.max(1, Math.ceil(raw));
+      // 描画の高さが270に近くなる整数倍を選ぶ(対数距離の小さい方)
+      const s = Math.abs(Math.log(ch / lo / BUFFER_HEIGHT)) <= Math.abs(Math.log(ch / hi / BUFFER_HEIGHT)) ? lo : hi;
+      const bw = Math.max(96, Math.min(900, Math.ceil(cw / s)));
+      const bh = Math.max(120, Math.ceil(ch / s));
+      if (bw !== bufW || bh !== bufH) {
+        bufW = bw; bufH = bh;
+        renderer.setSize(bw, bh, false);
+        camera.aspect = bw / bh;
+        camera.updateProjectionMatrix();
+      }
+      const st = renderer.domElement.style;
+      st.width = `${bw * s}px`; st.height = `${bh * s}px`; st.flex = 'none';
+      return; // 端は最大 s ピクセルだけはみ出して切れる(中央寄せ)
+    }
+    const scaleX = cw / BUFFER_WIDTH;
+    const scaleY = ch / BUFFER_HEIGHT;
     const scale = Math.max(1, Math.floor(Math.min(scaleX, scaleY)));
     renderer.domElement.style.width = `${BUFFER_WIDTH * scale}px`;
     renderer.domElement.style.height = `${BUFFER_HEIGHT * scale}px`;
@@ -3834,12 +3858,12 @@ export function initScene(mountEl, options = {}) {
         failures: traversalFailures.size(),
       }),
       teleport: (x, z, heading) => {
-        if (mode === 'walk') { walk.playerPos.set(x, 0, z); if (Number.isFinite(heading)) walk.lookRig.rotation.set(0, heading, 0); }
+        if (mode === 'walk') { walk.playerPos.set(x, 0, z); if (Number.isFinite(heading)) walk.setHeading(heading); }
         wander.pos.set(x, z); prevSnowX = null; nonWalkVertical.snap();
         playerSnowman.group.position.set(x, terrainHeightAt(x, z), z);
         if (Number.isFinite(heading)) playerSnowman.group.rotation.y = heading;
       },
-      setHeading: (h) => { walk.lookRig.rotation.set(0, h, 0); },
+      setHeading: (h) => { walk.setHeading(h); },
       groundAt: (x, z) => terrainHeightAt(x, z) + weather.getSnowDepth(),
       waterAt: (x, z) => Number.isFinite(getWaterSurfaceAt(x, z, terrainHeightAt)),
       walkWaterAt: (x, z) => Number.isFinite(dryWaterSurfaceAt(x, z)),
@@ -3973,6 +3997,11 @@ export function initScene(mountEl, options = {}) {
     setVirtualMove: (x, z) => walk.setVirtualMove(x, z),
     setVirtualRun: (running) => walk.setVirtualRun(running),
     triggerJump: () => walk.triggerJump(),
+    /** v1.58: 画面のドラッグで視点を回す(dx,dyはラジアン)。歩行モード以外では何もしない。 */
+    addTouchLook: (dx, dy) => { if (mode === 'walk') walk.addLook(dx, dy); },
+    /** v1.58: 編集モード(スマホ): 移動/回転の切り替えと、つかんでいる丸太を離す。 */
+    setEditGizmoMode: (m) => editMode.setMode(m),
+    releaseEditHeld: () => editMode.release(),
     startAudio,
     isAudioOn: () => audioOn,
     // 水面の品質('off' | 'standard' | 'high')。offは水面処理を最軽量にし、波紋も出さない。

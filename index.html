@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>星の雪だるま — The Snowman of the Stars</title>
   <meta name="description" content="雪だるまが暮らす3Dの自然を、歩いて、眺めて、物を動かして楽しむ、ブラウザで遊べる箱庭。川・雨・風・虫・鳥・焚き火の環境音はすべてその場で生成。無料・インストール不要・スマホ対応。">
   <meta name="robots" content="index,follow,max-image-preview:large">
@@ -357,6 +357,12 @@
        メイン27枠+ホットバー9枠。ホットバーもインベントリの一部なので「ホットバーへ移す」操作は無い。 -->
   <!-- v1.46: 編集(観察)モードの案内。Tabで入る/出る。 -->
   <div id="editHint" role="status"></div>
+  <!-- v1.58: 編集モード(スマホ)。つかんでいる間だけ出る。移動/回転の切り替えと、丸太を離すボタン -->
+  <div id="editTouchBar" role="toolbar" aria-label="編集の操作">
+    <button type="button" id="editBtnMove">移動</button>
+    <button type="button" id="editBtnRotate">回転</button>
+    <button type="button" id="editBtnRelease">離す</button>
+  </div>
 
   <div id="inventoryPanel" role="dialog" aria-label="インベントリ">
     <div class="inv-title">👝 インベントリ</div>
@@ -967,8 +973,34 @@
     }
     // v1.46: 編集(観察)モード(Tabで入る/出る)。斜め上から世界を見て、倒木を持ち上げて置ける。
     const editHint = document.getElementById('editHint');
+    const isCoarsePointer = !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
+    const editTouchBar = document.getElementById('editTouchBar');
+    const editBtnMove = document.getElementById('editBtnMove');
+    const editBtnRotate = document.getElementById('editBtnRotate');
+    const editBtnRelease = document.getElementById('editBtnRelease');
+    editBtnMove.addEventListener('click', () => { if (sceneRefForTouch) sceneRefForTouch.setEditGizmoMode('move'); });
+    editBtnRotate.addEventListener('click', () => { if (sceneRefForTouch) sceneRefForTouch.setEditGizmoMode('rotate'); });
+    editBtnRelease.addEventListener('click', () => { if (sceneRefForTouch) sceneRefForTouch.releaseEditHeld(); });
     function setEditHint(st) {
+      const showBar = !!(st && st.editing && st.holding && isCoarsePointer);
+      editTouchBar.style.display = showBar ? 'flex' : 'none';
+      if (showBar) {
+        editBtnMove.setAttribute('aria-pressed', String(st.mode !== 'rotate'));
+        editBtnRotate.setAttribute('aria-pressed', String(st.mode === 'rotate'));
+      }
       if (!st || !st.editing) { editHint.style.display = 'none'; return; }
+      if (isCoarsePointer) {
+        // スマホ向けの案内(キーボード・右クリックの説明は出さない)
+        if (st.holding) {
+          editHint.textContent = st.mode === 'rotate'
+            ? '回転: 赤・緑・青の輪をドラッグ / 下のボタンで「移動」に戻る・「離す」で置く'
+            : '移動: 矢印か丸太をドラッグ / 下のボタンで「回転」・「離す」で置く';
+        } else {
+          editHint.textContent = '編集モード: 倒木をタップでつかむ / 1本指ドラッグ:視点を回す / 2本指:拡大・移動';
+        }
+        editHint.style.display = 'block';
+        return;
+      }
       if (st.holding) {
         editHint.textContent = st.mode === 'rotate'
           ? '回転: 赤・緑・青の輪をドラッグ(Shiftで15度刻み) / G:移動に戻る / 何もない所をクリックかSpaceで離す'
@@ -981,7 +1013,7 @@
     function toggleEditMode() {
       if (!sceneRefForTouch) return false;
       const on = sceneRefForTouch.toggleEditMode();
-      if (!on) editHint.style.display = 'none';
+      if (!on) { editHint.style.display = 'none'; editTouchBar.style.display = 'none'; }
       return on;
     }
     document.addEventListener('keydown', (e) => {
@@ -992,6 +1024,35 @@
       e.preventDefault();
       toggleEditMode();
     });
+    // v1.58: スマホの歩行モード。何もない所(3D画面)を指でドラッグすると、視点が回る。
+    // ジョイスティックやボタンは別の要素なので、別の指で同時に操作できる。
+    {
+      const stageEl = document.getElementById('stage');
+      const LOOK_SENS = 0.0055; // rad/px
+      let lookTouchId = null, lookX = 0, lookY = 0;
+      stageEl.addEventListener('touchstart', (e) => {
+        if (lookTouchId !== null || !sceneRefForTouch || sceneRefForTouch.getMode() !== 'walk') return;
+        if (typeof isInventoryOpen === 'function' && isInventoryOpen()) return;
+        const t = Array.prototype.find.call(e.changedTouches, (x) => x.target && x.target.tagName === 'CANVAS');
+        if (!t) return;
+        lookTouchId = t.identifier; lookX = t.clientX; lookY = t.clientY;
+        e.preventDefault(); // 画面のスクロール・拡大、タップ後の疑似マウスクリック(アクション誤発動)を防ぐ
+      }, { passive: false });
+      stageEl.addEventListener('touchmove', (e) => {
+        if (lookTouchId === null) return;
+        const t = Array.prototype.find.call(e.changedTouches, (x) => x.identifier === lookTouchId);
+        if (!t) return;
+        if (sceneRefForTouch) sceneRefForTouch.addTouchLook((t.clientX - lookX) * LOOK_SENS, (t.clientY - lookY) * LOOK_SENS);
+        lookX = t.clientX; lookY = t.clientY;
+        e.preventDefault();
+      }, { passive: false });
+      const endLook = (e) => {
+        if (lookTouchId === null) return;
+        if (Array.prototype.some.call(e.changedTouches, (x) => x.identifier === lookTouchId)) lookTouchId = null;
+      };
+      stageEl.addEventListener('touchend', endLook);
+      stageEl.addEventListener('touchcancel', endLook);
+    }
     registerSettingsEvent({ id: 'editMode', label: '🪵 編集モードを切り替え (Tab)', run: toggleEditMode });
     registerSettingsEvent({ id: 'dropStar', label: '★ 星を今すぐ落とす', run: () => { if (sceneRefForTouch) sceneRefForTouch.debugTriggerStar(); } });
     registerSettingsEvent({ id: 'dropLanterns', label: '🎃 ジャック・オー・ランタンを地面に落とす(3つ)', run: () => { if (sceneRefForTouch) { sceneRefForTouch.debugDropLanterns(3); settingsPanel.style.display = 'none'; } } });
