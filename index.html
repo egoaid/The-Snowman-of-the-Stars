@@ -1040,13 +1040,48 @@
     // 2026-09: 以前はFキーのみの対応だったが、スマホには物理キーボードが
     // 無いため全画面にする手段が無かった。左上に常時タップできるボタン
     // (#fullscreenIconBtn)を追加し、スマホからも操作できるようにする。
+    // v1.58: iPhone(iOS Safari)にはフルスクリーンAPIが無く、requestFullscreenを直接呼ぶと
+    // "requestFullscreen is not a function" になっていた。APIの有無を調べ、
+    // 使えない端末では「ホーム画面に追加すると全画面で遊べます」と案内する。
+    const fsRoot = document.documentElement;
+    const fsRequest = fsRoot.requestFullscreen || fsRoot.webkitRequestFullscreen || null;
+    const fsExit = document.exitFullscreen || document.webkitExitFullscreen || null;
+    const fsElement = () => document.fullscreenElement || document.webkitFullscreenElement || null;
+    const isStandaloneApp = (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || window.navigator.standalone === true;
+    // Safari(iPad等)のwebkit接頭辞つきイベントを、既存の'fullscreenchange'処理へ流す
+    document.addEventListener('webkitfullscreenchange', () => document.dispatchEvent(new Event('fullscreenchange')));
+
+    let fsToastTimer = null;
+    function showFullscreenHint() {
+      let t = document.getElementById('fsHintToast');
+      if (!t) {
+        t = document.createElement('div');
+        t.id = 'fsHintToast';
+        t.setAttribute('role', 'status');
+        t.style.cssText = 'position:fixed;left:50%;top:60px;transform:translateX(-50%);z-index:60;max-width:88vw;'
+          + 'padding:10px 14px;border-radius:10px;background:rgba(10,14,20,0.94);color:#eee;font-size:13px;'
+          + 'line-height:1.6;border:1px solid rgba(255,255,255,0.18);text-align:center;';
+        document.body.appendChild(t);
+      }
+      t.textContent = 'この端末ではフルスクリーンボタンが使えません。共有ボタンから「ホーム画面に追加」して開くと、全画面で遊べます。';
+      t.style.display = 'block';
+      clearTimeout(fsToastTimer);
+      fsToastTimer = setTimeout(() => { t.style.display = 'none'; }, 6000);
+    }
+
     function toggleFullscreen() {
-      if (!document.fullscreenElement) {
-        document.documentElement.requestFullscreen().catch((e) => {
+      if (!fsRequest) { if (!isStandaloneApp) showFullscreenHint(); return; }
+      if (!fsElement()) {
+        try {
+          const r = fsRequest.call(fsRoot);
+          if (r && typeof r.catch === 'function') {
+            r.catch((e) => { console.warn('フルスクリーンに切り替えられませんでした:', e); });
+          }
+        } catch (e) {
           console.warn('フルスクリーンに切り替えられませんでした:', e);
-        });
-      } else {
-        document.exitFullscreen();
+        }
+      } else if (fsExit) {
+        fsExit.call(document);
       }
     }
     document.addEventListener('keydown', (e) => {
@@ -1058,6 +1093,8 @@
     });
     const fullscreenIconBtn = document.getElementById('fullscreenIconBtn');
     fullscreenIconBtn.addEventListener('click', () => toggleFullscreen());
+    // すでにホーム画面から全画面(standalone)で開いている時は、ボタンは不要
+    if (isStandaloneApp) fullscreenIconBtn.style.display = 'none';
 
     // --- Screen Wake Lock: フルスクリーン中にスマホがスリープしないように ---
     // 2026-09: 新規追加。「フルスクリーン表示の時にスリープが入らないように」
@@ -1087,7 +1124,7 @@
       }
     }
     document.addEventListener('fullscreenchange', () => {
-      if (document.fullscreenElement) {
+      if (fsElement()) {
         wakeLockWanted = true;
         acquireWakeLock();
         fullscreenIconBtn.title = 'フルスクリーン解除';
@@ -1099,7 +1136,7 @@
     // タブがバックグラウンドから復帰した際、ブラウザによってはWake Lockが
     // 自動的に解放されているため、フルスクリーン継続中なら再取得する。
     document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'visible' && wakeLockWanted && document.fullscreenElement) {
+      if (document.visibilityState === 'visible' && wakeLockWanted && fsElement()) {
         acquireWakeLock();
       }
     });
@@ -1125,13 +1162,13 @@
     }
     function applyUiVisibility() {
       const idle = performance.now() - lastUiActivity >= UI_IDLE_MS;
-      const hide = uiWalking || (!!document.fullscreenElement && idle && !settingsBusy());
+      const hide = uiWalking || (!!fsElement() && idle && !settingsBusy());
       document.body.classList.toggle('ui-hidden', hide);
       return hide;
     }
     function armUiTimer() {
       if (uiIdleTimer) { clearTimeout(uiIdleTimer); uiIdleTimer = null; }
-      if (!document.fullscreenElement || uiWalking) return;
+      if (!fsElement() || uiWalking) return;
       const remain = UI_IDLE_MS - (performance.now() - lastUiActivity);
       uiIdleTimer = setTimeout(() => {
         uiIdleTimer = null;

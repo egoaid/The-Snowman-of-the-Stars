@@ -319,17 +319,39 @@ export function createWalkControls(domElement, onExit, playableRadius = Infinity
     updateVertical(delta);
   }
 
+  // v1.58: iPhone(iOS Safari)などには Pointer Lock API(requestPointerLock)が無い。
+  // 以前は無条件に呼んでいたため "requestPointerLock is not a function" で歩行モードへの
+  // 切り替えが途中で止まり、バーチャルパッドも出なかった。APIの有無を先に調べ、
+  // 無い端末では例外を出さずに、画面上のコントローラ(バーチャルパッド)方式へ切り替える。
+  const pointerLockSupported = typeof domElement.requestPointerLock === 'function';
+
+  /** ポインターロックを安全に要求する。使えない/失敗した場合は、バーチャルパッド方式で操作できるようにする。 */
+  function safeLock() {
+    if (!pointerLockSupported) {
+      enableVirtualControls();
+      return;
+    }
+    try {
+      const r = domElement.requestPointerLock();
+      // 新しいブラウザではPromiseが返り、拒否されることがある(ここで握りつぶして落とさない)
+      if (r && typeof r.catch === 'function') r.catch(() => { enableVirtualControls(); });
+    } catch (e) {
+      enableVirtualControls();
+    }
+  }
+
   function lock() {
+    if (!pointerLockSupported) { enableVirtualControls(); return; }
     if (pendingLockTimer) return; // 既に再試行待ちなら重複させない
     const elapsed = performance.now() - lastUnlockAt;
     if (elapsed < RELOCK_COOLDOWN_MS) {
       pendingLockTimer = setTimeout(() => {
         pendingLockTimer = null;
-        controls.lock();
+        safeLock();
       }, RELOCK_COOLDOWN_MS - elapsed + 30);
       return;
     }
-    controls.lock();
+    safeLock();
   }
 
   function dispose() {
@@ -347,6 +369,7 @@ export function createWalkControls(domElement, onExit, playableRadius = Infinity
     update,
     dispose,
     get isLocked() { return controls.isLocked; },
+    pointerLockSupported, // v1.58: false=iPhone等(バーチャルパッドで操作)
     // 一人称視点の手・雪だるまキャラクターの歩行アニメーションを動かす
     // ために、現在いずれかの移動キー/仮想入力が押されているかを外部から
     // 参照できるようにする。
