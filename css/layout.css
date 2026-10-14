@@ -655,3 +655,37 @@ body.preview-mode #titleScreen { display: none; }
   font: bold 15px/1 system-ui, sans-serif; touch-action: manipulation; cursor: pointer;
 }
 #editTouchBar button[aria-pressed="true"] { background: #b88a52; color: #2a1a0c; }
+
+/* ============================================================
+   v1.58: テキストを選択できないようにする(長押し・ドラッグでの選択や、拡大鏡・コピー表示が操作の邪魔になるため)
+   入力欄(ユーザー名・ワールド名・シード・管理者のパスフレーズ)と、エラー表示だけは、選択・コピーできるままにする。
+   ============================================================ */
+html, body {
+  -webkit-user-select: none; user-select: none;
+  -webkit-touch-callout: none;               /* iOS: 長押しのメニュー(コピー・共有)を出さない */
+  -webkit-tap-highlight-color: transparent;  /* タップ時の灰色のハイライトを出さない */
+}
+input, textarea, select, [contenteditable="true"], #error-banner {
+  -webkit-user-select: text; user-select: text;
+}
+/* スマホの視点切替ボタン(👁): 👝・✦ と同じ列の左隣 */
+#touchBtnView { right: 196px; top: -76px; font-size: 22px; }
+
+/* ============================================================
+   v1.58: 新しい版のお知らせ(起動時の確認で見つかった時だけ出る)
+   ============================================================ */
+#updateBanner {
+  position: fixed; left: 50%; top: calc(8px + env(safe-area-inset-top, 0px)); transform: translateX(-50%);
+  z-index: 80; display: flex; align-items: center; gap: 8px; max-width: min(94vw, 560px); box-sizing: border-box;
+  padding: 8px 10px 8px 14px; border-radius: 12px; background: rgba(14, 26, 44, 0.96);
+  border: 1px solid rgba(158, 201, 255, 0.55); color: #eaf3ff; font: 13px/1.4 system-ui, sans-serif;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.45);
+}
+#updateBanner[hidden] { display: none; }
+#updateBanner button { touch-action: manipulation; cursor: pointer; font: inherit; }
+#updateBannerBtn { padding: 8px 12px; border-radius: 8px; border: none; background: #38bdf8; color: #0a0e14; font-weight: bold; white-space: nowrap; }
+#updateBannerClose { width: 30px; height: 30px; border-radius: 50%; border: none; background: transparent; color: #cfe3ff; font-size: 16px; padding: 0; }
+#updateBanner button:disabled { opacity: 0.7; }
+.link-btn { background: none; border: none; padding: 4px 0; margin-left: 8px; color: #9ec9ff; font: inherit; font-size: 11px; text-decoration: underline dotted; opacity: 0.85; cursor: pointer; touch-action: manipulation; }
+.link-btn:disabled { opacity: 0.6; cursor: default; }
+@media (max-width: 480px) { #updateBanner { flex-wrap: wrap; justify-content: center; } }

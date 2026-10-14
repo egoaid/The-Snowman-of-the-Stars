@@ -70,6 +70,13 @@
 
   <div id="error-banner"></div>
 
+  <!-- v1.58: 新しい版のお知らせ。起動時の確認で新しい版が見つかった時だけ出る(✕で閉じられる) -->
+  <div id="updateBanner" role="status" hidden>
+    <span id="updateBannerText"></span>
+    <button id="updateBannerBtn" type="button">キャッシュを削除して再読み込み</button>
+    <button id="updateBannerClose" type="button" aria-label="閉じる">✕</button>
+  </div>
+
   <!-- v1.42: タイトル画面(マイクラ方式)。スタート/設定の2択。裏では既に3Dシーンの
        読み込みが始まっているので、「スタート」を押した瞬間に世界が見える。 -->
   <div id="titleScreen">
@@ -86,6 +93,7 @@
       </div>
       <div class="title-footer">
         <span id="titleVersionFooter"></span><a id="titleUpdateNote" class="update-note" href="#" hidden></a>
+        <button id="titleClearCacheBtn" type="button" class="link-btn">キャッシュを削除して再読み込み</button>
         <span id="titleCopyrightFooter"></span>
       </div>
     </div>
@@ -347,6 +355,12 @@
       木・テント・焚き火を配置しているため、2D版で起きていた
       「木が川の中に立つ」等の矛盾が構造的に起きない設計にしています。
     </div>
+    <div class="settings-toplevel" id="updateSection">
+      <div id="updateStatus" class="small-note"></div>
+      <button id="updateCheckBtn" type="button">🔄 更新を確認</button>
+      <button id="updateClearBtn" type="button">🧹 キャッシュを削除して再読み込み</button>
+      <div class="small-note">古い表示が残る時に使います。ワールドの保存データは消えません。</div>
+    </div>
     <div class="settings-footer">
       <div><span id="appVersionFooter"></span><a id="appUpdateNote" class="update-note" href="#" hidden></a></div>
       <div id="appCopyrightFooter"></div>
@@ -397,6 +411,7 @@
       <div id="touchBtnB" class="touch-btn" title="走る(押している間)">B</div>
       <div id="touchBtnE" class="touch-btn" title="インベントリ">👝</div>
       <div id="touchBtnAction" class="touch-btn" title="アクション">✦</div>
+      <div id="touchBtnView" class="touch-btn" title="視点を切り替える(一人称・三人称)">👁</div>
     </div>
   </div>
 
@@ -452,6 +467,7 @@
     import { isAdmin, handleAdminUrl, applyAdminGate } from './js/admin.js';
     import { createWakeLock } from './js/wake-lock.js';
     import { createUpdateChecker } from './js/update-check.js';
+    import { clearCachesAndReload } from './js/app-update.js';
 
     // v1.57: 管理者・保存・ワールドの判定は main() の中で行う(読み込み時の外側では何もしない)。
     //   ADMIN の初期値 true は、main() が正しい値に置き換えるまでの仮の値。デバッグ表示は、CSS側で「管理者になるまで隠す」。
@@ -645,6 +661,16 @@
     }, { passive: false });
     touchBtnAction.addEventListener('touchend', () => touchBtnAction.classList.remove('active'));
     touchBtnAction.addEventListener('touchcancel', () => touchBtnAction.classList.remove('active'));
+
+    // v1.58: スマホの「視点切替」ボタン(PCのVキーに相当)。一人称 → 三人称(後ろ) → 三人称(前) の順に切り替わる
+    const touchBtnView = document.getElementById('touchBtnView');
+    touchBtnView.addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      touchBtnView.classList.add('active');
+      if (sceneRefForTouch) sceneRefForTouch.cycleCameraView();
+    }, { passive: false });
+    touchBtnView.addEventListener('touchend', () => touchBtnView.classList.remove('active'));
+    touchBtnView.addEventListener('touchcancel', () => touchBtnView.classList.remove('active'));
 
     // --- 水面の品質(2026-09 v1.27)。マインクラフトの「描画設定」のように、処理能力の
     //     低いPC・端末では水面処理を軽く/オフにできる。この端末に保存する。
@@ -1800,23 +1826,52 @@
             cb.addEventListener('change', () => { storage.setItem('snowman.wakeLock', cb.checked ? '1' : '0'); if (cb.checked) wake.enable(); else { wake.disable(); note.textContent = ''; } });
           }
         }
-        // ----- v1.57: 新しい版のお知らせ(バージョン表記の横に、控えめに)。Service Workerも同じタイミングで更新する -----
+        // ----- v1.58: 新しい版のお知らせと更新(起動時に確認 → お知らせバナー → 「キャッシュを削除して再読み込み」) -----
         {
           const notes = [$('titleUpdateNote'), $('appUpdateNote')];
-          let swReg = null;
-          const applyUpdate = (e) => {
-            e.preventDefault();
-            saveNow();
-            const done = () => location.reload();
-            if (swReg && swReg.waiting) { navigator.serviceWorker.addEventListener('controllerchange', done, { once: true }); swReg.waiting.postMessage('SKIP_WAITING'); setTimeout(done, 2500); }
-            else done();
+          const banner = $('updateBanner'), bannerText = $('updateBannerText'), bannerBtn = $('updateBannerBtn'), bannerClose = $('updateBannerClose');
+          const statusEl = $('updateStatus'), checkBtn = $('updateCheckBtn'), clearBtn = $('updateClearBtn'), titleClearBtn = $('titleClearCacheBtn');
+          const refreshBtns = [bannerBtn, clearBtn, titleClearBtn];
+          const labels = new Map(refreshBtns.map((b) => [b, b.textContent]));
+          let refreshing = false;
+          const setStatus = (t) => { statusEl.textContent = t; };
+          const doRefresh = async (e) => {
+            if (e && e.preventDefault) e.preventDefault();
+            if (refreshing) return;
+            refreshing = true;
+            for (const b of refreshBtns) b.disabled = true;
+            const show = (t) => { setStatus(t); for (const b of refreshBtns) b.textContent = t; };
+            try {
+              await clearCachesAndReload({ saveNow: () => { try { saveNow(); } catch (_) { /* 保存できなくても更新は進める */ } }, onStatus: show });
+            } catch (err) {
+              refreshing = false;
+              for (const b of refreshBtns) { b.disabled = false; b.textContent = labels.get(b); }
+              setStatus('更新に失敗しました。ページを閉じて開き直してください。');
+            }
           };
-          for (const n of notes) n.addEventListener('click', applyUpdate);
-          const checker = createUpdateChecker({ currentVersion: APP.version, onUpdate: (v) => { for (const n of notes) { n.textContent = `新しい版 v${v} があります(再読み込み)`; n.hidden = false; } } });
-          setTimeout(() => checker.check({ force: true }), 5000);
+          for (const n of notes) n.addEventListener('click', doRefresh);
+          for (const b of refreshBtns) b.addEventListener('click', doRefresh);
+          bannerClose.addEventListener('click', () => { banner.hidden = true; });
+          const checker = createUpdateChecker({ currentVersion: APP.version, onUpdate: (v) => {
+            for (const n of notes) { n.textContent = `新しい版 v${v} があります`; n.hidden = false; }
+            bannerText.textContent = `新しい版 v${v} があります(いまは v${APP.version})`;
+            banner.hidden = false;
+            setStatus(`新しい版 v${v} があります。「キャッシュを削除して再読み込み」で更新できます。`);
+          } });
+          checkBtn.addEventListener('click', async () => {
+            checkBtn.disabled = true; setStatus('確認しています…');
+            const r = await checker.check({ force: true });
+            checkBtn.disabled = false;
+            if (r.error) setStatus('確認できませんでした(オフラインかもしれません)。');
+            else if (r.newer) setStatus(`新しい版 v${r.server} があります。「キャッシュを削除して再読み込み」で更新できます。`);
+            else setStatus(`最新です(v${APP.version})。`);
+          });
+          setStatus(`いまの版: v${APP.version}`);
+          checker.check({ force: true }); // 起動したらすぐ確認する(ネットワークが無ければ静かに何もしない)
           document.addEventListener('visibilitychange', () => { if (!document.hidden) { checker.check(); if (swReg) swReg.update().catch(() => {}); } });
           setInterval(() => checker.check({ force: true }), 15 * 60 * 1000);
-          // Service Worker(オフライン対応・更新)。localhost(開発・検証)では、?sw=1 を付けた時だけ登録する
+          // Service Worker(オフライン対応)。localhost(開発・検証)では、?sw=1 を付けた時だけ登録する
+          let swReg = null;
           const swOk = 'serviceWorker' in navigator && (location.protocol === 'https:' && location.hostname !== 'localhost' || new URLSearchParams(location.search).get('sw') === '1');
           if (swOk) navigator.serviceWorker.register('service-worker.js').then((reg) => { swReg = reg; }).catch((e) => console.warn('[sw]', e));
         }
