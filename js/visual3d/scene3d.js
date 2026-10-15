@@ -1638,6 +1638,71 @@ export function initScene(mountEl, options = {}) {
     placedWallTrees++;
   }
 
+  // --- v1.61: 川の両端(上流端・下流端)を、木の茂みで隠す ---
+  // 川は世界の端のすぐ手前(±約90m)で終わるため、川の先が途切れて見えていた(設計書の「川の終端を見せない」に反する)。
+  // 対策: ①端の水が消えかけるところに、太い木を並べて「栓」をする(川沿いからの視線をさえぎる)
+  //       ②端の手前16m〜先18mの帯にも、背の高い針葉樹を、枝が重なる間隔(約5m)で敷き詰め、端の先を隠す。
+  //       水の端は、水面シェーダー側でも少しずつ透明にしてあるので、断面が見えない。
+  //       木は、水と土手の斜面(水際+3.2m)には生やさない。乱数は専用(riverEndScreens)で、他の木の配置は変わらない。
+  const riverEndScreenTrees = [];
+  {
+    const screenRng = makeRng(worldGen ? deriveSeed(worldGen.seed, 'riverEndScreens') : 6161);
+    const cl = riverSamplesForAvoid;
+    const n = cl.length;
+    const ends = [
+      { p: cl[0], q: cl[Math.min(4, n - 1)] },          // 上流端(流れの始まり)
+      { p: cl[n - 1], q: cl[Math.max(0, n - 5)] },      // 下流端(流れの終わり)
+    ];
+    const SPACING = 5.2, A_MIN = -16, A_MAX = 18, L_HALF = 13;
+    const spawnScreenTree = (x, z, scale) => {
+      const tree = createPineTree(scale, Math.floor(screenRng() * 10000), null);
+      placeOnTerrain(tree, x, z, terrainHeightAt, 0.35 * scale);
+      scene.add(tree);
+      coniferTrees.push({ x, z, scale, mesh: tree, decorations: [] });
+      livingTreePositions.push({ x, z, scale });
+      avoidZones.push({ x, z, radius: scale * 0.7 });
+      collisionObstacles.push({ x, z, radius: scale * 0.28 });
+      worldColliders.push({ id: 'tree-' + worldColliders.length, kind: 'cylinder', x, z, y: terrainHeightAt(x, z) + 1.6 * scale / 2, radius: Math.max(0.12, scale * 0.2), height: 1.6 * scale });
+      burialCandidates.push({ mesh: tree, baseY: tree.position.y, heightM: scale * 3.7 });
+      riverEndScreenTrees.push({ x, z, scale });
+    };
+    for (const { p, q } of ends) {
+      let ax = p.x - q.x, az = p.z - q.z;
+      const al = Math.hypot(ax, az) || 1;
+      ax /= al; az /= al;                // 川の外(端の先)へ向かう向き
+      const lx = -az, lz = ax;           // 川に垂直な向き
+      // 栓: 水が透明になっていく最後の数m(水面シェーダーが端の約4%=8mで消す)に、太い木を2列×3本並べる。
+      //     川沿いから端を見た視線は、この木にさえぎられ、水の終わりが見えない(木は水に立つのではなく、消えかけの水の端に立つ)。
+      {
+        const spread = Math.max(2.2, (p.width || 2) * 0.45 + 1.6);
+        for (const a of [-2.6, 1.4]) {
+          for (const l of [-spread, 0, spread]) {
+            const x = p.x + ax * (a + randRange(screenRng, -0.5, 0.5)) + lx * (l + randRange(screenRng, -0.5, 0.5));
+            const z = p.z + az * (a + randRange(screenRng, -0.5, 0.5)) + lz * (l + randRange(screenRng, -0.5, 0.5));
+            if (Math.hypot(x, z) > BOUNDARY_OUTER - 1) continue;
+            spawnScreenTree(x, z, randRange(screenRng, 3.0, 4.0));
+          }
+        }
+      }
+      for (let a = A_MIN; a <= A_MAX; a += SPACING) {
+        for (let l = -L_HALF; l <= L_HALF; l += SPACING) {
+          const x = p.x + ax * (a + randRange(screenRng, -1.4, 1.4)) + lx * (l + randRange(screenRng, -1.4, 1.4));
+          const z = p.z + az * (a + randRange(screenRng, -1.4, 1.4)) + lz * (l + randRange(screenRng, -1.4, 1.4));
+          if (Math.hypot(x, z) > BOUNDARY_OUTER - 1) continue; // 地形の端の内側だけ
+          const { distance, width } = distanceToRiver(x, z, cl);
+          if (distance < getWaterEdgeDistance(width) + 3.2) continue; // 水と土手の斜面には生やさない
+          if (a < -4 && screenRng() > 0.8) continue;           // 川沿いの部分は、わずかに間引いて自然に
+          let blocked = false;
+          for (const zone of avoidZones) {
+            if (Math.hypot(x - zone.x, z - zone.z) < zone.radius) { blocked = true; break; }
+          }
+          if (blocked) continue;
+          spawnScreenTree(x, z, randRange(screenRng, 2.4, 3.8));
+        }
+      }
+    }
+  }
+
   // --- 倒木(台風などで倒れた木) ---
   // --- 岩(河原に集中的に、それ以外の地面にもまばらに) ---
   const rockRng = makeRng(worldGen ? deriveSeed(worldGen.seed, 'rocks') : 7777);

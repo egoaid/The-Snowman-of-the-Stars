@@ -390,6 +390,22 @@ export function shouldPollinatorsBeActive({ hour, rainIntensity, fogAmount, buri
  * @param {number} [opts.butterflyCount]
  * @param {number} [opts.beeCount]
  */
+// v1.61: 蜂が飛行中に地形に埋まる不具合の修正。
+// 原因: 蜂は「巣 ←→ 花」を、高さも含めて一直線に結んで飛ぶ。途中に地形の盛り上がり(丘・土手・岩のある斜面)があると、
+//       その直線は地面の中を通り、蜂が埋まって見えていた(蝶は毎フレーム地面からの高さで決めるので埋まらない)。
+// 対策: 蜂の高さに「地面+BEE_CLEARANCE」の下限を設ける。進行方向の先(BEE_LOOKAHEAD)の地形の高さも見て、
+//       丘の手前から少しずつ上昇する(急に持ち上がって見えない)。上昇の速さには上限がある。
+const BEE_CLEARANCE = 0.45; // 蜂の体の中心の、地面からの最低の高さ(m)
+const BEE_LOOKAHEAD = [0.8, 1.6, 2.6, 3.8, 5.2]; // 進行方向の、何m先の地形まで見るか
+const BEE_MAX_CLIMB = 3.0; // 上昇の速さの上限(m/s)。水平の速さ(約1m/s)より大きくして、斜面に追いつく
+
+/** 蜂が飛んでよい最低の高さ。(x,z)の地面と、進行方向(dirX,dirZ)の先の地面の最大値 + 余裕。 */
+export function beeFloorAt(terrainHeightFn, x, z, dirX, dirZ) {
+  let ground = terrainHeightFn(x, z);
+  for (const d of BEE_LOOKAHEAD) ground = Math.max(ground, terrainHeightFn(x + dirX * d, z + dirZ * d));
+  return ground + BEE_CLEARANCE;
+}
+
 export function createPollinatorField(terrainHeightFn, opts = {}) {
   const {
     flowerPatches = [],
@@ -556,11 +572,20 @@ export function createPollinatorField(terrainHeightFn, opts = {}) {
           // 撤去した。直進させ、生き物らしい揺らぎは羽ばたき・向きの
           // slerpだけに任せる。
           const step = Math.min(dist, c.speed * dt);
-          c.mesh.position.set(
-            curX + (dx / dist) * step,
-            curY + (dy / dist) * step,
-            curZ + (dz / dist) * step
-          );
+          const nx = curX + (dx / dist) * step;
+          const nz = curZ + (dz / dist) * step;
+          let ny = curY + (dy / dist) * step;
+          // 地形に埋まらないよう、進行方向の先の地面も見て、高さの下限を守る(上昇は速さに上限をつけてなめらかに)
+          const hLen = Math.hypot(dx, dz);
+          const floorY = beeFloorAt(terrainHeightFn, nx, nz, hLen > 1e-6 ? dx / hLen : 0, hLen > 1e-6 ? dz / hLen : 0);
+          if (ny < floorY) ny = Math.min(floorY, Math.max(ny, curY + BEE_MAX_CLIMB * dt));
+          c.mesh.position.set(nx, ny, nz);
+        }
+        // 最後の安全装置: 立ち止まっている時も含め、どんな時も地面より下には行かない
+        {
+          const p = c.mesh.position;
+          const minY = terrainHeightFn(p.x, p.z) + BEE_CLEARANCE * 0.6;
+          if (p.y < minY && !(c.atFlower && dist < 0.3)) p.y = minY;
         }
         flapWings(c.wings, t, c.flutterPhase, 20, Math.PI * 0.4);
       }

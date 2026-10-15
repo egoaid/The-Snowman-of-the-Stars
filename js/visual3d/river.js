@@ -910,6 +910,9 @@ const riverFragmentBody = `
     float baseAlpha = mix(0.4, 0.8, depthFactor);
     baseAlpha = clamp(baseAlpha + fresnel * 0.15, 0.0, 1.0);
     float alpha = baseAlpha;
+    // v1.61: 川の上流端・下流端(vUv.y = 流れ方向の位置 0〜1)では、水を徐々に透明にして、
+    // 水がぷつりと途切れた「断面」が見えないようにする(端は、さらに木の茂みで隠している)。
+    alpha *= smoothstep(0.0, 0.04, vUv.y) * (1.0 - smoothstep(0.96, 1.0, vUv.y));
     gl_FragColor = vec4(water, alpha);
   }
 `;
@@ -1063,6 +1066,39 @@ export function buildRiverMesh(terrainHeightFn, options = {}) {
   return { mesh, update, setEnvironment, spawnRipple, setQuality, getQuality, getRipplePool: () => active.pool };
 }
 
+// ---- 川底の色(頂点カラー) ----
+// v1.61: 川底に規則的な格子模様(幾何学模様)が見えるバグの修正。
+// 原因: 色は川メッシュの格子点(間隔 RIVER_GRID_CELL=0.5m)でしか決められないのに、色を作るノイズの周波数が
+//       最大で 1.4×4(=5.6)周期/m と、格子で表せる上限(0.5mごとのサンプルなら 1周期/m)を大きく超えていた。
+//       すると「折り返し(エイリアシング)」が起き、ノイズの格子目が規則的な模様として浮かび上がる。
+// 対策: ①どの周波数成分も、格子で表せる範囲(0.6周期/m以下)に収める
+//       ②ノイズの座標を回転させ、ノイズ自身の縦横の格子目が、川のメッシュの格子と揃って見えないようにする
+const BED_SAND_LIGHT = new THREE.Color(0x8c7f5e); // 濡れた砂利(明るい部分)。乾いた砂浜のような明るさは避ける
+const BED_SAND_DARK = new THREE.Color(0x4a4030); // 濡れた砂利(暗い部分)
+const BED_PEBBLE = new THREE.Color(0x6b6b64); // 大粒の丸石(灰色寄り)
+const BED_ALGAE = new THREE.Color(0x33481c);
+const BED_ROT_COS = Math.cos(0.61); // 約35度
+const BED_ROT_SIN = Math.sin(0.61);
+
+/**
+ * (x,z)の川底の色を out に書く。u は 0(左岸)〜1(右岸)。
+ * 使う周波数は、どれも 0.6周期/m 以下(格子0.5mで折り返さない範囲)。
+ */
+export function riverbedColorAt(x, z, u, out) {
+  const rx = x * BED_ROT_COS - z * BED_ROT_SIN;
+  const rz = x * BED_ROT_SIN + z * BED_ROT_COS;
+  // fbm2Dは-1〜1を返すので、色の混合に使う前に0〜1へ変換する
+  const grain = fbm2D(rx * 0.30, rz * 0.30, 2) * 0.5 + 0.5; // 砂利の濃淡(0.3と0.6周期/m)
+  const bigPebble = fbm2D(rx * 0.22 + 20, rz * 0.22 + 20, 2) * 0.5 + 0.5; // 大粒の丸石パッチ(0.22と0.44周期/m)
+  const patch = fbm2D(rx * 0.14 + 50, rz * 0.14 + 50, 2) * 0.5 + 0.5; // 藻の生えるパッチ(0.14と0.28周期/m)
+  const centerDarken = 1 - Math.abs(u - 0.5) * 2; // 中央(深そうな部分)は少し暗く
+  out.copy(BED_SAND_LIGHT).lerp(BED_SAND_DARK, grain * 0.55);
+  if (bigPebble > 0.6) out.lerp(BED_PEBBLE, Math.min(1, (bigPebble - 0.6) * 2.2));
+  out.multiplyScalar(1 - centerDarken * 0.16);
+  if (patch > 0.48) out.lerp(BED_ALGAE, Math.min(1, (patch - 0.48) * 2.0));
+  return out;
+}
+
 /**
  * 川底(砂利・藻)のメッシュを作る。水面のすぐ下に敷くことで、
  * 半透明の水面越しに「底が見える」透明感を安く演出する。
@@ -1082,32 +1118,10 @@ export function buildRiverbedMesh(terrainHeightFn) {
   const yPicker = (attrs) => terrainHeightFn(attrs.x, attrs.z) + 0.03;
   const { positions, uvs, vertexXZ, indices, vertexCount } = triangulateRiverField(field, yPicker);
 
-  const sandLight = new THREE.Color(0x8c7f5e); // 濡れた砂利(明るい部分)。乾いた砂浜のような明るさは避ける
-  const sandDark = new THREE.Color(0x4a4030); // 濡れた砂利(暗い部分)
-  const pebble = new THREE.Color(0x6b6b64); // 大粒の丸石(灰色寄り)
-  const algae = new THREE.Color(0x33481c);
-  const tmpColor = new THREE.Color();
   const colors = new Array(vertexCount * 3);
-
+  const tmpColor = new THREE.Color();
   for (let v = 0; v < vertexCount; v++) {
-    const x = vertexXZ[v * 3];
-    const z = vertexXZ[v * 3 + 1];
-    const u = vertexXZ[v * 3 + 2]; // 0(左岸)〜1(右岸)
-
-    // ビルド時に1回だけ計算する、砂利のまだら+藻のパッチ
-    // (fbm2Dは-1〜1を返すので、色の混合に使う前に0〜1へ変換する)
-    const grain = fbm2D(x * 1.4, z * 1.4, 3) * 0.5 + 0.5; // 中くらいの粒
-    const bigPebble = fbm2D(x * 0.55 + 20, z * 0.55 + 20, 2) * 0.5 + 0.5; // 大粒の丸石パッチ
-    const patch = fbm2D(x * 0.3 + 50, z * 0.3 + 50, 2) * 0.5 + 0.5; // 藻の生えるパッチ(大きめ)
-    const centerDarken = 1 - Math.abs(u - 0.5) * 2; // 中央(深そうな部分)は少し暗く
-    tmpColor.copy(sandLight).lerp(sandDark, grain * 0.55);
-    if (bigPebble > 0.6) {
-      tmpColor.lerp(pebble, Math.min(1, (bigPebble - 0.6) * 2.2));
-    }
-    tmpColor.multiplyScalar(1 - centerDarken * 0.16);
-    if (patch > 0.48) {
-      tmpColor.lerp(algae, Math.min(1, (patch - 0.48) * 2.0));
-    }
+    riverbedColorAt(vertexXZ[v * 3], vertexXZ[v * 3 + 1], vertexXZ[v * 3 + 2], tmpColor);
     colors[v * 3] = tmpColor.r;
     colors[v * 3 + 1] = tmpColor.g;
     colors[v * 3 + 2] = tmpColor.b;
