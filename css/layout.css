@@ -101,15 +101,10 @@
     .touch-btn.active {
       background: rgba(255, 255, 255, 0.55);
     }
-    /* Aボタン(ジャンプ)は右上、Bボタン(走る)は左下気味に配置し、
-       親指で片手操作しやすいよう斜めのクラシックな配置にする。 */
+    /* Aボタン(ジャンプ)は右下。Bボタン(走る)は v1.59 で廃止。 */
     #touchBtnA {
       right: 0;
       top: 0;
-    }
-    #touchBtnB {
-      right: 62px;
-      bottom: 0;
     }
     /* ===== v1.38 ===== */
     /* 設定・フルスクリーンボタン(と開いている設定パネル)は、フルスクリーンで
@@ -689,3 +684,169 @@ input, textarea, select, [contenteditable="true"], #error-banner {
 .link-btn { background: none; border: none; padding: 4px 0; margin-left: 8px; color: #9ec9ff; font: inherit; font-size: 11px; text-decoration: underline dotted; opacity: 0.85; cursor: pointer; touch-action: manipulation; }
 .link-btn:disabled { opacity: 0.6; cursor: default; }
 @media (max-width: 480px) { #updateBanner { flex-wrap: wrap; justify-content: center; } }
+
+/* ============================================================
+   v1.59: 起動画面の流れ(はじめる → 作る/ワールドを選ぶ → モードを選ぶ)
+   ポップアップは使わない。タイトルのカードの中身だけが入れ替わる。
+   ============================================================ */
+#titleScreen .title-stage[hidden], #titleScreen button[hidden] { display: none !important; }
+#titleScreen .title-card { max-height: 100dvh; overflow-y: auto; padding-top: calc(12px + env(safe-area-inset-top, 0px)); padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px)); box-sizing: border-box; -webkit-overflow-scrolling: touch; }
+#titleScreen:not([data-stage="modes"]) .title-world { visibility: hidden; }
+#titleScreen.settings-open .title-card { visibility: hidden; }  /* 設定を開いている間は、タイトルのカードを隠して、設定だけを見せる */
+#titleScreen .title-start-btn { padding: 15px 0; border-color: rgba(255, 233, 168, 0.85); background: rgba(70, 52, 22, 0.6); }
+#titleScreen .title-start-btn .mode-name { font-size: 18px; letter-spacing: 0.3em; }
+/* 作る・選ぶ画面 */
+#titleScreen .tf-h { margin: 28px 0 6px; font-size: 18px; font-weight: normal; letter-spacing: 0.1em; color: #fff3d0; }
+#titleScreen .tf-field { display: flex; flex-direction: column; gap: 4px; width: min(300px, 80vw); margin: 12px auto 0; text-align: left; font-size: 12px; color: #cdbf9a; letter-spacing: 0.06em; }
+#titleScreen .tf-field input {
+  width: 100%; box-sizing: border-box; padding: 11px 12px; border-radius: 8px;
+  background: rgba(14, 10, 6, 0.55); border: 1px solid rgba(255, 233, 168, 0.55); color: #fff8e6;
+  font: inherit; font-size: 16px; /* 16px未満だと、iPhoneで入力時に画面が拡大される */ letter-spacing: 0.05em;
+}
+#titleScreen .tf-field input::placeholder { color: rgba(255, 248, 230, 0.4); }
+#titleScreen .tf-field input:focus { outline: none; border-color: #ffe9a8; box-shadow: 0 0 0 2px rgba(255, 233, 168, 0.25); }
+#titleScreen .tf-note { width: min(320px, 82vw); margin: 12px auto 0; font-size: 11px; line-height: 1.7; color: #a9b3c2; }
+#titleScreen .tf-msg { width: min(320px, 82vw); margin: 10px auto 0; font-size: 12px; color: #ffd9a0; }
+#titleScreen .tf-msg.error { color: #ffb4a8; }
+#titleScreen .tf-list { width: min(320px, 82vw); margin: 14px auto 0; display: flex; flex-direction: column; gap: 8px; max-height: 38dvh; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+#titleScreen .tf-item { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 10px 8px; font-family: inherit; color: #fff8e6; background: rgba(30, 24, 16, 0.55); border: 1px solid rgba(255, 233, 168, 0.55); border-radius: 6px; cursor: pointer; touch-action: manipulation; }
+#titleScreen .tf-item:hover { background: rgba(90, 68, 28, 0.6); }
+#titleScreen .tf-item-name { font-size: 16px; letter-spacing: 0.08em; }
+#titleScreen .tf-item-meta { font-size: 10.5px; color: #cdbf9a; }
+#titleScreen .title-buttons button.tf-primary { border-color: rgba(255, 233, 168, 0.9); background: rgba(70, 52, 22, 0.65); }
+#titleScreen .title-buttons button.tf-plain { background: transparent; border-color: rgba(255, 233, 168, 0.3); font-size: 14px; }
+#titleScreen .title-buttons button.tf-link { background: none; border: none; width: auto; font-size: 11px; color: #9ec9ff; text-decoration: underline dotted; padding: 6px 4px; }
+#titleScreen .title-buttons .link-btn { width: auto; margin: 0; font-size: 12px; padding: 6px 8px; background: none; border: none; letter-spacing: 0.04em; }
+/* 横向きのスマホ(高さが低い画面): ボタンを2列にならべて、1画面に収める */
+@media (max-height: 520px) {
+  #titleScreen .title-jp { font-size: clamp(22px, 5vw, 30px); }
+  #titleScreen .title-buttons { margin-top: 12px; gap: 8px; flex-direction: row; flex-wrap: wrap; justify-content: center; }
+  #titleScreen .title-buttons button { width: min(210px, 42vw); padding: 8px 0; }
+  #titleScreen .title-buttons button.mode-btn { padding: 6px 0; }
+  #titleScreen .tf-h { margin-top: 10px; }
+  #titleScreen .tf-field { margin-top: 8px; }
+  #titleScreen .tf-note { margin-top: 6px; }
+  #titleScreen .title-footer { margin-top: 12px; }
+}
+
+/* ============================================================
+   v1.59: 設定画面(中央に、インベントリのような木の板。タブで切り替える)
+   開くのは、起動画面の「設定」ボタンからだけ。デバッグ用の項目は「開発」タブ(管理者だけ)にまとめた。
+   ============================================================ */
+#settingsPanel.set-inv {
+  position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 70;
+  width: min(560px, calc(100vw - 16px)); min-width: 0; max-width: none; max-height: none; overflow: hidden;
+  box-sizing: border-box; padding: 10px 12px 12px; border-radius: 12px;
+  background: rgba(58, 38, 22, 0.97); border: 3px solid #b88a52; box-shadow: 0 0 0 2px #3a2616, 0 8px 30px rgba(0, 0, 0, 0.55);
+  color: #f6e6c8; font-family: system-ui, -apple-system, 'Hiragino Sans', sans-serif; font-size: 13px; line-height: 1.6;
+}
+.set-inv .set-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.set-inv .set-title { font-size: 17px; color: #ffe9a8; letter-spacing: 0.08em; }
+.set-inv .set-sub { display: block; font-size: 10px; color: #d8c4a0; letter-spacing: 0.04em; }
+.set-inv .set-sub small { margin-left: 6px; opacity: 0.8; }
+#settingsPanel.set-inv .set-x {
+  flex: none; width: 40px; height: 40px; padding: 0; border-radius: 50%; border: 2px solid #b88a52; background: #7a5230; color: #fff3d8;
+  font-size: 17px; line-height: 1; cursor: pointer; touch-action: manipulation;
+}
+.set-inv .set-tabs { display: flex; gap: 4px; margin: 8px 0 8px; }
+#settingsPanel.set-inv .set-tab {
+  flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 1px; padding: 5px 2px 4px;
+  border-radius: 8px; border: 2px solid #8a6a40; background: rgba(40, 24, 12, 0.6); color: #e8d6b4; cursor: pointer; touch-action: manipulation;
+}
+.set-inv .set-tab-ico { font-size: 20px; line-height: 1.2; }
+.set-inv .set-tab-name { font-size: 10px; letter-spacing: 0.02em; white-space: nowrap; }
+#settingsPanel.set-inv .set-tab:hover { background: rgba(90, 60, 30, 0.7); }
+#settingsPanel.set-inv .set-tab.active { border-color: #ffe9a8; background: #7a5230; color: #fff; box-shadow: 0 0 0 1px #ffe9a8, 0 0 8px rgba(255, 233, 168, 0.35); }
+.set-inv .set-body {
+  max-height: calc(100dvh - 190px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)); overflow-y: auto; -webkit-overflow-scrolling: touch; touch-action: pan-y;
+  padding: 10px; border-radius: 8px; background: rgba(0, 0, 0, 0.2); box-sizing: border-box;
+}
+.set-inv .set-page[hidden] { display: none; }
+.set-inv .set-block { margin: 0 0 10px; padding: 10px; border-radius: 8px; border: 1px solid rgba(184, 138, 82, 0.5); background: rgba(255, 255, 255, 0.04); }
+.set-inv .set-block:last-child { margin-bottom: 0; }
+.set-inv .set-h { margin: 0 0 8px; font-size: 13px; font-weight: normal; color: #ffe9a8; letter-spacing: 0.06em; }
+.set-inv .small-note, .set-inv .note { color: #d8c4a0; font-size: 11px; line-height: 1.6; }
+.set-inv .note { margin: 0; }
+.set-inv .set-admin-note { margin-bottom: 8px; font-size: 11px; color: #ffb89a; }
+#settingsPanel.set-inv .set-block button, #settingsPanel.set-inv .set-page > button {
+  display: block; width: 100%; margin-top: 6px; padding: 10px 12px; border-radius: 8px; border: 2px solid #b88a52; background: #7a5230; color: #fff3d8;
+  font: inherit; font-size: 13px; cursor: pointer; touch-action: manipulation; box-sizing: border-box;
+}
+#settingsPanel.set-inv .set-block button:hover { background: #8c6038; }
+#settingsPanel.set-inv .set-block button:disabled { opacity: 0.6; }
+#settingsPanel.set-inv .set-block button:first-child { margin-top: 0; }
+#settingsPanel.set-inv .set-block button[data-session-mode].active { background: #a87f3a; border-color: #ffe9a8; color: #fff; outline: none; }
+.set-inv select {
+  width: 100%; margin-top: 4px; box-sizing: border-box; padding: 8px; border-radius: 6px; border: 2px solid #b88a52;
+  background: #2a1a0c; color: #f6e6c8; font: inherit; font-size: 16px;
+}
+.set-inv label.field { display: block; margin-bottom: 8px; }
+.set-inv input[type="range"] { accent-color: #ffd36b; width: 58% !important; vertical-align: middle; }
+.set-inv input[type="checkbox"] { width: 20px; height: 20px; accent-color: #ffd36b; }
+.set-inv label { cursor: pointer; }
+.set-inv details { border-color: rgba(184, 138, 82, 0.4); }
+.set-inv summary { color: #ffe9a8; }
+.set-inv summary:hover { color: #fff3c0; }
+.set-inv .manual-help-body { font-size: 12px; line-height: 1.8; }
+.set-inv #gameClock { color: #ffe9a8; }
+.set-inv .settings-footer { margin-top: 10px; padding: 0; border: none; font-size: 11px; color: #d8c4a0; }
+.set-inv #eventsList button { margin-top: 6px; }
+/* 横向きのスマホ(高さが低い): タブは絵だけにして、中身の高さを稼ぐ */
+@media (max-height: 520px) {
+  #settingsPanel.set-inv { padding: 6px 10px 8px; }
+  .set-inv .set-title { font-size: 15px; }
+  .set-inv .set-sub { display: none; }
+  .set-inv .set-tabs { margin: 4px 0 6px; }
+  .set-inv .set-tab-name { display: none; }
+  #settingsPanel.set-inv .set-x { width: 36px; height: 36px; }
+  .set-inv .set-body { max-height: calc(100dvh - 104px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)); }
+}
+
+/* ============================================================
+   v1.59: インベントリ。横向きのスマホでも、全体が画面に収まり、閉じるボタンが必ず押せる。
+   ・ヘッダー(✕)とフッター(閉じる)は固定し、中身(.inv-scroll)だけをスクロールさせる。
+   ・スロットの大きさは、画面の幅と高さの小さい方に合わせる。
+   ・横向きで高さが低い時は、「持ち物+ホットバー」を左、「装備+チェスト+説明」を右の2列にする。
+   ============================================================ */
+#inventoryPanel {
+  max-height: calc(100dvh - 12px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+  overflow: hidden;
+  max-width: calc(100vw - 12px);
+  --inv-slot: clamp(30px, min(calc((100vw - 64px) / 9 - 6px), calc((100dvh - 250px) / 5 - 6px)), 52px);
+}
+#inventoryPanel .inv-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
+#inventoryPanel .inv-head .inv-title { margin-bottom: 0; }
+#inventoryPanel .inv-x {
+  flex: none; width: 40px; height: 40px; padding: 0; border-radius: 50%; border: 2px solid #b88a52; background: #7a5230; color: #fff3d8;
+  font-size: 17px; line-height: 1; cursor: pointer; touch-action: manipulation;
+}
+#inventoryPanel .inv-scroll { max-height: calc(100dvh - 170px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)); overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch; touch-action: pan-y; }
+.inv-slot { touch-action: none; }
+@media (orientation: landscape) and (max-height: 560px) {
+  #inventoryPanel {
+    --inv-slot: clamp(28px, min(calc((100dvh - 156px) / 4 - 6px), calc((100vw - 170px) / 13 - 6px)), 48px);
+    padding: 8px 12px 8px;
+  }
+  #inventoryPanel .inv-scroll {
+    display: grid; grid-template-columns: auto auto; column-gap: 18px; align-items: start; justify-content: center;
+    max-height: calc(100dvh - 112px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+  }
+  #inventoryPanel .inv-scroll > :nth-child(4), #inventoryPanel .inv-scroll > :nth-child(5) { grid-column: 1; }
+  #inventoryPanel .inv-scroll > :nth-child(4) { grid-row: 1; margin-top: 0; }
+  #inventoryPanel .inv-scroll > :nth-child(5) { grid-row: 2; }
+  #inventoryPanel .inv-scroll > :nth-child(6) { grid-column: 1; grid-row: 3; }
+  #inventoryPanel .inv-scroll > :nth-child(7) { grid-column: 1; grid-row: 4; }
+  #inventoryPanel .inv-scroll > :nth-child(1) { grid-column: 2; grid-row: 1; margin-top: 0; }
+  #inventoryPanel .inv-scroll > :nth-child(2) { grid-column: 2; grid-row: 2; }
+  #inventoryPanel .inv-scroll > :nth-child(3) { grid-column: 2; grid-row: 3; }
+  #inventoryPanel .inv-scroll > :nth-child(8) { grid-column: 2; grid-row: 4; margin-top: 4px; max-width: calc(4 * (var(--inv-slot) + 6px)); }
+  #inventoryPanel .inv-info { min-height: 0; font-size: 11px; }
+  #inventoryPanel .inv-actions { margin-top: 6px; }
+  #inventoryPanel .inv-actions button { padding: 5px 8px; }
+}
+
+/* ============================================================
+   v1.59: スマホのバーチャルパッド。ホットバーに重ならないよう、少し上へ。Bボタン(走る)は廃止。
+   ============================================================ */
+#touchJoystickBase { bottom: calc(84px + env(safe-area-inset-bottom, 0px)); }
+#touchButtons { bottom: calc(84px + env(safe-area-inset-bottom, 0px)); height: 68px; }

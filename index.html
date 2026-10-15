@@ -84,12 +84,23 @@
       <h1 class="title-jp" id="titleScreenJa"></h1>
       <div class="title-world" id="titleWorldInfo"></div>
       <div class="title-en" id="titleScreenEn"></div>
-      <div class="title-buttons">
-        <button id="titleWalkBtn" class="mode-btn" type="button" data-mode="walk"><span class="mode-name">歩行モード</span><span class="mode-hint">自分で歩いて世界をめぐる</span></button>
-        <button id="titleWatchBtn" class="mode-btn" type="button" data-mode="watch"><span class="mode-name">見守りモード</span><span class="mode-hint">雪だるまの暮らしを眺める</span></button>
-        <button id="titleEditBtn" class="mode-btn" type="button" data-mode="edit"><span class="mode-name">編集モード</span><span class="mode-hint">雪だるまが歩く世界で、物を動かす</span></button>
-        <button id="titleWorldBtn" type="button">ユーザー・ワールド</button>
-        <button id="titleSettingsBtn" type="button">設定</button>
+      <!-- v1.59: 起動の流れ。ポップアップは使わず、このカードの中身だけが入れ替わる。
+           start(はじめる) → form(作る/ワールドを選ぶ) → modes(歩行・見守り・編集・設定) -->
+      <div class="title-stage" id="titleStageStart">
+        <div class="title-buttons">
+          <button id="titleStartBtn" type="button" class="title-start-btn"><span class="mode-name">はじめる</span></button>
+          <button id="titleSettingsBtn" type="button" class="js-title-settings" hidden>設定</button>
+        </div>
+      </div>
+      <div class="title-stage" id="titleStageForm" hidden></div>
+      <div class="title-stage" id="titleStageModes" hidden>
+        <div class="title-buttons">
+          <button id="titleWalkBtn" class="mode-btn" type="button" data-mode="walk"><span class="mode-name">歩行モード</span><span class="mode-hint">自分で歩いて世界をめぐる</span></button>
+          <button id="titleWatchBtn" class="mode-btn" type="button" data-mode="watch"><span class="mode-name">見守りモード</span><span class="mode-hint">雪だるまの暮らしを眺める</span></button>
+          <button id="titleEditBtn" class="mode-btn" type="button" data-mode="edit"><span class="mode-name">編集モード</span><span class="mode-hint">雪だるまが歩く世界で、物を動かす</span></button>
+          <button id="titleSettingsBtn2" type="button" class="js-title-settings">設定</button>
+          <button id="titleReselectBtn" type="button" class="link-btn">ワールドをえらびなおす</button>
+        </div>
       </div>
       <div class="title-footer">
         <span id="titleVersionFooter"></span><a id="titleUpdateNote" class="update-note" href="#" hidden></a>
@@ -99,29 +110,22 @@
     </div>
   </div>
 
-  <button id="settingsIconBtn" class="auto-ui" type="button" title="設定">⚙️</button>
+  <button id="settingsIconBtn" class="auto-ui" type="button" title="起動画面にもどる">⚙️</button>
   <button id="fullscreenIconBtn" class="auto-ui" type="button" title="フルスクリーン">⛶</button>
   <button id="walkExitBtn" type="button" title="歩行を終える">✕</button>
-  <div id="settingsPanel" class="auto-ui">
-    <div class="app-header"><span id="appTitleHeader"></span><small id="appTitleEnHeader"></small></div>
-    <details class="manual-help">
-      <summary>操作方法</summary>
-      <div class="manual-help-body">
-        <p><strong>PC</strong><br>
-        WASD: 移動 / マウス: 視点 / Space: ジャンプ / Shift: 走る(押している間)<br>
-        V: 視点切替(一人称・三人称) / E: インベントリの開閉 / 1〜9・ホイール: ホットバー選択<br>
-        左クリック: 狙っている物へアクション / Esc: 歩行モードを終える</p>
-        <p><strong>スマートフォン</strong><br>
-        画面左のジョイスティック: 移動 / A: ジャンプ / B: 走る(押している間)<br>
-        👝: インベントリの開閉 / ✦: 狙っている物へアクション / 画面右上の✕: 歩行モードを終える<br>
-        ホットバーのアイコンをタップ: 持つ物を選ぶ</p>
-      </div>
-    </details>
-    <div class="settings-toplevel">
+  <div id="settingsPanel" class="set-inv" role="dialog" aria-label="せってい">
+    <div class="set-head">
+      <div class="set-title">⚙️ せってい <span class="set-sub"><span id="appTitleHeader"></span><small id="appTitleEnHeader"></small></span></div>
+      <button id="settingsCloseBtn" class="set-x" type="button" aria-label="とじる">✕</button>
+    </div>
+    <div class="set-tabs" role="tablist"><button type="button" class="set-tab active" role="tab" data-tab="sound"><span class="set-tab-ico">🔊</span><span class="set-tab-name">おと</span></button><button type="button" class="set-tab" role="tab" data-tab="screen"><span class="set-tab-ico">🖥️</span><span class="set-tab-name">がめん</span></button><button type="button" class="set-tab" role="tab" data-tab="world"><span class="set-tab-ico">🌦️</span><span class="set-tab-name">せかい</span></button><button type="button" class="set-tab" role="tab" data-tab="play"><span class="set-tab-ico">🎮</span><span class="set-tab-name">そうさ</span></button><button type="button" class="set-tab" role="tab" data-tab="save"><span class="set-tab-ico">💾</span><span class="set-tab-name">ほぞん</span></button><button type="button" class="set-tab" role="tab" data-tab="app"><span class="set-tab-ico">ℹ️</span><span class="set-tab-name">アプリ</span></button><button type="button" class="set-tab" role="tab" data-tab="dev" data-admin-only><span class="set-tab-ico">🛠️</span><span class="set-tab-name">開発</span></button></div>
+    <div class="set-body">
+      <section class="set-page" data-page="sound">
+        <div class="set-block">
+      <h3 class="set-h">🔊 音</h3>
       <button id="audioStartBtn">🔊 音を有効にする</button>
     </div>
-    <!-- v1.56-H3: 音量。環境音(川・雨・風・虫・鳥・焚き火・雷・蜂)と効果音(足音・拾う/置く・チェスト・丸太・星の鈴・UI)を別々に。音を有効にする前でも動かせる。 -->
-    <div class="settings-toplevel" id="volumeSection">
+        <div class="set-block" id="volumeSection">
       <label class="field">
         🌿 環境音の音量:
         <input type="range" id="ambientVolumeSlider" min="0" max="150" step="5" value="100" style="width:50%;">
@@ -134,24 +138,10 @@
       </label>
       <div style="font-size:11px; opacity:0.75; margin-top:2px;">環境音は川・雨・風・虫・鳥・焚き火・雷、効果音は足音・拾う/置く・チェスト・丸太・星の鈴の音です。</div>
     </div>
-    <!-- v1.57 / E7: ユーザー・ワールドと保存。画面をつけたままにする(Screen Wake Lock) -->
-    <div class="settings-toplevel" id="worldSection">
-      <div id="settingsWorldInfo" class="small-note"></div>
-      <button id="worldSwitchBtn" type="button">👤 ユーザー・ワールドを切り替える</button>
-      <button id="saveNowBtn" type="button">💾 今すぐ保存</button>
-      <div id="saveStatus" class="small-note"></div>
-      <label>
-        <input type="checkbox" id="wakeLockCheckbox"> 画面をつけたままにする
-      </label>
-      <div id="wakeLockNote" class="small-note"></div>
-    </div>
-    <div class="settings-toplevel" data-admin-only>
-      <label>
-        <input type="checkbox" id="debugVisibleCheckbox"> デバッグ情報(FPS等)を表示
-      </label>
-    </div>
-
-    <div class="settings-toplevel">
+      </section>
+      <section class="set-page" data-page="screen" hidden>
+        <div class="set-block">
+      <h3 class="set-h">💧 水面</h3>
       <label class="field">
         💧 水面の品質:
         <select id="waterQualitySelect">
@@ -160,11 +150,20 @@
           <option value="off">オフ(水面処理なし・最軽量)</option>
         </select>
       </label>
-      <div style="font-size:11px; opacity:0.75; margin-top:2px;">動作が重い端末では「標準」か「オフ」にしてください(⚙️のデバッグ表示でFPSを確認できます)。</div>
+      <div style="font-size:11px; opacity:0.75; margin-top:2px;">動作が重い端末では「標準」か「オフ」にしてください。</div>
     </div>
-
-    <details open>
-      <summary>🌦️ 天候・季節</summary>
+        <div class="set-block">
+          <h3 class="set-h">📱 画面</h3>
+          <label>
+        <input type="checkbox" id="wakeLockCheckbox"> 画面をつけたままにする
+      </label>
+      <div id="wakeLockNote" class="small-note"></div>
+        </div>
+        <div class="set-block"><h3 class="set-h">🖥️ ひょうじ</h3><button id="settingsFullscreenBtn" type="button">⛶ フルスクリーンにする</button></div>
+      </section>
+      <section class="set-page" data-page="world" hidden>
+        <div class="set-block">
+      <h3 class="set-h">🌦️ 季節と天気</h3>
       <label class="field">
         季節:
         <select id="seasonSelect">
@@ -185,17 +184,16 @@
           <option value="rain">雨</option>
           <option value="storm">雷雨</option>
           <option value="snow">雪</option>
-          <option value="rainbow-debug">虹(デバッグ表示)</option>
+          <option value="rainbow-debug" data-admin-only>虹(デバッグ表示)</option>
         </select>
       </label>
       <div style="font-size:11px; color:#9aa;">
         「自動」では梅雨に雨が増え、台風シーズンに雷雨が増え、冬は雪になるなど、
         季節ごとに天候の傾向が変わります。
       </div>
-    </details>
-
-    <details>
-      <summary>🕐 時刻</summary>
+    </div>
+        <div class="set-block">
+      <h3 class="set-h">🕐 時間</h3>
       <div id="gameClock">🕐 --:--</div>
       <label class="field">時刻をジャンプ:
         <select id="timeSelect">
@@ -208,9 +206,58 @@
       <div style="font-size:11px; color:#9aa;">
         現実の20分でゲーム内1日が経過します(マインクラフト相当の速さ)。
       </div>
-    </details>
-
-    <details>
+    </div>
+      </section>
+      <section class="set-page" data-page="play" hidden>
+        <div class="set-block">
+      <h3 class="set-h">そうさ</h3>
+      <div class="manual-help-body">
+        <p><strong>PC</strong><br>
+        WASD: 移動 / マウス: 視点 / Space: ジャンプ / Shift: 走る(押している間)<br>
+        V: 視点切替(一人称・三人称) / E: インベントリの開閉 / 1〜9・ホイール: ホットバー選択<br>
+        左クリック: 狙っている物へアクション / Esc: 歩行モードを終える</p>
+        <p><strong>スマートフォン</strong><br>
+        画面左のジョイスティック: 移動 / 画面のドラッグ: 視点 / A: ジャンプ<br>
+        👝: インベントリの開閉 / ✦: 狙っている物へアクション / 📷: 視点の切り替え / 画面右上の✕: 歩行モードを終える<br>
+        ホットバーのアイコンをタップ: 持つ物を選ぶ</p>
+      </div>
+    </div>
+      </section>
+      <section class="set-page" data-page="save" hidden>
+        <div class="set-block" id="worldSection">
+      <h3 class="set-h">💾 いまのワールド</h3>
+      <div id="settingsWorldInfo" class="small-note"></div>
+      <button id="saveNowBtn" type="button">💾 今すぐ保存</button>
+      <div id="saveStatus" class="small-note"></div>
+    </div>
+      </section>
+      <section class="set-page" data-page="app" hidden>
+        <div class="set-block" id="updateSection">
+      <h3 class="set-h">🔄 こうしん</h3>
+      <div id="updateStatus" class="small-note"></div>
+      <button id="updateCheckBtn" type="button">🔄 更新を確認</button>
+      <button id="updateClearBtn" type="button">🧹 キャッシュを削除して再読み込み</button>
+      <div class="small-note">古い表示が残る時に使います。ワールドの保存データは消えません。</div>
+    </div>
+        <div class="set-block"><div class="note" id="mainDescriptionNote">
+      Three.jsによる3Dシーンです。地形の高さを実際にサンプリングして
+      木・テント・焚き火を配置しているため、2D版で起きていた
+      「木が川の中に立つ」等の矛盾が構造的に起きない設計にしています。
+    </div></div>
+        <div class="settings-footer">
+      <div><span id="appVersionFooter"></span><a id="appUpdateNote" class="update-note" href="#" hidden></a></div>
+      <div id="appCopyrightFooter"></div>
+    </div>
+      </section>
+      <section class="set-page" data-page="dev" data-admin-only hidden>
+        <div class="set-admin-note">管理者用(公開版の訪問者には表示されません)</div>
+<div class="set-block"><button id="worldSwitchBtn" type="button">👤 ユーザー・ワールドを切り替える</button></div>
+<div class="set-block">
+      <label>
+        <input type="checkbox" id="debugVisibleCheckbox"> デバッグ情報(FPS等)を表示
+      </label>
+    </div>
+<details>
       <summary>🚶 移動・視点</summary>
       <div id="sessionModeRow" style="display:flex; gap:4px; margin-bottom:6px;">
         <button type="button" data-session-mode="walk" style="flex:1;">歩行</button>
@@ -227,8 +274,7 @@
         <input type="checkbox" id="cinemaCheckbox"> 自動カメラ(見守りモード中、シネマティックに撮影)
       </label>
     </details>
-
-    <details data-admin-only>
+<details data-admin-only>
       <summary>🍂 紅葉・落ち葉デバッグ</summary>
       実際の日付を待たずに、秋の色づき・落葉・落ち葉の量を確認できます。
       <br>
@@ -243,8 +289,7 @@
       </div>
       <button id="leafBurstBtn" type="button">🍁 今すぐ枯れ葉を100枚散らす</button>
     </details>
-
-    <details>
+<details>
       <summary>🌳 広葉樹の枝ぶり</summary>
       キャンプの目印である大木(1本)と、背景の森の広葉樹、それぞれの
       枝分かれの段数・本数・枝先の葉の数・葉の塊の大きさ、および広葉樹
@@ -309,8 +354,7 @@
       <br>
       <button id="broadleafShapeApplyBtn" type="button">この設定で生成し直す(再読み込み)</button>
     </details>
-
-    <details data-admin-only>
+<details data-admin-only>
       <summary>🌍 地形の自動生成(手動・管理者用)</summary>
       オフのときは今までどおりの固定の地形・川です。オンにしてページを
       再読み込みすると、シード値から地形の起伏と川の形を生成し直します
@@ -342,28 +386,11 @@
         <button id="worldGenLocalDeleteBtn" type="button">削除</button>
       </div>
     </details>
-
-    <!-- v1.44: イベント(試したいイベントを起こすボタンの置き場)。デバッグの数値表示とは別物。
-         ボタンはJS側の登録式(registerSettingsEvent)で増やせる。 -->
-    <details id="eventsSection" data-admin-only>
+<details id="eventsSection" data-admin-only>
       <summary>🎬 イベント (Events)</summary>
       <div id="eventsList"></div>
     </details>
-
-    <div class="note" id="mainDescriptionNote">
-      Three.jsによる3Dシーンです。地形の高さを実際にサンプリングして
-      木・テント・焚き火を配置しているため、2D版で起きていた
-      「木が川の中に立つ」等の矛盾が構造的に起きない設計にしています。
-    </div>
-    <div class="settings-toplevel" id="updateSection">
-      <div id="updateStatus" class="small-note"></div>
-      <button id="updateCheckBtn" type="button">🔄 更新を確認</button>
-      <button id="updateClearBtn" type="button">🧹 キャッシュを削除して再読み込み</button>
-      <div class="small-note">古い表示が残る時に使います。ワールドの保存データは消えません。</div>
-    </div>
-    <div class="settings-footer">
-      <div><span id="appVersionFooter"></span><a id="appUpdateNote" class="update-note" href="#" hidden></a></div>
-      <div id="appCopyrightFooter"></div>
+      </section>
     </div>
   </div>
 
@@ -379,18 +406,23 @@
   </div>
 
   <div id="inventoryPanel" role="dialog" aria-label="インベントリ">
-    <div class="inv-title">👝 インベントリ</div>
-    <div class="inv-label">装備(頭・胴・手・足)</div>
-    <div id="invEquip" class="inv-equip"></div>
-    <div id="invChestWrap" style="display:none">
-      <div class="inv-label">🧰 チェスト(Shift+クリックで、持ち物と移し替え)</div>
-      <div id="invChestGrid" class="inv-grid"></div>
+    <div class="inv-head">
+      <div class="inv-title">👝 インベントリ</div>
+      <button id="invCloseX" class="inv-x" type="button" aria-label="閉じる">✕</button>
     </div>
-    <div class="inv-label">持ち物</div>
-    <div id="invMainGrid" class="inv-grid"></div>
-    <div class="inv-label">ホットバー</div>
-    <div id="invHotbarGrid" class="inv-grid inv-hotbar"></div>
-    <div id="invInfo" class="inv-info"></div>
+    <div class="inv-scroll">
+      <div class="inv-label">装備(頭・胴・手・足)</div>
+      <div id="invEquip" class="inv-equip"></div>
+      <div id="invChestWrap" style="display:none">
+        <div class="inv-label">🧰 チェスト(Shift+クリックで、持ち物と移し替え)</div>
+        <div id="invChestGrid" class="inv-grid"></div>
+      </div>
+      <div class="inv-label">持ち物</div>
+      <div id="invMainGrid" class="inv-grid"></div>
+      <div class="inv-label">ホットバー</div>
+      <div id="invHotbarGrid" class="inv-grid inv-hotbar"></div>
+      <div id="invInfo" class="inv-info"></div>
+    </div>
     <div class="inv-actions">
       <button id="invSplitBtn" type="button">半分ずつ</button>
       <button id="invCloseBtn" type="button">閉じる</button>
@@ -408,10 +440,9 @@
     </div>
     <div id="touchButtons">
       <div id="touchBtnA" class="touch-btn" title="ジャンプ">A</div>
-      <div id="touchBtnB" class="touch-btn" title="走る(押している間)">B</div>
       <div id="touchBtnE" class="touch-btn" title="インベントリ">👝</div>
       <div id="touchBtnAction" class="touch-btn" title="アクション">✦</div>
-      <div id="touchBtnView" class="touch-btn" title="視点を切り替える(一人称・三人称)">👁</div>
+      <div id="touchBtnView" class="touch-btn" title="視点を切り替える(一人称・三人称)">📷</div>
     </div>
   </div>
 
@@ -468,6 +499,7 @@
     import { createWakeLock } from './js/wake-lock.js';
     import { createUpdateChecker } from './js/update-check.js';
     import { clearCachesAndReload } from './js/app-update.js';
+    import { createTitleFlow } from './js/title-flow.js';
 
     // v1.57: 管理者・保存・ワールドの判定は main() の中で行う(読み込み時の外側では何もしない)。
     //   ADMIN の初期値 true は、main() が正しい値に置き換えるまでの仮の値。デバッグ表示は、CSS側で「管理者になるまで隠す」。
@@ -488,7 +520,8 @@
     document.getElementById('titleCopyrightFooter').textContent = APP.copyright;
 
     const titleScreen = document.getElementById('titleScreen');
-    const titleSettingsBtn = document.getElementById('titleSettingsBtn');
+    let titleFlow = null; // main() の中で、保存ストアができてから作る(ポップアップは使わない起動フロー)
+    let currentUserIdForTitle = null;
     /** タイトル画面を閉じる。裏では既にシーンが動いているので、ここでは表示を消すだけ。 */
     function dismissTitleScreen() {
       titleScreen.classList.add('hidden');
@@ -517,7 +550,7 @@
     }
     document.querySelectorAll('#titleScreen .mode-btn').forEach((btn) => {
       btn.addEventListener('click', () => {
-        if (!playAllowed) { if (worldUi) worldUi.open(); return; } // 公開版: ユーザーとワールドを選ぶまでは始めない
+        if (!playAllowed) { if (titleFlow) titleFlow.begin({ currentUserId: currentUserIdForTitle }); return; } // ワールドが決まるまでは始めない
         dismissTitleScreen();
         const id = btn.dataset.mode;
         if (!startSessionMode(id)) {
@@ -526,14 +559,25 @@
         }
       });
     });
-    titleSettingsBtn.addEventListener('click', (e) => {
+    // v1.59: 「はじめる」/「ワールドをえらびなおす」。どちらも、プレイヤーが押した時だけ動く(自動では何も開かない)
+    document.getElementById('titleStartBtn').addEventListener('click', () => { if (titleFlow) titleFlow.begin({ currentUserId: currentUserIdForTitle }); });
+    document.getElementById('titleReselectBtn').addEventListener('click', () => { if (titleFlow) titleFlow.reselect({ currentUserId: currentUserIdForTitle }); });
+    // v1.59: 設定は、起動画面の「設定」ボタンからだけ開く(プレイ中の⚙は起動画面へ戻るボタン)
+    function openSettings() {
+      settingsPanel.style.display = 'block';
+      titleScreen.classList.add('settings-open');
+      noteUiActivity();
+    }
+    function closeSettings() {
+      settingsPanel.style.display = 'none';
+      titleScreen.classList.remove('settings-open');
+    }
+    document.querySelectorAll('.js-title-settings').forEach((b) => b.addEventListener('click', (e) => {
       // 設定パネルには「パネルの外側をクリックしたら閉じる」処理があり、このクリックが
       // documentまで伝播すると、開いた直後に外側クリックと誤認されて閉じてしまうため止める。
       e.stopPropagation();
-      dismissTitleScreen();
-      settingsPanel.style.display = 'block';
-      noteUiActivity();
-    });
+      openSettings();
+    }));
 
     const stage = document.getElementById('stage');
     const timeSelect = document.getElementById('timeSelect');
@@ -567,7 +611,6 @@
     const touchJoystickBase = document.getElementById('touchJoystickBase');
     const touchJoystickNub = document.getElementById('touchJoystickNub');
     const touchBtnA = document.getElementById('touchBtnA');
-    const touchBtnB = document.getElementById('touchBtnB');
     let sceneRefForTouch = null; // initScene()完了後にsetSceneForTouchControls()で渡す
     function setSceneForTouchControls(s) { sceneRefForTouch = s; }
 
@@ -639,18 +682,6 @@
     }, { passive: false });
     touchBtnA.addEventListener('touchend', () => touchBtnA.classList.remove('active'));
     touchBtnA.addEventListener('touchcancel', () => touchBtnA.classList.remove('active'));
-
-    touchBtnB.addEventListener('touchstart', (e) => {
-      e.preventDefault();
-      touchBtnB.classList.add('active');
-      if (sceneRefForTouch) sceneRefForTouch.setVirtualRun(true);
-    }, { passive: false });
-    function releaseBtnB() {
-      touchBtnB.classList.remove('active');
-      if (sceneRefForTouch) sceneRefForTouch.setVirtualRun(false);
-    }
-    touchBtnB.addEventListener('touchend', releaseBtnB);
-    touchBtnB.addEventListener('touchcancel', releaseBtnB);
 
     // v1.39: スマホの「アクション」ボタン(PCの左クリックに相当)
     const touchBtnAction = document.getElementById('touchBtnAction');
@@ -1085,15 +1116,30 @@
     registerSettingsEvent({ id: 'giveLanterns', label: '🎃 ジャック・オー・ランタンを持ち物に入れる(3個)', run: () => { if (sceneRefForTouch) { sceneRefForTouch.debugGiveLanterns(3); settingsPanel.style.display = 'none'; } } });
     registerSettingsEvent({ id: 'fillPouch', label: '🎒 ポーチをいっぱいにして、チェストへしまいに行かせる', run: () => { if (sceneRefForTouch) { sceneRefForTouch.debugFillPouchToChest(); settingsPanel.style.display = 'none'; } } });
 
+    // v1.59: プレイ中の⚙は「起動画面にもどる」ボタン。起動画面から、モードの選びなおし・設定・ワールドの選びなおしができる。
     settingsIconBtn.addEventListener('click', () => {
-      settingsPanel.style.display = settingsPanel.style.display === 'block' ? 'none' : 'block';
+      closeSettings();
+      if (typeof closeInventory === 'function') closeInventory();
+      titleScreen.classList.remove('hidden');
+      if (titleFlow) titleFlow.showModes();
+      noteUiActivity();
     });
     // 設定パネルの外側をタップ/クリックしたら閉じる(スマホでの使い勝手を優先)
     document.addEventListener('click', (e) => {
       if (settingsPanel.style.display !== 'block') return;
-      if (e.target === settingsIconBtn || settingsPanel.contains(e.target)) return;
-      settingsPanel.style.display = 'none';
+      if (e.target === settingsIconBtn || settingsPanel.contains(e.target) || (e.target.closest && e.target.closest('.js-title-settings'))) return;
+      closeSettings();
     });
+    document.getElementById('settingsCloseBtn').addEventListener('click', closeSettings);
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && settingsPanel.style.display === 'block') closeSettings(); });
+    // タブ(おと・がめん・せかい・そうさ・ほぞん・アプリ)
+    function selectSettingsTab(key) {
+      settingsPanel.querySelectorAll('.set-tab').forEach((t) => t.classList.toggle('active', t.dataset.tab === key));
+      settingsPanel.querySelectorAll('.set-page').forEach((p) => { p.hidden = p.dataset.page !== key; });
+      const body = settingsPanel.querySelector('.set-body'); if (body) body.scrollTop = 0;
+    }
+    settingsPanel.querySelectorAll('.set-tab').forEach((t) => t.addEventListener('click', () => selectSettingsTab(t.dataset.tab)));
+    document.getElementById('settingsFullscreenBtn').addEventListener('click', () => toggleFullscreen());
     debugVisibleCheckbox.addEventListener('change', () => {
       setDebugVisible(debugVisibleCheckbox.checked);
     });
@@ -1427,6 +1473,7 @@
     }
     function toggleInventory() { if (isInventoryOpen()) closeInventory(); else openInventory(); }
     invCloseBtn.addEventListener('click', closeInventory);
+    document.getElementById('invCloseX').addEventListener('click', closeInventory); // v1.59: 横画面でも必ず押せる右上の✕
     invSplitBtn.addEventListener('click', () => { invSplitMode = !invSplitMode; invSplitBtn.classList.toggle('on', invSplitMode); });
     touchBtnE.addEventListener('touchstart', (e) => { e.preventDefault(); toggleInventory(); }, { passive: false });
 
@@ -1665,12 +1712,32 @@
           store,
           hasCurrentWorld: () => current.ok && current.world.status === 'ready',
           onEnterWorld: (userId, worldId) => {
-            if (current.ok && current.worldId === worldId && current.world.status === 'ready') { worldUi.close(); return; } // いま開いているワールド
+            if (current.ok && current.worldId === worldId && current.world.status === 'ready') { worldUi.close(); if (titleFlow) titleFlow.showModes(); return; } // いま開いているワールド
             saveNow(); store.setCurrent(userId, worldId); location.reload();
           },
           onCreatePreview: (userId, world) => { saveNow(); store.setCurrent(userId, world.id); location.reload(); },
         });
-        $('titleWorldBtn').addEventListener('click', (e) => { e.stopPropagation(); worldUi.open(); });
+        // v1.59: 起動の流れ(はじめる → 作る/ワールドを選ぶ → モードを選ぶ)。ポップアップは使わない。
+        currentUserIdForTitle = current.ok ? current.userId : null;
+        titleFlow = createTitleFlow({
+          store,
+          startEl: $('titleStageStart'), formEl: $('titleStageForm'), modesEl: $('titleStageModes'),
+          onEnterWorld: (userId, worldId) => {
+            if (current.ok && current.worldId === worldId && current.world.status === 'ready') { titleFlow.showModes(); return; } // いま開いているワールド
+            saveNow(); store.setCurrent(userId, worldId);
+            try { sessionStorage.setItem('snowman.skipStart', '1'); } catch (e) { /* 使えなければ「はじめる」から */ }
+            location.reload();
+          },
+          onCreatePreview: (userId, world) => { saveNow(); store.setCurrent(userId, world.id); location.reload(); },
+          onManage: (userId) => worldUi.open({ screen: 'worlds', userId }),
+          onStageChange: (name) => { titleScreen.dataset.stage = name; },
+        });
+        {
+          let skipStart = false;
+          try { skipStart = sessionStorage.getItem('snowman.skipStart') === '1'; sessionStorage.removeItem('snowman.skipStart'); } catch (e) { /* 既定どおり */ }
+          // ワールドを選んで読み込み直した直後(と、管理者の手動生成)は、モード選択から始める。それ以外は「はじめる」から。
+          if (playAllowed && (skipStart || manualWorldGen)) titleFlow.showModes(); else titleFlow.show('start');
+        }
         $('worldSwitchBtn').addEventListener('click', () => { settingsPanel.style.display = 'none'; worldUi.open(); });
         $('saveNowBtn').addEventListener('click', () => saveNow(true));
         updateWorldInfo();
@@ -1679,7 +1746,7 @@
         if (manualWorldGen) {
           // 管理者の手動生成: ワールドの保存とは無関係
         } else if (!current.ok) {
-          worldUi.open(); // 初回、または選んだワールドが無くなった時: まず、ユーザーとワールドを作る
+          // 初回、または選んだワールドが無くなった時: ポップアップは出さない。起動画面の「はじめる」を、プレイヤーが押すのを待つ。
         } else if (current.world.status === 'preview') {
           // 作ったばかりのワールド: 見て、気に入れば始める。気に入らなければ作り直す(古い地形は残らない)
           document.body.classList.add('preview-mode');
@@ -1691,6 +1758,7 @@
             if (!r.ok) { showBanner(r.error); return; }
             current.world.status = 'ready'; playAllowed = true; autosaveOn = true;
             bar.hidden = true; document.body.classList.remove('preview-mode'); updateWorldInfo(); saveNow();
+            if (titleFlow) titleFlow.showModes(); // ワールドができたので、歩行・見守り・編集・設定のボタンを見せる
           });
           $('previewRerollBtn').addEventListener('click', () => { const r = store.rerollWorld(current.userId, current.worldId); if (!r.ok) { showBanner(r.error); return; } location.reload(); });
           $('previewCancelBtn').addEventListener('click', () => { store.deleteWorld(current.userId, current.worldId); store.clearCurrent(); location.reload(); });
@@ -1818,7 +1886,7 @@
         // ----- v1.57: 画面をつけたままにする(Screen Wake Lock)。スマホの自動スリープを抑える -----
         {
           const cb = $('wakeLockCheckbox'), note = $('wakeLockNote');
-          const wake = createWakeLock({ onChange: (active) => { note.textContent = active ? '画面は消えません(このタブを見ている間)' : (cb.checked ? '一時的に解除されています(画面に戻ると、かけ直します)' : ''); } });
+          const wake = createWakeLock({ onChange: (active, how) => { note.textContent = active ? (how && how.video ? '画面は消えません(この画面を見ている間・動画方式)' : '画面は消えません(この画面を見ている間)') : (cb.checked ? '画面にさわると、画面を消さない設定をかけ直します' : ''); } });
           if (!wake.supported) { cb.checked = false; cb.disabled = true; note.textContent = 'このブラウザ・端末では使えません。'; }
           else {
             const pref = storage.getItem('snowman.wakeLock') !== '0'; // 既定はオン
