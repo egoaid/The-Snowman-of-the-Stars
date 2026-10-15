@@ -850,3 +850,11 @@ input, textarea, select, [contenteditable="true"], #error-banner {
    ============================================================ */
 #touchJoystickBase { bottom: calc(84px + env(safe-area-inset-bottom, 0px)); }
 #touchButtons { bottom: calc(84px + env(safe-area-inset-bottom, 0px)); height: 68px; }
+
+/* ============================================================
+   v1.60: 木のしげり具合(3段階のえらびボタン)
+   ============================================================ */
+.set-inv .set-seg { display: flex; gap: 6px; margin-bottom: 8px; }
+#settingsPanel.set-inv .set-seg button { flex: 1 1 0; width: auto; margin: 0; padding: 10px 4px; font-size: 14px; background: rgba(40, 24, 12, 0.6); border-color: #8a6a40; }
+#settingsPanel.set-inv .set-seg button.active { background: #7a5230; border-color: #ffe9a8; color: #fff; box-shadow: 0 0 0 1px #ffe9a8, 0 0 8px rgba(255, 233, 168, 0.3); }
+#settingsPanel.set-inv .set-block button[hidden] { display: none; }

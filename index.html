@@ -193,6 +193,16 @@
       </div>
     </div>
         <div class="set-block">
+      <h3 class="set-h">🌳 木のしげり具合</h3>
+      <div class="set-seg" id="lushSeg" role="radiogroup" aria-label="木のしげり具合">
+        <button type="button" role="radio" data-lush="light">すっきり</button>
+        <button type="button" role="radio" data-lush="normal">ふつう</button>
+        <button type="button" role="radio" data-lush="lush">こんもり</button>
+      </div>
+      <div class="small-note">テントのそばの大きな木の、枝と葉の多さが変わります。変えると、木を作り直すために世界を読み込み直します(ワールドは保存されます)。</div>
+      <button id="lushApplyBtn" type="button" hidden>この茂り具合で、木を作り直す</button>
+    </div>
+    <div class="set-block">
       <h3 class="set-h">🕐 時間</h3>
       <div id="gameClock">🕐 --:--</div>
       <label class="field">時刻をジャンプ:
@@ -457,7 +467,7 @@
   </div>
   <div id="saveBanner" class="save-banner" hidden role="alert"></div>
 
-  <div id="debugPanel" data-admin-only>計測中…<div class="hint">左上の⚙️で表示/非表示</div></div>
+  <div id="debugPanel" data-admin-only>計測中…<div class="hint">F3、または設定の「開発」タブで表示/非表示</div></div>
 
   <div id="stage"></div>
   <div id="hotbarBar"></div>
@@ -738,15 +748,29 @@
       // 無関係に(スケール2.2で)常に生成される。
       ratio: 0,
     };
+    // v1.60: プレイヤー向けは「木のしげり具合」3段階(すっきり / ふつう / こんもり)の1つだけ。
+    // 段数・枝の本数・葉の数・葉の大きさは、この1つから決める(細かい値は、管理者の「開発」タブで今までどおり調整できる)。
+    const LUSH_KEY = 'snowman.treeLushness';
+    const LUSH_PRESETS = {
+      light:  { full: { tiers: 2, branchCounts: [3, 2, 2, 1], leavesPerTwig: 1, leafSizeScale: 1.0 },  simple: { tiers: 1, branchCounts: [4, 2, 2, 2], leavesPerTwig: 1, leafSizeScale: 1.0 } },
+      normal: { full: BROADLEAF_SHAPE_DEFAULT.full, simple: BROADLEAF_SHAPE_DEFAULT.simple },
+      lush:   { full: { tiers: 4, branchCounts: [3, 3, 3, 1], leavesPerTwig: 3, leafSizeScale: 1.3 }, simple: { tiers: 2, branchCounts: [6, 3, 2, 2], leavesPerTwig: 2, leafSizeScale: 1.3 } },
+    };
+    function loadLushness() {
+      try { const v = localStorage.getItem(LUSH_KEY); if (v && LUSH_PRESETS[v]) return v; } catch (e) { /* 使えなければ「ふつう」 */ }
+      return null;
+    }
     function loadBroadleafShape() {
+      let base = BROADLEAF_SHAPE_DEFAULT;
       try {
         const saved = localStorage.getItem(BROADLEAF_SHAPE_KEY);
         if (saved) {
           const parsed = JSON.parse(saved);
-          if (parsed && parsed.full && parsed.simple && Number.isFinite(parsed.ratio)) return parsed;
+          if (parsed && parsed.full && parsed.simple && Number.isFinite(parsed.ratio)) base = parsed;
         }
       } catch (e) { /* localStorageが使えない、または壊れた保存値の場合は既定値 */ }
-      return BROADLEAF_SHAPE_DEFAULT;
+      const lush = loadLushness(); // プレイヤーが選んだ時だけ、形を上書きする(本数の比率は、そのまま)
+      return lush ? { full: LUSH_PRESETS[lush].full, simple: LUSH_PRESETS[lush].simple, ratio: base.ratio } : base;
     }
     const initialBroadleafShape = loadBroadleafShape();
 
@@ -828,7 +852,7 @@
         },
         ratio: Number(broadleafRatioSlider.value) / 100,
       };
-      try { localStorage.setItem(BROADLEAF_SHAPE_KEY, JSON.stringify(toSave)); } catch (e) { /* 保存できない環境では次回起動時は既定値に戻る */ }
+      try { localStorage.setItem(BROADLEAF_SHAPE_KEY, JSON.stringify(toSave)); localStorage.removeItem(LUSH_KEY); } catch (e) { /* 保存できない環境では次回起動時は既定値に戻る */ }
       location.reload();
     });
 
@@ -1893,6 +1917,23 @@
             cb.checked = pref; if (pref) wake.enable();
             cb.addEventListener('change', () => { storage.setItem('snowman.wakeLock', cb.checked ? '1' : '0'); if (cb.checked) wake.enable(); else { wake.disable(); note.textContent = ''; } });
           }
+        }
+        // ----- v1.60: 木のしげり具合(すっきり / ふつう / こんもり)。変えた時だけ、木を作り直すために読み込み直す -----
+        {
+          const seg = $('lushSeg'), btns = Array.from(seg.querySelectorAll('[data-lush]')), applyBtn = $('lushApplyBtn');
+          const current = loadLushness() || 'normal';
+          let pending = current;
+          const paint = () => {
+            for (const b of btns) { const on = b.dataset.lush === pending; b.classList.toggle('active', on); b.setAttribute('aria-checked', String(on)); }
+            applyBtn.hidden = pending === current;
+          };
+          for (const b of btns) b.addEventListener('click', () => { pending = b.dataset.lush; paint(); });
+          applyBtn.addEventListener('click', () => {
+            try { saveNow(); } catch (e) { /* 保存できなくても続ける */ }
+            try { localStorage.setItem(LUSH_KEY, pending); sessionStorage.setItem('snowman.skipStart', '1'); } catch (e) { /* 使えない環境では、変わらない */ }
+            location.reload();
+          });
+          paint();
         }
         // ----- v1.58: 新しい版のお知らせと更新(起動時に確認 → お知らせバナー → 「キャッシュを削除して再読み込み」) -----
         {
