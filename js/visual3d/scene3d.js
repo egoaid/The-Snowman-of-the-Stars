@@ -18,7 +18,7 @@ import { createCameraGroundGuard, createDomeOcclusionGuard } from './camera-grou
 import { applyDefaultShadowFlags } from './shadow-flags.js';
 import { snapShadowCenter } from './shadow-snap.js';
 import { stepHeading, WANDER_MAX_TURN_RATE, resolveCircleCollisions, computeAvoidSteer as computeAvoidSteerFor, pushOutOfObstacles, buildIglooPostObstacles, isMakingProgress, planWallDetour } from './wander-nav.js';
-import { buildRiverMesh, buildRiverbedMesh, getRiver, distanceToRiver, nearestRiverPoint, getWaterEdgeDistance, getWaterEdgeDistanceOnTerrain, setRiverControlPoints, generateRiverControlPoints, resetDefaultRiver, configureRiverWidthSeed } from './river.js';
+import { buildRiverMesh, buildRiverbedMesh, getRiver, distanceToRiver, nearestRiverPoint, getWaterEdgeDistance, getWaterEdgeDistanceOnTerrain, RIVER_VISIBLE_RADIUS, setRiverControlPoints, generateRiverControlPoints, resetDefaultRiver, configureRiverWidthSeed } from './river.js';
 import { createFish } from './fish.js';
 import { computeSkyState, createCelestialBodies } from './daynight.js';
 import { createWeatherSystem, SNOW_DEPTH_MAX } from './weather.js';
@@ -1649,9 +1649,16 @@ export function initScene(mountEl, options = {}) {
     const screenRng = makeRng(worldGen ? deriveSeed(worldGen.seed, 'riverEndScreens') : 6161);
     const cl = riverSamplesForAvoid;
     const n = cl.length;
+    // v1.61b: 見える川(半径 RIVER_VISIBLE_RADIUS の円の内側)の、上流側・下流側の切れ目を、端として扱う。
+    //         生成ワールドの川は、地形の端よりさらに外へ伸びているので、中心線の最初と最後ではなく、円と交わる所を使う。
+    let i0 = 0;
+    while (i0 < n - 1 && Math.hypot(cl[i0].x, cl[i0].z) > RIVER_VISIBLE_RADIUS) i0++;
+    let i1 = n - 1;
+    while (i1 > 0 && Math.hypot(cl[i1].x, cl[i1].z) > RIVER_VISIBLE_RADIUS) i1--;
+    const visibleCl = cl.slice(i0, i1 + 1); // 水が見える区間(これ以外は、乾いた谷が続くだけ)
     const ends = [
-      { p: cl[0], q: cl[Math.min(4, n - 1)] },          // 上流端(流れの始まり)
-      { p: cl[n - 1], q: cl[Math.max(0, n - 5)] },      // 下流端(流れの終わり)
+      { p: cl[i0], q: cl[Math.min(n - 1, i0 + 4)] },    // 上流端(流れの始まり)
+      { p: cl[i1], q: cl[Math.max(0, i1 - 4)] },        // 下流端(流れの終わり)
     ];
     const SPACING = 5.2, A_MIN = -16, A_MAX = 18, L_HALF = 13;
     const spawnScreenTree = (x, z, scale) => {
@@ -1689,8 +1696,8 @@ export function initScene(mountEl, options = {}) {
           const x = p.x + ax * (a + randRange(screenRng, -1.4, 1.4)) + lx * (l + randRange(screenRng, -1.4, 1.4));
           const z = p.z + az * (a + randRange(screenRng, -1.4, 1.4)) + lz * (l + randRange(screenRng, -1.4, 1.4));
           if (Math.hypot(x, z) > BOUNDARY_OUTER - 1) continue; // 地形の端の内側だけ
-          const { distance, width } = distanceToRiver(x, z, cl);
-          if (distance < getWaterEdgeDistance(width) + 3.2) continue; // 水と土手の斜面には生やさない
+          const { distance, width } = distanceToRiver(x, z, visibleCl);
+          if (distance < getWaterEdgeDistance(width) + 3.2) continue; // 水と土手の斜面には生やさない(見える川の区間だけを避ける)
           if (a < -4 && screenRng() > 0.8) continue;           // 川沿いの部分は、わずかに間引いて自然に
           let blocked = false;
           for (const zone of avoidZones) {

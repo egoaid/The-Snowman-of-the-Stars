@@ -570,8 +570,14 @@
       });
     });
     // v1.59: 「はじめる」/「ワールドをえらびなおす」。どちらも、プレイヤーが押した時だけ動く(自動では何も開かない)
-    document.getElementById('titleStartBtn').addEventListener('click', () => { if (titleFlow) titleFlow.begin({ currentUserId: currentUserIdForTitle }); });
-    document.getElementById('titleReselectBtn').addEventListener('click', () => { if (titleFlow) titleFlow.reselect({ currentUserId: currentUserIdForTitle }); });
+    // 起動の準備(保存ストアの読み込みなど)が終わる前に押されても、押した操作は捨てず、準備ができたら進める。
+    let pendingTitleAction = null;
+    const runTitleAction = (name) => {
+      if (!titleFlow) { pendingTitleAction = name; return; }
+      if (name === 'reselect') titleFlow.reselect({ currentUserId: currentUserIdForTitle }); else titleFlow.begin({ currentUserId: currentUserIdForTitle });
+    };
+    document.getElementById('titleStartBtn').addEventListener('click', () => runTitleAction('begin'));
+    document.getElementById('titleReselectBtn').addEventListener('click', () => runTitleAction('reselect'));
     // v1.59: 設定は、起動画面の「設定」ボタンからだけ開く(プレイ中の⚙は起動画面へ戻るボタン)
     function openSettings() {
       settingsPanel.style.display = 'block';
@@ -1761,6 +1767,7 @@
           try { skipStart = sessionStorage.getItem('snowman.skipStart') === '1'; sessionStorage.removeItem('snowman.skipStart'); } catch (e) { /* 既定どおり */ }
           // ワールドを選んで読み込み直した直後(と、管理者の手動生成)は、モード選択から始める。それ以外は「はじめる」から。
           if (playAllowed && (skipStart || manualWorldGen)) titleFlow.showModes(); else titleFlow.show('start');
+          if (pendingTitleAction) { const a = pendingTitleAction; pendingTitleAction = null; runTitleAction(a); } // 準備前に押された操作
         }
         $('worldSwitchBtn').addEventListener('click', () => { settingsPanel.style.display = 'none'; worldUi.open(); });
         $('saveNowBtn').addEventListener('click', () => saveNow(true));

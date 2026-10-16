@@ -858,3 +858,7 @@ input, textarea, select, [contenteditable="true"], #error-banner {
 #settingsPanel.set-inv .set-seg button { flex: 1 1 0; width: auto; margin: 0; padding: 10px 4px; font-size: 14px; background: rgba(40, 24, 12, 0.6); border-color: #8a6a40; }
 #settingsPanel.set-inv .set-seg button.active { background: #7a5230; border-color: #ffe9a8; color: #fff; box-shadow: 0 0 0 1px #ffe9a8, 0 0 8px rgba(255, 233, 168, 0.3); }
 #settingsPanel.set-inv .set-block button[hidden] { display: none; }
+
+/* v1.62: 起動画面(タイトル)が出ている間は、左上の⚙・⛶を表示しない(背景にうっすら透けて見えていたため)。
+   設定は、起動画面の「設定」ボタンから開く。 */
+body:has(#titleScreen:not(.hidden)) #settingsIconBtn { visibility: hidden; }

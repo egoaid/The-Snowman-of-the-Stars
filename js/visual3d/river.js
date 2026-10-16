@@ -488,6 +488,7 @@ function interpolateHydrology(hydrology, t) {
  * @param {object} [river]
  */
 export function getWaterSurfaceAt(x, z, terrainHeightFn, river = getRiver()) {
+  if (x * x + z * z > RIVER_VISIBLE_RADIUS * RIVER_VISIBLE_RADIUS) return -Infinity; // 見える川の外には、水は無い
   const nearest = nearestRiverPoint(x, z, river.centerline);
   const depthEstimate = Math.max(maxDepthForWidth(nearest.width), RIVER_MIN_DEPTH);
   const candidateMargin = nearest.width / 2 + depthEstimate * RIVER_BANK_SLOPE_FACTOR + RIVER_GRID_SAFETY_MARGIN;
@@ -603,6 +604,11 @@ export function applyRiverChannel(x, z, ambientHeight, river = getRiver()) {
 // (triangulateRiverField)ことで作るため、2つのメッシュの境界形状は
 // 常に完全に一致する。
 
+// v1.61b: 川が「見える」範囲の半径(世界の中心から)。これより外には、水も川底も作らない。
+// 生成ワールドの川は、設計上、地形の端(113m)のさらに外(約141m)まで伸ばしてあり、その先で唐突に終わる断面が見えていた。
+// 川の中心線・水位・谷の掘り込みは変えず(=同じシードなら同じ世界)、水と川底の「見える部分」だけを、固定ワールドの川の端
+// (約92m)と同じ位置の円で終わらせる。終わりは、水を少しずつ透明にし、木の茂みで隠す(scene3d.jsの「川の両端」)。
+export const RIVER_VISIBLE_RADIUS = 94;
 const RIVER_GRID_CELL = 0.5; // 格子の一辺(地形のノイズ起伏を捉えられる細かさ。terrain.jsの分割幅と同程度)
 const RIVER_GRID_SAFETY_MARGIN = 2.0; // 判定範囲の左右に足す安全マージン(地形ノイズによるはみ出しを吸収する)
 
@@ -667,7 +673,7 @@ function buildRiverField(terrainHeightFn, river = getRiver()) {
       let waterLevel = 0;
       let u = 0.5;
 
-      if (nearest.distance <= candidateMargin) {
+      if (nearest.distance <= candidateMargin && x * x + z * z <= RIVER_VISIBLE_RADIUS * RIVER_VISIBLE_RADIUS) {
         // 水面の高さは、その場しのぎの「中心点の地形高さ+水の厚み」ではなく、
         // Hydrology Solverが縦断方向で単調減少するよう計算した
         // waterSurfaceElevation(t) をそのまま使う。
@@ -910,9 +916,9 @@ const riverFragmentBody = `
     float baseAlpha = mix(0.4, 0.8, depthFactor);
     baseAlpha = clamp(baseAlpha + fresnel * 0.15, 0.0, 1.0);
     float alpha = baseAlpha;
-    // v1.61: 川の上流端・下流端(vUv.y = 流れ方向の位置 0〜1)では、水を徐々に透明にして、
+    // v1.61b: 川の端(世界の中心から RIVER_VISIBLE_RADIUS の円)に近づくほど、水を徐々に透明にして、
     // 水がぷつりと途切れた「断面」が見えないようにする(端は、さらに木の茂みで隠している)。
-    alpha *= smoothstep(0.0, 0.04, vUv.y) * (1.0 - smoothstep(0.96, 1.0, vUv.y));
+    alpha *= 1.0 - smoothstep(${(RIVER_VISIBLE_RADIUS - 10).toFixed(1)}, ${RIVER_VISIBLE_RADIUS.toFixed(1)}, length(vWorldPos.xz));
     gl_FragColor = vec4(water, alpha);
   }
 `;
