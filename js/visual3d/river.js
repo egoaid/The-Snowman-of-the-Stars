@@ -43,6 +43,7 @@ import { fbm2D } from './noise.js';
 import { getToonGradientMap } from './shading.js';
 import { ambientHeightAt } from './terrain-noise.js';
 import { makeRng, randRange } from './rng.js';
+import { shapeRiverEnds, endHillHeight } from './river-ends.js';
 import { RIPPLE_GLSL, buildRippleDefines, createRipplePool, normalizeWaterQuality, WATER_QUALITY_SETTINGS } from './water-ripples.js';
 
 // Phase 3(2026-09): 70m世界向けの元の制御点を、中心(0,0)を基準にそのまま
@@ -78,9 +79,13 @@ let curve = buildCurveFromControlPoints(DEFAULT_CONTROL_POINTS);
  * あわせて呼び、getRiver() のキャッシュも作り直させること。
  * @param {{x:number,z:number}[]} points
  */
-export function setRiverControlPoints(points) {
+export function setRiverControlPoints(points, options = {}) {
   curve = buildCurveFromControlPoints(points);
+  // v1.63: 川の両端を、歩行境界の外側でS字に曲げて丘の陰へ隠す(river-ends.js)。
+  // shapeEnds = { seed, playableRadius, terrainHalf } を渡した時だけ有効(渡さなければ従来どおり)。
+  endShapeCfg = options.shapeEnds || null;
 }
+let endShapeCfg = null;
 
 /**
  * シードから、ワールドの端から端まで(Boundary Zoneの外側まで)貫くような
@@ -384,6 +389,8 @@ export function solveHydrology(centerline, ambientHeightFn, options = {}) {
     maxDepth = RIVER_MAX_DEPTH,
     maxDrop = RIVER_MAX_DROP,
     clearance = RIVER_WATER_CLEARANCE,
+    sourceAmbient: sourceAmbientOverride,
+    arcShift = 0,
   } = options;
 
   const n = centerline.length;
@@ -398,11 +405,11 @@ export function solveHydrology(centerline, ambientHeightFn, options = {}) {
     arc[i] = arc[i - 1] + Math.hypot(b.x - a.x, b.z - a.z);
   }
 
-  const sourceAmbient = ambientHeightFn(centerline[0].x, centerline[0].z);
+  const sourceAmbient = sourceAmbientOverride !== undefined ? sourceAmbientOverride : ambientHeightFn(centerline[0].x, centerline[0].z);
 
   // 1) 河床の縦断プロファイル(全体トレンド + 瀬/淵の局所変動)
   const rawBed = centerline.map((s, i) => {
-    const trend = sourceAmbient - baseGradient * arc[i];
+    const trend = sourceAmbient - baseGradient * (arc[i] + arcShift);
     // 瀬(riffle): 高周波・小振幅で細かい凹凸を作る
     const riffle = fbm2D(s.x * riffleScale, s.z * riffleScale, 2) * bedVariation * 0.4;
     // 淵(pool): 低周波・大振幅でゆるやかな深みを作る(riffleと周波数を変えるため、
@@ -502,8 +509,15 @@ export function getWaterSurfaceAt(x, z, terrainHeightFn, river = getRiver()) {
  * @param {number} [count]
  */
 export function createRiver(count = RIVER_SAMPLE_COUNT) {
-  const centerline = getRiverSamples(count);
+  let centerline = getRiverSamples(count);
+  let shape = null;
+  if (endShapeCfg) {
+    const shaped = shapeRiverEnds(centerline, endShapeCfg);
+    centerline = shaped.centerline;
+    shape = shaped.info; // null = 想定外の川で、整形しなかった
+  }
   return {
+    shape,
     source: { x: centerline[0].x, z: centerline[0].z },
     mouth: { x: centerline[centerline.length - 1].x, z: centerline[centerline.length - 1].z },
     centerline,
@@ -531,7 +545,12 @@ export function createRiver(count = RIVER_SAMPLE_COUNT) {
  * @param {(x:number,z:number)=>number} [ambientHeightFn]
  */
 export function recalculateRiver(river, ambientHeightFn = ambientHeightAt) {
-  river.hydrology = solveHydrology(river.centerline, ambientHeightFn, river.constraints);
+  // v1.63: 端を延長した川は、河床の全体勾配を「元の川の先頭(地形の外)を起点にした式」のまま続ける。
+  // これにより、境界の内側(中央)の水位・河床は、v1.62とほぼ同じになる。
+  const hydroOptions = river.shape
+    ? { ...river.constraints, sourceAmbient: ambientHeightFn(river.shape.origFirst.x, river.shape.origFirst.z), arcShift: river.shape.arcShift }
+    : river.constraints;
+  river.hydrology = solveHydrology(river.centerline, ambientHeightFn, hydroOptions);
   river.source = { x: river.centerline[0].x, z: river.centerline[0].z };
   river.mouth = { x: river.centerline[river.centerline.length - 1].x, z: river.centerline[river.centerline.length - 1].z };
   return river;
@@ -590,7 +609,19 @@ export function applyRiverChannel(x, z, ambientHeight, river = getRiver()) {
   const depthHere = Math.max(0, ambientHeight - bedElevation);
   const bankRise = Math.max(depthHere, RIVER_MIN_DEPTH) * RIVER_BANK_SLOPE_FACTOR;
   const t = smoothstep(halfWidth, halfWidth + bankRise, nearest.distance);
-  return ambientHeight - depthHere * (1 - t);
+  const carved = ambientHeight - depthHere * (1 - t);
+
+  // v1.63: 川の端の丘。歩行境界の外側だけ。水路・土手(bankRise の範囲)には載せず、
+  // その外側から、緩やかに立ち上げる(川の中に丘を置いて川を塞ぐことはしない)。
+  if (river.shape) {
+    const hill = endHillHeight(x, z, river.shape, fbm2D);
+    if (hill.h > 0) {
+      const bankEnd = halfWidth + bankRise + 0.5;
+      const channelMask = smoothstep(bankEnd, bankEnd + hill.ramp, nearest.distance);
+      return carved + hill.h * channelMask;
+    }
+  }
+  return carved;
 }
 
 // =====================================================================
@@ -608,7 +639,12 @@ export function applyRiverChannel(x, z, ambientHeight, river = getRiver()) {
 // 生成ワールドの川は、設計上、地形の端(113m)のさらに外(約141m)まで伸ばしてあり、その先で唐突に終わる断面が見えていた。
 // 川の中心線・水位・谷の掘り込みは変えず(=同じシードなら同じ世界)、水と川底の「見える部分」だけを、固定ワールドの川の端
 // (約92m)と同じ位置の円で終わらせる。終わりは、水を少しずつ透明にし、木の茂みで隠す(scene3d.jsの「川の両端」)。
-export const RIVER_VISIBLE_RADIUS = 94;
+export let RIVER_VISIBLE_RADIUS = 94;
+/**
+ * v1.63: 川の端を丘の陰へ隠す世界(setRiverControlPoints の shapeEnds)では、水を円で切る必要が無いので、
+ * 地形の端のすぐ内側まで広げる(水の端は、丘の陰で、水面シェーダーが少しずつ透明にする)。
+ */
+export function setRiverVisibleRadius(r) { RIVER_VISIBLE_RADIUS = r; }
 const RIVER_GRID_CELL = 0.5; // 格子の一辺(地形のノイズ起伏を捉えられる細かさ。terrain.jsの分割幅と同程度)
 const RIVER_GRID_SAFETY_MARGIN = 2.0; // 判定範囲の左右に足す安全マージン(地形ノイズによるはみ出しを吸収する)
 
@@ -918,7 +954,7 @@ const riverFragmentBody = `
     float alpha = baseAlpha;
     // v1.61b: 川の端(世界の中心から RIVER_VISIBLE_RADIUS の円)に近づくほど、水を徐々に透明にして、
     // 水がぷつりと途切れた「断面」が見えないようにする(端は、さらに木の茂みで隠している)。
-    alpha *= 1.0 - smoothstep(${(RIVER_VISIBLE_RADIUS - 10).toFixed(1)}, ${RIVER_VISIBLE_RADIUS.toFixed(1)}, length(vWorldPos.xz));
+    alpha *= 1.0 - smoothstep(RIVER_FADE_A, RIVER_FADE_B, length(vWorldPos.xz));
     gl_FragColor = vec4(water, alpha);
   }
 `;
@@ -937,7 +973,8 @@ export function buildWaterFragmentSource(quality) {
     lines.push(buildRippleDefines());
     if (cfg.drift) lines.push('#define WATER_RIPPLE_DRIFT');
   }
-  const body = hasRipples ? riverFragmentBody.replace('RIPPLE_FUNCTIONS', RIPPLE_GLSL) : riverFragmentBody;
+  let body = hasRipples ? riverFragmentBody.replace('RIPPLE_FUNCTIONS', RIPPLE_GLSL) : riverFragmentBody;
+  body = body.replace('RIVER_FADE_A', (RIVER_VISIBLE_RADIUS - 10).toFixed(1)).replace('RIVER_FADE_B', RIVER_VISIBLE_RADIUS.toFixed(1));
   return lines.join('\n') + '\n' + body;
 }
 

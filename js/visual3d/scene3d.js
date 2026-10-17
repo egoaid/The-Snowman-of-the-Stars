@@ -18,7 +18,7 @@ import { createCameraGroundGuard, createDomeOcclusionGuard } from './camera-grou
 import { applyDefaultShadowFlags } from './shadow-flags.js';
 import { snapShadowCenter } from './shadow-snap.js';
 import { stepHeading, WANDER_MAX_TURN_RATE, resolveCircleCollisions, computeAvoidSteer as computeAvoidSteerFor, pushOutOfObstacles, buildIglooPostObstacles, isMakingProgress, planWallDetour } from './wander-nav.js';
-import { buildRiverMesh, buildRiverbedMesh, getRiver, distanceToRiver, nearestRiverPoint, getWaterEdgeDistance, getWaterEdgeDistanceOnTerrain, RIVER_VISIBLE_RADIUS, setRiverControlPoints, generateRiverControlPoints, resetDefaultRiver, configureRiverWidthSeed } from './river.js';
+import { buildRiverMesh, buildRiverbedMesh, getRiver, distanceToRiver, nearestRiverPoint, getWaterEdgeDistance, getWaterEdgeDistanceOnTerrain, RIVER_VISIBLE_RADIUS, setRiverVisibleRadius, setRiverControlPoints, generateRiverControlPoints, resetDefaultRiver, configureRiverWidthSeed } from './river.js';
 import { createFish } from './fish.js';
 import { computeSkyState, createCelestialBodies } from './daynight.js';
 import { createWeatherSystem, SNOW_DEPTH_MAX } from './weather.js';
@@ -189,7 +189,9 @@ export function initScene(mountEl, options = {}) {
     const seed = worldGen.seed >>> 0;
     configureAmbientSeed(seed);
     configureRiverWidthSeed(seed);
-    setRiverControlPoints(generateRiverControlPoints(seed, TERRAIN_EDGE));
+    // v1.63: 川の両端は、歩行境界の外側でS字に曲げて丘の陰に隠す(river-ends.js)。水を円で切る処理は不要になる。
+    setRiverControlPoints(generateRiverControlPoints(seed, TERRAIN_EDGE), { shapeEnds: { seed, playableRadius: PLAYABLE_RADIUS, terrainHalf: TERRAIN_EDGE } });
+    setRiverVisibleRadius(TERRAIN_EDGE - 1);
     resetDefaultRiver(); // 上の変更を反映させるため、川のHydrologyキャッシュを作り直させる
   }
 
@@ -1645,7 +1647,8 @@ export function initScene(mountEl, options = {}) {
   //       水の端は、水面シェーダー側でも少しずつ透明にしてあるので、断面が見えない。
   //       木は、水と土手の斜面(水際+3.2m)には生やさない。乱数は専用(riverEndScreens)で、他の木の配置は変わらない。
   const riverEndScreenTrees = [];
-  {
+  // v1.63: 川の端をS字+丘で隠す世界(getRiver().shape がある)では、水の上に木を並べる栓は使わない。
+  if (!getRiver().shape) {
     const screenRng = makeRng(worldGen ? deriveSeed(worldGen.seed, 'riverEndScreens') : 6161);
     const cl = riverSamplesForAvoid;
     const n = cl.length;
