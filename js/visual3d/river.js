@@ -854,6 +854,9 @@ const riverFragmentBody = `
   uniform vec3 uSunDir;
   uniform vec3 uSkyColor;
   uniform float uLight; // v1.56-H6: 空の明るさ(0=夜〜1=昼)。水の色・きらめきの強さを昼夜で変える
+uniform samplerCube uSkyCube; // v1.65: 星空(星・天の川)を描いたキューブマップ(空の回転しない基準の向き)
+uniform mat3 uSkyRot;         // v1.65: 世界の向き → キューブマップの向き(星空の回転の逆回転)
+uniform float uStarRefl;      // v1.65: 星の映り込みの強さ(0=なし)。夜・晴れ・月明かりで変わる
 
 #if WATER_LEVEL >= 1
   // 安価なvalue noise(テクスチャ不要。数回のsin/fractで済ませる)
@@ -937,6 +940,16 @@ const riverFragmentBody = `
     vec3 halfDir = normalize(uSunDir + viewDir);
     float spec = pow(max(dot(fakeNormal, halfDir), 0.0), 70.0);
     water += vec3(1.0, 0.97, 0.88) * spec * 1.4 * mix(0.12, 1.0, dayK);
+    // v1.65: 星空の映り込み。反射方向(さざ波・波紋の法線で揺れる)で、星空のキューブマップを引く。
+    //   浅い角度ほど強く映す(フレネル)。法線の揺れは、星が散らばりすぎないよう半分に弱める。
+    if (uStarRefl > 0.002) {
+      vec3 rn = normalize(mix(vec3(0.0, 1.0, 0.0), fakeNormal, 0.55));
+      vec3 rv = reflect(-viewDir, rn);
+      float upK = smoothstep(0.03, 0.28, rv.y);                       // 地平線ぎわは映さない
+      float fr = 0.30 + 0.70 * pow(1.0 - clamp(viewDir.y, 0.0, 1.0), 3.0);
+      vec3 sk = textureCube(uSkyCube, uSkyRot * rv).rgb;
+      water += sk * upK * fr * uStarRefl * 2.2;
+    }
   #if WATER_LEVEL >= 2
     float glitterNoise = vnoise(flowUvB * 3.3 + uTime * 0.6);
     float glitter = smoothstep(0.965, 1.0, glitterNoise);
@@ -1037,6 +1050,9 @@ export function buildRiverMesh(terrainHeightFn, options = {}) {
     uSunDir: { value: new THREE.Vector3(0.5, 0.8, 0.3) },
     uSkyColor: { value: new THREE.Color(0xdfe8dc) },
     uLight: { value: 1 }, // v1.56-H6: 0=夜〜1=昼
+    uSkyCube: { value: null },                 // v1.65: 星空のキューブマップ(未設定なら何も映らない)
+    uSkyRot: { value: new THREE.Matrix3() },
+    uStarRefl: { value: 0 },
   };
 
   // 2026-09(v1.27): 品質(off/standard/high)ごとに、シェーダーのコードそのものと
@@ -1076,6 +1092,18 @@ export function buildRiverMesh(terrainHeightFn, options = {}) {
    * @param {THREE.Vector3} [sunDirection]
    * @param {number} [light] v1.56-H6: 空の明るさ(0=夜〜1=昼)。水の明るさときらめきに反映する
    */
+  /**
+   * v1.65: 星空の映り込みを設定する(毎フレーム呼んでよい)。
+   * @param {THREE.Texture|null} cube 星空のキューブマップ
+   * @param {THREE.Matrix3} rot       世界の向き → キューブマップの向き
+   * @param {number} strength         0=映さない
+   */
+  function setStarReflection(cube, rot, strength) {
+    sharedUniforms.uSkyCube.value = cube;
+    if (rot) sharedUniforms.uSkyRot.value.copy(rot);
+    sharedUniforms.uStarRefl.value = cube ? Math.max(0, strength) : 0;
+  }
+
   function setEnvironment(skyColor, sunDirection, light) {
     sharedUniforms.uSkyColor.value.copy(skyColor);
     if (sunDirection) sharedUniforms.uSunDir.value.copy(sunDirection);
@@ -1106,7 +1134,7 @@ export function buildRiverMesh(terrainHeightFn, options = {}) {
 
   function getQuality() { return quality; }
 
-  return { mesh, update, setEnvironment, spawnRipple, setQuality, getQuality, getRipplePool: () => active.pool };
+  return { mesh, update, setEnvironment, setStarReflection, spawnRipple, setQuality, getQuality, getRipplePool: () => active.pool };
 }
 
 // ---- 川底の色(頂点カラー) ----

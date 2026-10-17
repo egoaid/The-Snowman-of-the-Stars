@@ -39,6 +39,8 @@ export const STARFIELD_CONFIG = {
   starPx: 1.0,              // 暗い星の大きさ(描画バッファ上のピクセル)
   twinkle: 0.18,            // またたきの深さ(0〜1)。弱く
   milkyIntensity: 0.30,     // 天の川の明るさ(加算)
+  rotationFactor: 1 / 6,    // 星空の回転の速さ。1なら太陽・月と同じ(1日で一周)。演出のため、太陽・月より遅くする
+  reflectionSize: 512,      // 水面に映すための、星空のキューブマップの1面の大きさ
   meteorMax: 3,
   meteorIntervalMin: 22,    // 流れ星の間隔(秒): 晴れた夜に、最短〜最長のあいだで
   meteorIntervalMax: 75,
@@ -116,12 +118,13 @@ uniform float uPx;
 uniform float uMoonLight;
 uniform float uMoonGlow;
 uniform vec3 uMoonDir;
+uniform float uHorizon;   // 1=地平線ぎわを暗くする(通常)。0=暗くしない(キューブマップを作る時)
 varying vec3 vCol;
 varying float vI;
 void main() {
   vec4 wp = modelMatrix * vec4(position, 1.0);
   vec3 dir = normalize(wp.xyz - modelMatrix[3].xyz);
-  float hor = smoothstep(0.0, 0.22, dir.y);                                // 地平線に近いほど、大気で暗い
+  float hor = mix(1.0, smoothstep(0.0, 0.22, dir.y), uHorizon);            // 地平線に近いほど、大気で暗い
   float moonDim = 1.0 - uMoonGlow * smoothstep(0.86, 0.998, dot(dir, uMoonDir)); // 月のまわりは、まぶしくて見えにくい
   float floorMag = uMoonLight * 0.30;                                      // このアプリの月は一晩中出ているので、効果は控えめ
   float m = smoothstep(floorMag - 0.20, floorMag + 0.05, aMag);             // 月明かりで、いちばん暗い星から弱まる(月が無ければ全部見える)
@@ -160,6 +163,7 @@ uniform vec3 uGV;
 uniform float uVis;
 uniform float uIntensity;
 uniform float uMoonDim;
+uniform float uHorizon;
 varying vec3 vDir;
 varying vec3 vWorldDir;
 
@@ -207,7 +211,7 @@ void main() {
   vec3 cool = vec3(0.55, 0.66, 0.95);
   vec3 warm = vec3(1.0, 0.86, 0.66);
   vec3 col = mix(cool, warm, clamp(bulge * 0.9, 0.0, 1.0));
-  float hor = smoothstep(0.0, 0.25, vWorldDir.y);                // 地平線に近いほど暗い
+  float hor = mix(1.0, smoothstep(0.0, 0.25, vWorldDir.y), uHorizon);   // 地平線に近いほど暗い
   float a = I * uIntensity * uVis * uMoonDim * hor;
   gl_FragColor = vec4(col, a);
 }
@@ -236,7 +240,7 @@ export function createStarfield(opts = {}) {
   const starMat = new THREE.ShaderMaterial({
     uniforms: {
       uTime: { value: 0 }, uVis: { value: 0 }, uTwinkle: { value: cfg.twinkle }, uPx: { value: cfg.starPx },
-      uMoonLight: { value: 0 }, uMoonGlow: { value: 0 }, uMoonDir: { value: new THREE.Vector3(0, -1, 0) },
+      uMoonLight: { value: 0 }, uMoonGlow: { value: 0 }, uMoonDir: { value: new THREE.Vector3(0, -1, 0) }, uHorizon: { value: 1 },
     },
     vertexShader: STAR_VERT, fragmentShader: STAR_FRAG,
     transparent: true, depthWrite: false, depthTest: true, blending: THREE.AdditiveBlending, fog: false,
@@ -250,7 +254,7 @@ export function createStarfield(opts = {}) {
   const mwMat = new THREE.ShaderMaterial({
     uniforms: {
       uNG: { value: NG.clone() }, uGC: { value: GC.clone() }, uGV: { value: GV.clone() },
-      uVis: { value: 0 }, uIntensity: { value: cfg.milkyIntensity }, uMoonDim: { value: 1 },
+      uVis: { value: 0 }, uIntensity: { value: cfg.milkyIntensity }, uMoonDim: { value: 1 }, uHorizon: { value: 1 },
     },
     vertexShader: MILKY_VERT, fragmentShader: MILKY_FRAG,
     transparent: true, depthWrite: false, depthTest: true, blending: THREE.AdditiveBlending, side: THREE.BackSide, fog: false,
@@ -321,7 +325,16 @@ export function createStarfield(opts = {}) {
   }
 
   // --- 毎フレーム ---
-  const state = { vis: 0, night: 0, clarity: 1, moonLight: 0, lastMs: null, time: 0 };
+  // 星空の回転角: 時刻から直接求めず、「ゲーム内の経過時間」を積み上げて決める。
+  //   (回転を太陽・月より遅くしているので、時刻から求めると、0時をまたぐ時に空が飛んでしまう)
+  //   初めの向きはシードで決まる(ワールドごとに、同じ時刻でも星の位置が違う)。
+  const state = {
+    vis: 0, night: 0, clarity: 1, moonLight: 0, lastMs: null, time: 0,
+    angle: 1.1 + ((seed * 0.6180339887) % 1) * Math.PI * 2, lastHour: null,
+  };
+  const skyRotInv = new THREE.Matrix3();   // 世界の向き → 星空の向き(水面の映り込み用)
+  const _qInv = new THREE.Quaternion();
+  const _m4 = new THREE.Matrix4();
   const _moonDir = new THREE.Vector3();
   const _q = new THREE.Quaternion();
   const smooth = THREE.MathUtils.smoothstep;
@@ -344,9 +357,17 @@ export function createStarfield(opts = {}) {
     state.time += dt;
 
     root.position.copy(p.center);
-    // 空の回転: 太陽・月と同じ軸・同じ向き・同じ周期
-    _q.setFromAxisAngle(SKY_AXIS, (p.hour / 24) * Math.PI * 2 + 1.1);
+    // 空の回転: 太陽・月と同じ軸・同じ向き。ただし速さは rotationFactor 倍(演出として、太陽・月より遅い)
+    if (state.lastHour !== null) {
+      let dh = p.hour - state.lastHour;
+      if (dh > 12) dh -= 24; else if (dh < -12) dh += 24;
+      state.angle += (dh / 24) * Math.PI * 2 * cfg.rotationFactor;
+    }
+    state.lastHour = p.hour;
+    _q.setFromAxisAngle(SKY_AXIS, state.angle);
     dome.quaternion.copy(_q);
+    _qInv.copy(_q).invert();
+    skyRotInv.setFromMatrix4(_m4.makeRotationFromQuaternion(_qInv));
 
     // 夜の度合い: 空が暗い × 太陽が地平線の下
     const sunS = (p.sunPos.y - p.center.y) / 280;
@@ -384,7 +405,55 @@ export function createStarfield(opts = {}) {
     for (const m of meteors) if (m.alive) updateMeteor(m, dt);
   }
 
+  // --- 水面に映すための、星空のキューブマップ ---
+  // 起動時に1回だけ、星と天の川を「回転しない基準の向き」で描いておく。毎フレームは、
+  // 水面のシェーダーが、反射方向を星空の回転の逆回転で変換して引くだけ(再描画は要らない)。
+  let reflectionRT = null;
+  function bakeReflection(renderer) {
+    if (reflectionRT || !renderer) return !!reflectionRT;
+    reflectionRT = new THREE.WebGLCubeRenderTarget(cfg.reflectionSize, {
+      generateMipmaps: false, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter,
+    });
+    const tmp = new THREE.Scene();
+    tmp.background = new THREE.Color(0x000000);
+    const camCube = new THREE.CubeCamera(0.1, 400, reflectionRT);
+    tmp.add(camCube);
+    // 退避 → 基準の状態にする(見える度合い1、月なし、地平線の暗さなし、またたきなし、原点・回転なし)
+    const saved = {
+      parent: dome.parent, q: dome.quaternion.clone(),
+      vis: su_vis(), moonLight: starMat.uniforms.uMoonLight.value, moonGlow: starMat.uniforms.uMoonGlow.value,
+      tw: starMat.uniforms.uTwinkle.value, hz: starMat.uniforms.uHorizon.value, mvis: mwMat.uniforms.uVis.value,
+      mdim: mwMat.uniforms.uMoonDim.value, mhz: mwMat.uniforms.uHorizon.value, px: starMat.uniforms.uPx.value,
+      sv: stars.visible, mv: mw.visible,
+    };
+    tmp.add(dome);
+    dome.quaternion.identity();
+    starMat.uniforms.uVis.value = 1; starMat.uniforms.uMoonLight.value = 0; starMat.uniforms.uMoonGlow.value = 0;
+    starMat.uniforms.uTwinkle.value = 0; starMat.uniforms.uHorizon.value = 0; starMat.uniforms.uPx.value = 1.5;
+    mwMat.uniforms.uVis.value = 1; mwMat.uniforms.uMoonDim.value = 1; mwMat.uniforms.uHorizon.value = 0;
+    stars.visible = true; mw.visible = true;
+    camCube.position.set(0, 0, 0);
+    camCube.update(renderer, tmp);
+    // 元に戻す
+    root.add(dome);
+    dome.quaternion.copy(saved.q);
+    starMat.uniforms.uVis.value = saved.vis; starMat.uniforms.uMoonLight.value = saved.moonLight; starMat.uniforms.uMoonGlow.value = saved.moonGlow;
+    starMat.uniforms.uTwinkle.value = saved.tw; starMat.uniforms.uHorizon.value = saved.hz; starMat.uniforms.uPx.value = saved.px;
+    mwMat.uniforms.uVis.value = saved.mvis; mwMat.uniforms.uMoonDim.value = saved.mdim; mwMat.uniforms.uHorizon.value = saved.mhz;
+    stars.visible = saved.sv; mw.visible = saved.mv;
+    return true;
+  }
+  function su_vis() { return starMat.uniforms.uVis.value; }
+
+  /** 水面の映り込み用の値。キューブマップを作っていない時は texture が null(何も映らない)。 */
+  function getReflection() {
+    // 星の見える度合い × 月が高い時の弱まり(水面では、月自身のきらめきが別に出るので、星は控えめに)
+    const strength = state.vis * (1 - 0.3 * (state.moonLight / 0.6));
+    return { texture: reflectionRT ? reflectionRT.texture : null, rotation: skyRotInv, strength };
+  }
+
   function dispose() {
+    if (reflectionRT) reflectionRT.dispose();
     starGeo.dispose(); starMat.dispose(); mw.geometry.dispose(); mwMat.dispose();
     for (const m of meteors) { m.line.geometry.dispose(); m.line.material.dispose(); }
   }
@@ -393,9 +462,11 @@ export function createStarfield(opts = {}) {
     group: root,
     update,
     dispose,
+    bakeReflection,
+    getReflection,
     /** 検証用: すぐに流れ星を1つ出す(見える度合いに関係なく)。 */
     triggerMeteor: () => { const r = spawnMeteor(true); if (r) { /* 次の自動発生までの間隔は変えない */ } return r; },
-    getInfo: () => ({ vis: state.vis, night: state.night, clarity: state.clarity, moonLight: state.moonLight, stars: data.count, meteorsActive: meteors.filter((m) => m.alive).length }),
+    getInfo: () => ({ rotationFactor: cfg.rotationFactor, angle: state.angle, vis: state.vis, night: state.night, clarity: state.clarity, moonLight: state.moonLight, stars: data.count, meteorsActive: meteors.filter((m) => m.alive).length }),
     /** テスト用: 星のデータ(位置・明るさ)。 */
     _data: data,
   };

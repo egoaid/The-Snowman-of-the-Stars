@@ -7,7 +7,7 @@
 export const APP = {
   titleJa: '星の雪だるま',
   titleEn: 'The Snowman of the Stars',
-  version: '1.64',
+  version: '1.65',
   // 表記上の統一形式。実際の権利は All rights reserved。
   copyright: '© 2026 egoaid',
   // v1.57: 公開(GitHub Pages)。絶対URLが必要な所(canonical・sitemap・OGP・manifest)の基準。
