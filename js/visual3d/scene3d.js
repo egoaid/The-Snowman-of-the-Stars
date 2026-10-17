@@ -21,6 +21,7 @@ import { stepHeading, WANDER_MAX_TURN_RATE, resolveCircleCollisions, computeAvoi
 import { buildRiverMesh, buildRiverbedMesh, getRiver, distanceToRiver, nearestRiverPoint, getWaterEdgeDistance, getWaterEdgeDistanceOnTerrain, RIVER_VISIBLE_RADIUS, setRiverVisibleRadius, setRiverControlPoints, generateRiverControlPoints, resetDefaultRiver, configureRiverWidthSeed } from './river.js';
 import { createFish } from './fish.js';
 import { computeSkyState, createCelestialBodies } from './daynight.js';
+import { createStarfield } from './starfield.js';
 import { createWeatherSystem, SNOW_DEPTH_MAX } from './weather.js';
 import { createSeasonSystem, getSeasonLabel } from './season.js';
 import { createPineTree, createFallenTree, placeOnTerrain, setLeafTint, setLeafSnowBulk, createBroadleafTree, setBroadleafTint, applyBroadleafDefoliation, setBroadleafShapeParams } from './tree.js';
@@ -1975,6 +1976,9 @@ export function initScene(mountEl, options = {}) {
   //     これらのうち地平線より高いほうに毎フレーム追従させる ---
   const celestial = createCelestialBodies();
   scene.add(celestial.group);
+  // v1.64: 晴れた夜の星空(星・天の川・流れ星)。ワールドのシードごとに星の並びが変わる。
+  const starfield = createStarfield({ seed: worldGen ? worldGen.seed : 20261017 });
+  scene.add(starfield.group);
   // celestialCenterは「太陽/月の見た目の中心」であり同時に「影を計算する
   // フラスタムの中心」でもある。以前はテントの座標に固定していたため、
   // 160m世界でプレイヤーがテントから離れると影が出ない不具合があった。
@@ -2287,7 +2291,14 @@ export function initScene(mountEl, options = {}) {
     hemi.groundColor.copy(hemiGroundScratch);
     hemi.intensity = hemiIntensityFinal;
 
-    const { lightDir } = celestial.update(hour, celestialCenter);
+    const { lightDir, sunPos: celSunPos, moonPos: celMoonPos } = celestial.update(hour, celestialCenter);
+    // v1.64: 星空。夜の度合い(空の明るさ・太陽の高さ)と晴れ具合(雲・雨・雪・霧)で見え方を決める。
+    // 空の明るさは、天候で暗くした後の背景色の輝度(リニア→見た目の明るさ)。
+    const skyLumLinear = 0.2126 * skyBaseScratch.r + 0.7152 * skyBaseScratch.g + 0.0722 * skyBaseScratch.b;
+    starfield.update({
+      hour, center: celestialCenter, sunPos: celSunPos, moonPos: celMoonPos,
+      skyLum: Math.pow(Math.max(0, skyLumLinear), 1 / 2.2), clarity: 1 - skyMod.fogAmount,
+    });
     // 影の範囲の中心は、影マップの1マス単位に揃える(2026-09 v1.28。カメラが動くたびに
     // 影マップの格子が世界に対してずれて、雪だるまなどの表面に影のちらつき・ムラが
     // 出ていた。詳細はshadow-snap.js)。太陽・月の見た目の中心(celestialCenter)は
@@ -4086,6 +4097,9 @@ export function initScene(mountEl, options = {}) {
     },
     getWaterQuality: () => getRiverQuality(),
     setWeather: (name) => weather.setWeather(name),
+    // v1.64(検証用): 星空の状態の確認と、流れ星をすぐ1つ出す
+    getStarfieldInfo: () => starfield.getInfo(),
+    debugTriggerMeteor: () => starfield.triggerMeteor(),
     debugSetSnowDepth: (d) => weather.debugSetSnowDepth(d), // v1.56-H4: 検証用
     getWeather: () => weather.getWeather(),
     setWeatherAuto: (enabled) => weather.setAutoMode(enabled),
