@@ -865,8 +865,8 @@ const riverFragmentBody = `
   uniform vec3 uSunDir;
   uniform vec3 uSkyColor;
   uniform float uLight; // v1.56-H6: 空の明るさ(0=夜〜1=昼)。水の色・きらめきの強さを昼夜で変える
-uniform samplerCube uSkyCube; // v1.65: 星空(星・天の川)を描いたキューブマップ(空の回転しない基準の向き)
-uniform mat3 uSkyRot;         // v1.65: 世界の向き → キューブマップの向き(星空の回転の逆回転)
+uniform sampler2D uSkyMirror; // v1.68: 星空(星・天の川・流れ星)を、天地を反転して画面と同じ解像度で描いたもの(starfield.js)
+uniform vec2 uSkyViewport;    // v1.68: その大きさ(ピクセル)。画面上の同じ位置を引く
 uniform float uStarRefl;      // v1.65: 星の映り込みの強さ(0=なし)。夜・晴れ・月明かりで変わる
 uniform vec3 uMoonDir;        // v1.66: 月の向き(世界座標、単位ベクトル)
 uniform float uMoonRefl;      // v1.66: 月の映り込みの強さ(0=なし)
@@ -971,18 +971,25 @@ uniform float uMoonRefl;      // v1.66: 月の映り込みの強さ(0=なし)
     vec3 halfDir = normalize(uSunDir + viewDir);
     float spec = pow(max(dot(fakeNormal, halfDir), 0.0), 70.0);
     water += vec3(1.0, 0.97, 0.88) * spec * 1.4 * mix(0.12, 1.0, dayK);
-    // v1.65: 星空の映り込み。星空のキューブマップを、反射方向で引く。
-    //   浅い角度ほど強く映す(フレネル)。
-    // v1.67: 星の映り込みは、動く水面から完全に切り離す。法線は、さざ波・波紋の法線(fakeNormal)を一切使わず、
-    //   常に真上(平らな鏡)。視線も、上下のうねりを足す前の位置(vRestPos)から求める。
-    //   星の位置は、カメラの位置と星空の回転だけで決まり、波では動かない(星空は、波の上でも静かに回る)。
+    // v1.65: 星空の映り込み。
+    // v1.67: 星の映り込みは、動く水面から完全に切り離す(さざ波・波紋の法線を一切使わず、平らな鏡。視線も、
+    //   上下のうねりを足す前の位置 vRestPos から求める)。星の位置は、波では動かない。
+    // v1.68: 空と同じ星・天の川・流れ星を、天地を反転して画面と同じ解像度で描いたもの(starfield.js)を、
+    //   画面上の同じ位置から引く。星の大きさ・位置・回転は、空とまったく同じ(以前のキューブマップは、空の約2倍の大きさだった)。
+    //   「川面に映っている」感じは、位置ではなく、明るさと色で出す:
+    //     ・浅い角度(遠い所)ほど強く、近いほど弱い(フレネル)
+    //     ・水の色味になじませる
+    //     ・岸ぎわの浅い所は薄くする(depthFactor)
+    //     ・さざ波が流れていくのに合わせて、明るさだけがゆらぐ(位置は動かない)
     if (uStarRefl > 0.002) {
       vec3 starView = normalize(uCameraPos - vRestPos);
-      vec3 rv = reflect(-starView, vec3(0.0, 1.0, 0.0));
-      float upK = smoothstep(0.03, 0.28, rv.y);                       // 地平線ぎわは映さない
-      float fr = 0.30 + 0.70 * pow(1.0 - clamp(starView.y, 0.0, 1.0), 3.0);
-      vec3 sk = textureCube(uSkyCube, uSkyRot * rv).rgb;
-      water += sk * upK * fr * uStarRefl * 2.2;
+      float grazing = pow(1.0 - clamp(starView.y, 0.0, 1.0), 3.0);
+      float fr = 0.10 + 0.90 * grazing;
+      vec3 sk = texture2D(uSkyMirror, gl_FragCoord.xy / uSkyViewport).rgb;
+      vec3 tint = water / max(max(water.r, max(water.g, water.b)), 0.001);   // 水の色味(明るさを除く)
+      sk *= mix(vec3(1.0), tint * 1.25, 0.55);
+      float shim = 0.55 + 0.9 * ripple;                                       // 明るさだけがゆらぐ
+      water += sk * fr * depthFactor * shim * uStarRefl * 3.2;
     }
     // v1.66: 月の映り込み。月の円盤(空の月の見かけの大きさ)が、さざ波・波紋の法線で崩れた光の粒になって映る。
     //   法線の揺れは強めに使う(静かな円ではなく、きらきらした筋になる)。昼は出ない。
@@ -1096,8 +1103,8 @@ export function buildRiverMesh(terrainHeightFn, options = {}) {
     uSunDir: { value: new THREE.Vector3(0.5, 0.8, 0.3) },
     uSkyColor: { value: new THREE.Color(0xdfe8dc) },
     uLight: { value: 1 }, // v1.56-H6: 0=夜〜1=昼
-    uSkyCube: { value: null },                 // v1.65: 星空のキューブマップ(未設定なら何も映らない)
-    uSkyRot: { value: new THREE.Matrix3() },
+    uSkyMirror: { value: null },               // v1.68: 星空の鏡写し(未設定なら何も映らない)
+    uSkyViewport: { value: new THREE.Vector2(1, 1) },
     uStarRefl: { value: 0 },
     uMoonDir: { value: new THREE.Vector3(0, 1, 0) },   // v1.66
     uMoonRefl: { value: 0 },
@@ -1142,14 +1149,14 @@ export function buildRiverMesh(terrainHeightFn, options = {}) {
    */
   /**
    * v1.65: 星空の映り込みを設定する(毎フレーム呼んでよい)。
-   * @param {THREE.Texture|null} cube 星空のキューブマップ
-   * @param {THREE.Matrix3} rot       世界の向き → キューブマップの向き
-   * @param {number} strength         0=映さない
+   * @param {THREE.Texture|null} mirror 星空の鏡写し(v1.68: 画面と同じ解像度の2Dテクスチャ)
+   * @param {THREE.Vector2} size        その大きさ(ピクセル)
+   * @param {number} strength           0=映さない
    */
-  function setStarReflection(cube, rot, strength, moonDir, moonStrength) {
-    sharedUniforms.uSkyCube.value = cube;
-    if (rot) sharedUniforms.uSkyRot.value.copy(rot);
-    sharedUniforms.uStarRefl.value = cube ? Math.max(0, strength) : 0;
+  function setStarReflection(mirror, size, strength, moonDir, moonStrength) {
+    sharedUniforms.uSkyMirror.value = mirror;
+    if (size) sharedUniforms.uSkyViewport.value.copy(size);
+    sharedUniforms.uStarRefl.value = mirror ? Math.max(0, strength) : 0;
     // v1.66: 月の映り込み(月の向きと強さ。キューブマップが無くても、月だけは映せる)
     if (moonDir) sharedUniforms.uMoonDir.value.copy(moonDir);
     sharedUniforms.uMoonRefl.value = Math.max(0, moonStrength || 0);

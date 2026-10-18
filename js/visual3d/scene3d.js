@@ -1979,7 +1979,6 @@ export function initScene(mountEl, options = {}) {
   // v1.64: 晴れた夜の星空(星・天の川・流れ星)。ワールドのシードごとに星の並びが変わる。
   const starfield = createStarfield({ seed: worldGen ? worldGen.seed : 20261017 });
   scene.add(starfield.group);
-  starfield.bakeReflection(renderer); // v1.65: 川面に映す星空を、起動時に1回だけ描いておく
   let waterReflectionEnabled = options.waterReflection !== false; // v1.66: 星と月の映り込み(設定でオン/オフ。初期値はオン)
   // celestialCenterは「太陽/月の見た目の中心」であり同時に「影を計算する
   // フラスタムの中心」でもある。以前はテントの座標に固定していたため、
@@ -2323,7 +2322,7 @@ export function initScene(mountEl, options = {}) {
       if (typeof setRiverStarReflection === 'function') { // v1.65: 星空の映り込み / v1.66: 月の映り込み。設定でオフにできる
         const sr = starfield.getReflection();
         const on = waterReflectionEnabled ? 1 : 0;
-        setRiverStarReflection(sr.texture, sr.rotation, sr.strength * on, sr.moonDir, sr.moonStrength * on);
+        setRiverStarReflection(sr.texture, sr.size, sr.strength * on, sr.moonDir, sr.moonStrength * on);
       }
     }
     // 山は「夜景のシルエット」として見えてほしいので、草より下限を低く(暗く)している
@@ -3737,6 +3736,8 @@ export function initScene(mountEl, options = {}) {
       if (constrainCameraPosition(camera.position)) camera.lookAt(orbitControls.target);
     }
 
+    // v1.68: 川面に映す星空(天地を反転して、画面と同じ解像度で描く)。見えない時・オフの時は描かない。
+    if (waterReflectionEnabled && getRiverQuality() !== 'off') starfield.renderReflection(renderer, camera);
     renderer.render(scene, camera);
 
     // --- デバッグ統計を間引いて通知 ---
