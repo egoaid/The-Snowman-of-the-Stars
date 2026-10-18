@@ -151,6 +151,10 @@
         </select>
       </label>
       <div style="font-size:11px; opacity:0.75; margin-top:2px;">動作が重い端末では「標準」か「オフ」にしてください。</div>
+      <label style="display:block; margin-top:8px;">
+        <input type="checkbox" id="waterReflectionCheckbox" checked> ✨ 川面に星と月を映す
+      </label>
+      <div style="font-size:11px; opacity:0.75; margin-top:2px;">夜の川に、星空と月が映ります。水面の品質が「オフ」の時は映りません。</div>
     </div>
         <div class="set-block">
           <h3 class="set-h">📱 画面</h3>
@@ -738,6 +742,15 @@
     }
     const initialWaterQuality = loadWaterQuality();
     waterQualitySelect.value = initialWaterQuality;
+
+    // --- 川面への星と月の映り込み(v1.66)。この端末に保存する。初期値はオン。押した瞬間に反映される。 ---
+    const WATER_REFLECTION_KEY = 'ambient-soundscape.waterReflection';
+    const waterReflectionCheckbox = document.getElementById('waterReflectionCheckbox');
+    function loadWaterReflection() {
+      try { return localStorage.getItem(WATER_REFLECTION_KEY) !== 'off'; } catch (e) { return true; }
+    }
+    const initialWaterReflection = loadWaterReflection();
+    waterReflectionCheckbox.checked = initialWaterReflection;
 
     // --- 広葉樹の枝ぶり設定(2026-09、v1.34) ---
     // 水面品質と同じくこの端末のlocalStorageに保存する。木はシーン起動時に
@@ -1653,6 +1666,7 @@
           // その後はゲーム内時計が自動で進む(現実20分でゲーム内1日)。
           worldGen: manualWorldGen ? { enabled: true, seed: initialSeed } : (current.ok ? { enabled: true, seed: current.world.seed } : null), // 公開版: 選んだワールドのシードで地形を作る
           waterQuality: initialWaterQuality,
+          waterReflection: initialWaterReflection,
           broadleafShape: initialBroadleafShape,
           broadleafRatioOverride: initialBroadleafShape.ratio,
           forceHalloween: urlParams.get('halloween') === '1', // 確認用: 期間外でもジャック・オー・ランタンを地表に出す
@@ -1839,6 +1853,10 @@
         });
         leafBurstBtn.addEventListener('click', () => {
           scene.burstLeafFall(100);
+        });
+        waterReflectionCheckbox.addEventListener('change', () => {
+          scene.setWaterReflection(waterReflectionCheckbox.checked);
+          try { localStorage.setItem(WATER_REFLECTION_KEY, waterReflectionCheckbox.checked ? 'on' : 'off'); } catch (e) { /* 保存できなくても動作は続ける */ }
         });
         waterQualitySelect.addEventListener('change', () => {
           scene.setWaterQuality(waterQualitySelect.value);

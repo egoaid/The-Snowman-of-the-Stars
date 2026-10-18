@@ -331,6 +331,7 @@ export function createStarfield(opts = {}) {
   const state = {
     vis: 0, night: 0, clarity: 1, moonLight: 0, lastMs: null, time: 0,
     angle: 1.1 + ((seed * 0.6180339887) % 1) * Math.PI * 2, lastHour: null,
+    moonVis: 0, moonDir: new THREE.Vector3(0, 1, 0),
   };
   const skyRotInv = new THREE.Matrix3();   // 世界の向き → 星空の向き(水面の映り込み用)
   const _qInv = new THREE.Quaternion();
@@ -383,6 +384,9 @@ export function createStarfield(opts = {}) {
     _moonDir.copy(p.moonPos).sub(p.center).normalize();
 
     state.vis = vis; state.night = night; state.clarity = clarity; state.moonLight = moonLight;
+    // 川面に映す月: 月が地平線の上にあり、晴れているほど強い(夜かどうかは、水面シェーダー側で見る)
+    state.moonDir.copy(_moonDir);
+    state.moonVis = smooth(moonS, 0.0, 0.10) * smooth(clarity, 0.2, 0.8);
 
     const su = starMat.uniforms;
     su.uTime.value = state.time; su.uVis.value = vis;
@@ -449,7 +453,7 @@ export function createStarfield(opts = {}) {
   function getReflection() {
     // 星の見える度合い × 月が高い時の弱まり(水面では、月自身のきらめきが別に出るので、星は控えめに)
     const strength = state.vis * (1 - 0.3 * (state.moonLight / 0.6));
-    return { texture: reflectionRT ? reflectionRT.texture : null, rotation: skyRotInv, strength };
+    return { texture: reflectionRT ? reflectionRT.texture : null, rotation: skyRotInv, strength, moonDir: state.moonDir, moonStrength: state.moonVis };
   }
 
   function dispose() {
@@ -466,7 +470,7 @@ export function createStarfield(opts = {}) {
     getReflection,
     /** 検証用: すぐに流れ星を1つ出す(見える度合いに関係なく)。 */
     triggerMeteor: () => { const r = spawnMeteor(true); if (r) { /* 次の自動発生までの間隔は変えない */ } return r; },
-    getInfo: () => ({ rotationFactor: cfg.rotationFactor, angle: state.angle, vis: state.vis, night: state.night, clarity: state.clarity, moonLight: state.moonLight, stars: data.count, meteorsActive: meteors.filter((m) => m.alive).length }),
+    getInfo: () => ({ moonVis: state.moonVis, rotationFactor: cfg.rotationFactor, angle: state.angle, vis: state.vis, night: state.night, clarity: state.clarity, moonLight: state.moonLight, stars: data.count, meteorsActive: meteors.filter((m) => m.alive).length }),
     /** テスト用: 星のデータ(位置・明るさ)。 */
     _data: data,
   };

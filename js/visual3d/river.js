@@ -728,7 +728,7 @@ function buildRiverField(terrainHeightFn, river = getRiver()) {
         u = 0.5 + 0.5 * Math.sign(side) * uNorm;
       }
 
-      grid[j * stride + i] = { x, z, scalar, waterLevel, u, v: nearest.t };
+      grid[j * stride + i] = { x, z, scalar, waterLevel, u, v: nearest.t, fx: nearest.tangentX, fz: nearest.tangentZ }; // v1.66: fx,fz = その地点の川の流れの向き(下流向き)
     }
   }
 
@@ -746,6 +746,8 @@ function lerpFieldAttrs(a, b, alpha) {
     u: a.u + (b.u - a.u) * alpha,
     v: a.v + (b.v - a.v) * alpha,
     waterLevel: a.waterLevel + (b.waterLevel - a.waterLevel) * alpha,
+    fx: a.fx + (b.fx - a.fx) * alpha,
+    fz: a.fz + (b.fz - a.fz) * alpha,
   };
 }
 
@@ -768,6 +770,7 @@ function triangulateRiverField(field, yPicker) {
   const positions = [];
   const uvs = [];
   const vertexXZ = []; // 頂点カラー計算用に、各頂点の実際のx,zとuを保持しておく
+  const flows = [];    // v1.66: 各頂点の、川の流れの向き(x,z)。水面のさざ波を流れに沿って動かすために使う
   const indices = [];
   let vertexCount = 0;
 
@@ -776,6 +779,7 @@ function triangulateRiverField(field, yPicker) {
     positions.push(attrs.x, y, attrs.z);
     uvs.push(attrs.u, attrs.v);
     vertexXZ.push(attrs.x, attrs.z, attrs.u);
+    flows.push(attrs.fx, attrs.fz);
     vertexCount += 1;
     return vertexCount - 1;
   }
@@ -819,16 +823,19 @@ function triangulateRiverField(field, yPicker) {
     }
   }
 
-  return { positions, uvs, vertexXZ, indices, vertexCount };
+  return { positions, uvs, vertexXZ, indices, vertexCount, flows };
 }
 
 const riverVertexShader = `
+  attribute vec2 aFlow;
+  varying vec2 vFlow;
   varying vec2 vUv;
   varying vec3 vWorldPos;
   uniform float uTime;
 
   void main() {
     vUv = uv;
+    vFlow = aFlow;
     vec4 worldPos = modelMatrix * vec4(position, 1.0);
     // ごく小さな上下のうねり(実際の波シミュレーションではなく、
     // 「生きた水面」に見せるための安価な近似)
@@ -847,6 +854,7 @@ const riverVertexShader = `
 // 波紋(RIPPLE_COUNT>0の時)は、各Ripple Sourceから外側へ伝わる波の高さの
 // 勾配を疑似法線へ足し合わせる(water-ripples.jsのRIPPLE_GLSL)。
 const riverFragmentBody = `
+  varying vec2 vFlow;
   varying vec2 vUv;
   varying vec3 vWorldPos;
   uniform float uTime;
@@ -857,6 +865,8 @@ const riverFragmentBody = `
 uniform samplerCube uSkyCube; // v1.65: 星空(星・天の川)を描いたキューブマップ(空の回転しない基準の向き)
 uniform mat3 uSkyRot;         // v1.65: 世界の向き → キューブマップの向き(星空の回転の逆回転)
 uniform float uStarRefl;      // v1.65: 星の映り込みの強さ(0=なし)。夜・晴れ・月明かりで変わる
+uniform vec3 uMoonDir;        // v1.66: 月の向き(世界座標、単位ベクトル)
+uniform float uMoonRefl;      // v1.66: 月の映り込みの強さ(0=なし)
 
 #if WATER_LEVEL >= 1
   // 安価なvalue noise(テクスチャ不要。数回のsin/fractで済ませる)
@@ -873,6 +883,11 @@ uniform float uStarRefl;      // v1.65: 星の映り込みの強さ(0=なし)。
     vec2 u = f * f * (3.0 - 2.0 * f);
     return mix(a, b, u.x) + (c - a) * u.y * (1.0 - u.x) + (d - b) * u.x * u.y;
   }
+  // v1.66: さざ波の模様を、川の流れの向きに沿って動かすためのノイズ。
+  //   向きが場所で変わっても模様がねじれ続けないよう、2つの層を半周期ずらして交互に混ぜる(フローマップと同じ方式)。
+  float flowBlend(vec2 q, vec2 o0, vec2 o1, float w0) {
+    return mix(vnoise(q - o1 + vec2(7.3, 2.9)), vnoise(q - o0), w0);
+  }
 #endif
 
 #ifdef HAS_RIPPLES
@@ -882,11 +897,24 @@ uniform float uStarRefl;      // v1.65: 星の映り込みの強さ(0=なし)。
   void main() {
 #if WATER_LEVEL >= 1
     // 1) 流れるさざ波(ワールド座標基準なので、川幅が変わっても模様が伸び縮みしない)
-    vec2 flowUvA = vWorldPos.xz * 0.55 + vec2(0.0, uTime * 0.4);
-    float nA = vnoise(flowUvA);
+    //    v1.66: 模様は、その場所の川の流れの向き(vFlow)に沿って下流へ動く。
+    //    (以前は、世界の座標軸の決まった向きに動いていて、川の向きと関係なかった)
+    vec2 fl = vFlow;
+    float fll = length(fl);
+    fl = fll > 0.01 ? fl / fll : vec2(0.0, 1.0);
+    const float FLOW_PERIOD = 3.0;
+    float ph0 = fract(uTime / FLOW_PERIOD);
+    float ph1 = fract(uTime / FLOW_PERIOD + 0.5);
+    float fw = 1.0 - abs(2.0 * ph0 - 1.0);
+    vec2 qA = vWorldPos.xz * 0.55;
+    vec2 oA0 = fl * (ph0 * FLOW_PERIOD * 0.4);
+    vec2 oA1 = fl * (ph1 * FLOW_PERIOD * 0.4);
+    float nA = flowBlend(qA, oA0, oA1, fw);
   #if WATER_LEVEL >= 2
-    vec2 flowUvB = vWorldPos.xz * 1.6 - vec2(uTime * 0.22, uTime * 0.13);
-    float nB = vnoise(flowUvB);
+    vec2 qB = vWorldPos.xz * 1.6;
+    vec2 oB0 = fl * (ph0 * FLOW_PERIOD * 0.26);
+    vec2 oB1 = fl * (ph1 * FLOW_PERIOD * 0.26);
+    float nB = flowBlend(qB, oB0, oB1, fw);
     float ripple = nA * 0.6 + nB * 0.4;
   #else
     float ripple = nA;
@@ -894,8 +922,8 @@ uniform float uStarRefl;      // v1.65: 星の映り込みの強さ(0=なし)。
 
     // 2) 疑似法線: ノイズの勾配から求める(本物のバンプマップの代わり)
     float eps = 0.15;
-    float ndx = vnoise(flowUvA + vec2(eps, 0.0)) - vnoise(flowUvA - vec2(eps, 0.0));
-    float ndz = vnoise(flowUvA + vec2(0.0, eps)) - vnoise(flowUvA - vec2(0.0, eps));
+    float ndx = flowBlend(qA + vec2(eps, 0.0), oA0, oA1, fw) - flowBlend(qA - vec2(eps, 0.0), oA0, oA1, fw);
+    float ndz = flowBlend(qA + vec2(0.0, eps), oA0, oA1, fw) - flowBlend(qA - vec2(0.0, eps), oA0, oA1, fw);
     // 雨粒の波紋: 各Ripple Sourceの波の勾配(dh/dx, dh/dz)と高さhの合計
   #ifdef HAS_RIPPLES
     vec3 rp = rippleField(vWorldPos.xz, uTime);
@@ -941,17 +969,29 @@ uniform float uStarRefl;      // v1.65: 星の映り込みの強さ(0=なし)。
     float spec = pow(max(dot(fakeNormal, halfDir), 0.0), 70.0);
     water += vec3(1.0, 0.97, 0.88) * spec * 1.4 * mix(0.12, 1.0, dayK);
     // v1.65: 星空の映り込み。反射方向(さざ波・波紋の法線で揺れる)で、星空のキューブマップを引く。
-    //   浅い角度ほど強く映す(フレネル)。法線の揺れは、星が散らばりすぎないよう半分に弱める。
+    //   浅い角度ほど強く映す(フレネル)。法線の揺れは小さくして、星が模様と一緒に滑らないようにする
+    //   (星は空と同じ速さで静かに回り、波でわずかに揺らぐだけにする)。
     if (uStarRefl > 0.002) {
-      vec3 rn = normalize(mix(vec3(0.0, 1.0, 0.0), fakeNormal, 0.55));
+      vec3 rn = normalize(mix(vec3(0.0, 1.0, 0.0), fakeNormal, 0.16));
       vec3 rv = reflect(-viewDir, rn);
       float upK = smoothstep(0.03, 0.28, rv.y);                       // 地平線ぎわは映さない
       float fr = 0.30 + 0.70 * pow(1.0 - clamp(viewDir.y, 0.0, 1.0), 3.0);
       vec3 sk = textureCube(uSkyCube, uSkyRot * rv).rgb;
       water += sk * upK * fr * uStarRefl * 2.2;
     }
+    // v1.66: 月の映り込み。月の円盤(空の月の見かけの大きさ)が、さざ波・波紋の法線で崩れた光の粒になって映る。
+    //   法線の揺れは強めに使う(静かな円ではなく、きらきらした筋になる)。昼は出ない。
+    if (uMoonRefl > 0.002) {
+      vec3 rnM = normalize(mix(vec3(0.0, 1.0, 0.0), fakeNormal, 0.9));
+      vec3 rvM = reflect(-viewDir, rnM);
+      float cdM = dot(rvM, uMoonDir);
+      float disc = smoothstep(cos(0.085), cos(0.032), cdM);           // 月の円盤(半径0.03rad)と、そのまわりのにじみ
+      float halo = pow(max(cdM, 0.0), 160.0) * 0.5;
+      float nightK = 1.0 - smoothstep(0.15, 0.6, uLight);
+      water += vec3(0.93, 0.96, 1.0) * (disc * 0.95 + halo) * uMoonRefl * nightK * step(0.02, rvM.y);
+    }
   #if WATER_LEVEL >= 2
-    float glitterNoise = vnoise(flowUvB * 3.3 + uTime * 0.6);
+    float glitterNoise = flowBlend(qB * 3.3, oB0 * 3.3, oB1 * 3.3, fw);
     float glitter = smoothstep(0.965, 1.0, glitterNoise);
     water += vec3(1.0, 1.0, 0.95) * glitter * 0.6 * mix(0.12, 1.0, dayK);
   #endif
@@ -1035,11 +1075,12 @@ export function buildRiverMesh(terrainHeightFn, options = {}) {
   const field = buildRiverField(terrainHeightFn);
   const yPicker = (attrs, isBoundary) =>
     isBoundary ? terrainHeightFn(attrs.x, attrs.z) : attrs.waterLevel;
-  const { positions, uvs, indices } = triangulateRiverField(field, yPicker);
+  const { positions, uvs, indices, flows } = triangulateRiverField(field, yPicker);
 
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
   geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  geo.setAttribute('aFlow', new THREE.Float32BufferAttribute(flows, 2)); // v1.66
   geo.setIndex(indices);
   geo.computeVertexNormals();
 
@@ -1053,6 +1094,8 @@ export function buildRiverMesh(terrainHeightFn, options = {}) {
     uSkyCube: { value: null },                 // v1.65: 星空のキューブマップ(未設定なら何も映らない)
     uSkyRot: { value: new THREE.Matrix3() },
     uStarRefl: { value: 0 },
+    uMoonDir: { value: new THREE.Vector3(0, 1, 0) },   // v1.66
+    uMoonRefl: { value: 0 },
   };
 
   // 2026-09(v1.27): 品質(off/standard/high)ごとに、シェーダーのコードそのものと
@@ -1098,10 +1141,13 @@ export function buildRiverMesh(terrainHeightFn, options = {}) {
    * @param {THREE.Matrix3} rot       世界の向き → キューブマップの向き
    * @param {number} strength         0=映さない
    */
-  function setStarReflection(cube, rot, strength) {
+  function setStarReflection(cube, rot, strength, moonDir, moonStrength) {
     sharedUniforms.uSkyCube.value = cube;
     if (rot) sharedUniforms.uSkyRot.value.copy(rot);
     sharedUniforms.uStarRefl.value = cube ? Math.max(0, strength) : 0;
+    // v1.66: 月の映り込み(月の向きと強さ。キューブマップが無くても、月だけは映せる)
+    if (moonDir) sharedUniforms.uMoonDir.value.copy(moonDir);
+    sharedUniforms.uMoonRefl.value = Math.max(0, moonStrength || 0);
   }
 
   function setEnvironment(skyColor, sunDirection, light) {

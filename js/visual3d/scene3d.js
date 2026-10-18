@@ -1980,6 +1980,7 @@ export function initScene(mountEl, options = {}) {
   const starfield = createStarfield({ seed: worldGen ? worldGen.seed : 20261017 });
   scene.add(starfield.group);
   starfield.bakeReflection(renderer); // v1.65: 川面に映す星空を、起動時に1回だけ描いておく
+  let waterReflectionEnabled = options.waterReflection !== false; // v1.66: 星と月の映り込み(設定でオン/オフ。初期値はオン)
   // celestialCenterは「太陽/月の見た目の中心」であり同時に「影を計算する
   // フラスタムの中心」でもある。以前はテントの座標に固定していたため、
   // 160m世界でプレイヤーがテントから離れると影が出ない不具合があった。
@@ -2319,7 +2320,11 @@ export function initScene(mountEl, options = {}) {
     );
     if (typeof setRiverEnvironment === 'function') {
       setRiverEnvironment(scene.background, lightDir, brightnessRaw); // v1.56-H6: 川も昼夜・天候の明るさに合わせる(夜は暗く)
-      if (typeof setRiverStarReflection === 'function') { const sr = starfield.getReflection(); setRiverStarReflection(sr.texture, sr.rotation, sr.strength); } // v1.65: 星空の映り込み
+      if (typeof setRiverStarReflection === 'function') { // v1.65: 星空の映り込み / v1.66: 月の映り込み。設定でオフにできる
+        const sr = starfield.getReflection();
+        const on = waterReflectionEnabled ? 1 : 0;
+        setRiverStarReflection(sr.texture, sr.rotation, sr.strength * on, sr.moonDir, sr.moonStrength * on);
+      }
     }
     // 山は「夜景のシルエット」として見えてほしいので、草より下限を低く(暗く)している
     const mountainFactor = THREE.MathUtils.lerp(0.08, 1, Math.pow(brightnessRaw, 1.2));
@@ -4098,6 +4103,9 @@ export function initScene(mountEl, options = {}) {
       weather.setWaterRipplesEnabled(getRiverQuality() !== 'off');
     },
     getWaterQuality: () => getRiverQuality(),
+    // v1.66: 川面への星と月の映り込みのオン/オフ(押した瞬間に反映される)
+    setWaterReflection: (on) => { waterReflectionEnabled = !!on; },
+    getWaterReflection: () => waterReflectionEnabled,
     setWeather: (name) => weather.setWeather(name),
     // v1.64(検証用): 星空の状態の確認と、流れ星をすぐ1つ出す
     getStarfieldInfo: () => starfield.getInfo(),
