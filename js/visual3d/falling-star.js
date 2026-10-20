@@ -77,15 +77,16 @@ export function pickStarLandingSpot(d) {
   return null;
 }
 
-function makeGlowTexture() {
+function makeGlowTexture(stops) {
+  const S = stops || [[255, 244, 200], [255, 226, 140], [255, 210, 100]]; // 星の光(暖かい黄)。月の石は kit.glowStops で青白くする(v1.69)
   const size = 64;
   const c = document.createElement('canvas');
   c.width = c.height = size;
   const g = c.getContext('2d');
   const grad = g.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
-  grad.addColorStop(0, 'rgba(255,244,200,1)');
-  grad.addColorStop(0.25, 'rgba(255,226,140,0.55)');
-  grad.addColorStop(1, 'rgba(255,210,100,0)');
+  grad.addColorStop(0, `rgba(${S[0].join(',')},1)`);
+  grad.addColorStop(0.25, `rgba(${S[1].join(',')},0.55)`);
+  grad.addColorStop(1, `rgba(${S[2].join(',')},0)`);
   g.fillStyle = grad;
   g.fillRect(0, 0, size, size);
   const tex = new THREE.CanvasTexture(c);
@@ -113,11 +114,15 @@ export function createFallingStarSystem(o) {
   const hooks = o.hooks || {};
   const testMode = o.testMode || null;
   const maxStars = Math.max(1, cfg.maxStars || 1);
+  // v1.69: 月の石でも使えるよう、形・色を差し替えられる(kit)。省略すれば従来どおりの星。
+  const kit = o.kit || {};
+  const kitColors = kit.colors || {};
+  const liveCount = () => stars.filter((s) => !s.buried).length; // 地面に埋まっている物は、同時に降る数の上限に数えない
 
-  const glowTex = typeof document !== 'undefined' ? makeGlowTexture() : null;
+  const glowTex = typeof document !== 'undefined' ? makeGlowTexture(kit.glowStops) : null;
 
   // 作成時に1度だけ追加し、以後は追加・削除しない(intensityだけ動かす)
-  const light = new THREE.PointLight(0xffe0a0, 0, cfg.lightDistance, 2);
+  const light = new THREE.PointLight(kitColors.light ?? 0xffe0a0, 0, cfg.lightDistance, 2);
   o.scene.add(light);
 
   let nextId = 1;
@@ -128,11 +133,11 @@ export function createFallingStarSystem(o) {
     const group = new THREE.Group();
     group.visible = false;
     o.scene.add(group);
-    const starMat = new THREE.MeshBasicMaterial({ color: 0xffe27a, transparent: true, fog: false });
-    const starMesh = new THREE.Mesh(createStarGeometry(cfg.groundRadius), starMat);
+    const starMat = new THREE.MeshBasicMaterial({ color: kitColors.stone ?? 0xffe27a, transparent: true, fog: false });
+    const starMesh = new THREE.Mesh(kit.createGeometry ? kit.createGeometry(cfg.groundRadius) : createStarGeometry(cfg.groundRadius), starMat);
     group.add(starMesh);
     const glowMat = new THREE.SpriteMaterial({
-      map: glowTex, color: 0xffe9a8, transparent: true, opacity: 0,
+      map: glowTex, color: kitColors.glow ?? 0xffe9a8, transparent: true, opacity: 0,
       blending: THREE.AdditiveBlending, depthWrite: false, fog: false,
     });
     const glow = new THREE.Sprite(glowMat);
@@ -140,7 +145,7 @@ export function createFallingStarSystem(o) {
     const trail = [];
     for (let i = 0; i < TRAIL_COUNT; i++) {
       const m = new THREE.SpriteMaterial({
-        map: glowTex, color: 0xffeeb8, transparent: true, opacity: 0,
+        map: glowTex, color: kitColors.trail ?? 0xffeeb8, transparent: true, opacity: 0,
         blending: THREE.AdditiveBlending, depthWrite: false, fog: false,
       });
       const sp = new THREE.Sprite(m);
@@ -180,6 +185,8 @@ export function createFallingStarSystem(o) {
   //   o.snowDepth() は雪の深さ(m、無ければ0)。雪が増減しても、星は雪面に追従する。
   const landedY = (st) => {
     const d = o.snowDepth ? o.snowDepth() : 0;
+    // v1.69: 地面に埋まっている物(buried)は、地面すれすれ(cfg.buriedSink)。雪があれば、雪面からわずかに出る
+    if (st.buried) return o.terrainHeightAt(st.spotX, st.spotZ) + (d > 0 ? d + 0.02 : (cfg.buriedSink ?? 0.1));
     return o.terrainHeightAt(st.spotX, st.spotZ) + (d > 0 ? d + 0.1 : 0.5);
   };
   const infoOf = (st) => ({
@@ -197,10 +204,10 @@ export function createFallingStarSystem(o) {
     const spot = o.pickLandingSpot(player.x, player.z);
     if (!spot) { S.countdown = 30; return false; } // 条件に合う場所が無ければ少し後で再挑戦
     // 地上の星が上限なら、いちばん古い星を静かに消し始める(新しい星の場所を空ける)
-    if (stars.length >= maxStars) {
+    if (liveCount() >= maxStars) {
       const oldest = stars.filter((x) => x.phase === 'landed').sort((a, b) => b.t - a.t)[0];
       if (oldest) oldest.lifetime = Math.min(oldest.lifetime, oldest.t + cfg.fadeOutSec);
-      if (stars.length >= maxStars + 1) { S.countdown = 15; return false; }
+      if (liveCount() >= maxStars + 1) { S.countdown = 15; return false; }
     }
     const st = {
       id: nextId++, phase: 'falling', t: 0, lifetime: 0, ringTimer: 0,
@@ -275,7 +282,7 @@ export function createFallingStarSystem(o) {
     const bob = Math.sin(st.t * 1.3 + st.id) * 0.07;
     st.pos.set(st.spotX, landedY(st) + bob, st.spotZ);
     v.group.position.copy(st.pos);
-    v.starMesh.rotation.y += dt * 0.7;
+    if (!st.buried) v.starMesh.rotation.y += dt * 0.7; // 埋まっている物は回らない(v1.69)
     v.starMesh.scale.setScalar((0.6 + 0.4 * fadeIn) * (0.96 + 0.06 * f));
     setAlpha(st, a * (0.9 + 0.1 * f));
     const gs = 2.6 * (0.9 + 0.2 * f) * (0.5 + 0.5 * fadeIn);
@@ -359,6 +366,21 @@ export function createFallingStarSystem(o) {
     },
     /** 開発用: 今すぐ落とす(コンソールから。通常のUIには出さない)。 */
     trigger(player) { return spawn(player); },
+    /**
+     * v1.69: 地面に埋まっている物(月の石)を、指定の場所に置く。落下はせず、消えず、拾われるまでずっと残る。
+     * @returns {number} id
+     */
+    plantBuried(x, z) {
+      const st = {
+        id: nextId++, phase: 'landed', t: 1, lifetime: Infinity, ringTimer: 1e9, buried: true,
+        start: new THREE.Vector3(), land: new THREE.Vector3(), pos: new THREE.Vector3(),
+        spotX: x, spotZ: z, vis: acquireVisual(),
+      };
+      st.pos.set(x, landedY(st), z); st.vis.starMesh.scale.setScalar(1); setAlpha(st, 1);
+      st.vis.starMesh.rotation.y = (x * 12.9898 + z * 78.233) % (Math.PI * 2); // 向きは場所ごとにばらばら
+      stars.push(st);
+      return st.id;
+    },
     /** 開発・検証用: 落下を省いて、指定の場所に地上の星をすぐ置く。 */
     debugPlant(x, z) {
       const st = {

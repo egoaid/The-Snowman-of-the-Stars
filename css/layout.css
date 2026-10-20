@@ -862,3 +862,25 @@ input, textarea, select, [contenteditable="true"], #error-banner {
 /* v1.62: 起動画面(タイトル)が出ている間は、左上の⚙・⛶を表示しない(背景にうっすら透けて見えていたため)。
    設定は、起動画面の「設定」ボタンから開く。 */
 body:has(#titleScreen:not(.hidden)) #settingsIconBtn { visibility: hidden; }
+
+
+/* v1.69: 編集モードの「かけら」パネル(星→星のかけら、月の石→月のかけらを作り、つかんでいる丸太に貼る) */
+#shardPanel {
+  position: fixed; left: 10px; top: 92px; z-index: 12; width: 232px;
+  padding: 8px 10px 9px; border-radius: 10px;
+  background: rgba(14, 18, 30, 0.78); color: #e9eef8; border: 1px solid rgba(160, 190, 255, 0.28);
+  font-size: 12px; line-height: 1.45; backdrop-filter: blur(3px);
+}
+#shardPanel[hidden] { display: none; }
+#shardPanel .sp-title { font-weight: 700; margin-bottom: 4px; color: #cfe2ff; }
+#shardPanel .sp-row { display: flex; align-items: center; gap: 6px; margin: 2px 0; }
+#shardPanel .sp-row span { flex: 1; }
+#shardPanel .sp-row b { min-width: 2.2em; text-align: right; font-variant-numeric: tabular-nums; }
+#shardPanel button { font: inherit; font-size: 11.5px; padding: 3px 8px; border-radius: 6px; border: 1px solid rgba(160, 190, 255, 0.4); background: rgba(70, 90, 140, 0.55); color: #fff; cursor: pointer; }
+#shardPanel button:disabled { opacity: 0.38; cursor: default; }
+#shardPanel #spAttachStar, #shardPanel #spAttachMoon { display: block; width: 100%; margin-top: 5px; padding: 6px 8px; text-align: left; }
+#shardPanel kbd { float: right; opacity: 0.7; font-family: inherit; }
+#shardPanel .sp-sep { height: 1px; background: rgba(160, 190, 255, 0.22); margin: 6px 0 2px; }
+#shardPanel .sp-note { margin-top: 6px; font-size: 11px; color: #aab8d4; }
+@media (max-width: 640px) { #shardPanel { top: 64px; width: 200px; } }
+#shardPanel .sp-log { display: block; width: 100%; margin-top: 7px; opacity: 0.85; }

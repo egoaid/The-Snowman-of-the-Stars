@@ -155,6 +155,8 @@
         <input type="checkbox" id="waterReflectionCheckbox" checked> ✨ 川面に星と月を映す
       </label>
       <div style="font-size:11px; opacity:0.75; margin-top:2px;">夜の川に、星空と月が映ります。水面の品質が「オフ」の時は映りません。</div>
+      <button type="button" id="debugLogBtn" style="margin-top:10px; font:inherit; font-size:12px; padding:5px 10px;">📋 動作ログを書き出す(JSON)</button>
+      <div style="font-size:11px; opacity:0.75; margin-top:2px;">かけら・接着・浮遊・月の石の記録と、その時の状態を、JSONファイルで保存します(動作確認用)。</div>
     </div>
         <div class="set-block">
           <h3 class="set-h">📱 画面</h3>
@@ -412,6 +414,19 @@
        メイン27枠+ホットバー9枠。ホットバーもインベントリの一部なので「ホットバーへ移す」操作は無い。 -->
   <!-- v1.46: 編集(観察)モードの案内。Tabで入る/出る。 -->
   <div id="editHint" role="status"></div>
+  <!-- v1.69: 編集モードの「かけら」パネル。星→星のかけら、月の石→月のかけらを作り、つかんでいる丸太に貼る。数は、持ち物とチェストの合計。 -->
+  <div id="shardPanel" hidden role="group" aria-label="星と月のかけら">
+    <div class="sp-title">✦ かけら</div>
+    <div class="sp-row"><span>★ 星</span><b id="spStar">0</b><button type="button" id="spCraftStar">かけらにする</button></div>
+    <div class="sp-row"><span>✦ 星のかけら</span><b id="spStarShard">0</b></div>
+    <div class="sp-row"><span>🌙 月の石</span><b id="spMoon">0</b><button type="button" id="spCraftMoon">かけらにする</button></div>
+    <div class="sp-row"><span>☾ 月のかけら</span><b id="spMoonShard">0</b></div>
+    <div class="sp-sep"></div>
+    <button type="button" id="spAttachStar">✦ 星のかけらを貼る <kbd>F</kbd></button>
+    <button type="button" id="spAttachMoon">☾ 月のかけらを貼る <kbd>M</kbd></button>
+    <div id="spNote" class="sp-note"></div>
+    <button type="button" id="spLog" class="sp-log" title="動作確認用。かけら・接着・浮遊・月の石の記録を、JSONファイルで保存します">📋 ログを書き出す</button>
+  </div>
   <!-- v1.58: 編集モード(スマホ)。つかんでいる間だけ出る。移動/回転の切り替えと、丸太を離すボタン -->
   <div id="editTouchBar" role="toolbar" aria-label="編集の操作">
     <button type="button" id="editBtnMove">移動</button>
@@ -1854,6 +1869,39 @@
         leafBurstBtn.addEventListener('click', () => {
           scene.burstLeafFall(100);
         });
+        // --- v1.69: かけらパネル(編集モードの間だけ出る)。0.25秒ごとに、持ち物・チェスト・つかんでいる丸太の状態を映す ---
+        {
+          const sp = (id) => document.getElementById(id);
+          const panel = sp('shardPanel');
+          sp('spCraftStar').addEventListener('click', () => { scene.craftShards('star'); });
+          sp('spCraftMoon').addEventListener('click', () => { scene.craftShards('moon'); });
+          sp('spAttachStar').addEventListener('click', () => { scene.attachShard('star'); });
+          sp('spAttachMoon').addEventListener('click', () => { scene.attachShard('moon'); });
+          const saveLog = () => { try { scene.downloadDebugLog(); } catch (e) { console.error('debug log export failed', e); } };
+          sp('spLog').addEventListener('click', saveLog);
+          const dlb = document.getElementById('debugLogBtn'); if (dlb) dlb.addEventListener('click', saveLog);
+          setInterval(() => {
+            const st = scene.getShardPanel();
+            panel.hidden = !st.editing;
+            if (!st.editing) return;
+            sp('spStar').textContent = st.star; sp('spStarShard').textContent = st.starShard;
+            sp('spMoon').textContent = st.moonStone; sp('spMoonShard').textContent = st.moonShard;
+            sp('spCraftStar').disabled = st.star < 1;
+            sp('spCraftMoon').disabled = st.moonStone < 1;
+            sp('spAttachStar').disabled = !st.canAttachStar;
+            sp('spAttachMoon').disabled = !st.canAttachMoon;
+            let note;
+            if (!st.held) note = '丸太をつかむと、かけらを貼れます。星のかけらを貼った丸太どうしが、触れて止まると、くっつきます。';
+            else {
+              const parts = [];
+              parts.push(st.heldHasStar ? 'この丸太には星のかけらが付いています(1本に1つ)。' : '星のかけらを貼ると、この丸太が「くっつける力」を持ちます。');
+              if (st.heldGroupSize > 1) parts.push(`くっついた塊: ${st.heldGroupSize}本。`);
+              if (st.structureHasMoon) parts.push('この塊には月のかけらが付いています(1つだけ)。');
+              note = parts.join(' ');
+            }
+            sp('spNote').textContent = note;
+          }, 250);
+        }
         waterReflectionCheckbox.addEventListener('change', () => {
           scene.setWaterReflection(waterReflectionCheckbox.checked);
           try { localStorage.setItem(WATER_REFLECTION_KEY, waterReflectionCheckbox.checked ? 'on' : 'off'); } catch (e) { /* 保存できなくても動作は続ける */ }

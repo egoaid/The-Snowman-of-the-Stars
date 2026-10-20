@@ -7,7 +7,7 @@
 export const APP = {
   titleJa: '星の雪だるま',
   titleEn: 'The Snowman of the Stars',
-  version: '1.68',
+  version: '1.69',
   // 表記上の統一形式。実際の権利は All rights reserved。
   copyright: '© 2026 egoaid',
   // v1.57: 公開(GitHub Pages)。絶対URLが必要な所(canonical・sitemap・OGP・manifest)の基準。
@@ -65,6 +65,32 @@ export const FALLING_STAR = {
     lifetimeSec: [60, 60],
   },
 };
+
+// v1.69: 月の石。星(FALLING_STAR)と同じ仕組みで空から降ってくるが、ずっと珍しい。三日月の形で、淡い青白く光る。
+//   地面に埋まっているもの(buriedCount個。ワールドのシードで場所が決まる)もある。拾われるまで、ずっと残る。
+//   星の設定をそのまま使い、この3つ(珍しさ・数・光の色)だけ変える。
+export const MOON_STONE = {
+  ...FALLING_STAR,
+  intervalSec: 540,            // 約9分に1回(星は2分)。夜のあいだだけ数える
+  firstDelayFactor: [0.5, 1.2],
+  lifetimeSec: [1800, 3000],   // 降ってきた月の石が残る時間(星より長い)
+  maxStars: 2,                 // 同時に地上にある数の上限(降ってきたもの)
+  groundRadius: 0.2,
+  buriedCount: 3,              // 地形に埋まっている月の石の数
+  buriedSink: 0.1,             // 埋まっている月の石の、地面からの高さ(m)。小さいほど深く埋まっている
+  lightIntensity: 1.1,
+  lightDistance: 9,
+  colors: { stone: 0xdcecff, glow: 0xffffff, trail: 0xffffff, light: 0xb8d4ff },
+  glowStops: [[236, 244, 255], [190, 215, 255], [150, 190, 255]], // 光の色(中心・まわり・外側)。青白い
+};
+
+// v1.69: 星のかけら・月のかけらで、倒木をくっつける/浮かせる。
+export const SHARDS = {
+  contactTolerance: 0.1,   // 2本の丸太の「触れている」とみなす隙間(m)。静止した丸太の軸どうしの距離 ≤ 半径の和 + この値
+  hoverClearance: 0.7,     // 月のかけらを貼った物が、地面から浮く高さ(m。いちばん低い所の隙間)
+  hoverSteadySec: 1.0,     // 浮く高さで落ち着いてから、静止(静的)に戻すまでの時間
+};
+
 
 // --- 見守りモード中の雪だるまが星へ示す反応 ---
 export const SNOWMAN_STAR = {

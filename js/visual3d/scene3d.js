@@ -44,6 +44,10 @@ import { createLogObstacleManager, isWalkOver } from './log-obstacles.js';
 import { createTraversal, createVerticalState, createClimbController, createTraversalFailureMemory, ACTION, climbDurationFor } from './traversal.js';
 import { createStagnationWatchdog, createRepeatDetector, blockerSignature, findRescueSpot, hopPoint } from './wander-watchdog.js';
 import { createFallingStarSystem, pickStarLandingSpot } from './falling-star.js';
+import { getRecipe } from '../recipes.js'; // v1.69
+import { createDebugLog } from './debug-log.js'; // v1.69: 動作確認用のログ(JSONで書き出せる)
+import { createShardSystem } from './shard-system.js'; // v1.69: 星のかけら・月のかけら(倒木を接着する・浮かせる)
+import { createCrescentGeometry } from './moon-stone.js'; // v1.69: 月の石の形(三日月)
 import { createTreeDecorations, computeTreeTop } from './tree-decor.js';
 import { createInteractionSystem } from './interaction.js';
 import { buildHeldItem } from './held-items.js';
@@ -61,7 +65,7 @@ import { REMNANT_DEFS, planRemnants } from '../remnants.js';
 import { createRemnantField } from './remnants-visual.js';
 import { createEditMode } from './edit-mode.js';
 import { applySessionMode, currentSessionMode } from '../session-mode.js';
-import { FALLING_STAR, SNOWMAN_STAR, SNOWMAN_COLLECT, INTERACTION, HOTBAR, INVENTORY, readStarTestMode } from '../config.js';
+import { APP, FALLING_STAR, MOON_STONE, SNOWMAN_STAR, SNOWMAN_COLLECT, INTERACTION, HOTBAR, INVENTORY, readStarTestMode } from '../config.js';
 
 export const BUFFER_WIDTH = 480;
 export const BUFFER_HEIGHT = 270;
@@ -2968,6 +2972,47 @@ export function initScene(mountEl, options = {}) {
     },
   });
 
+  // ================================================================
+  // v1.69: 月の石。星と同じ仕組み(falling-star.js)で、ずっと珍しく降ってくる。三日月の形で、淡い青白く光る。
+  //   星が「重力」を与えるのに対し、月の石は「反重力」。月のかけら(月の石から作る)を組んだ物に貼ると、その物が少し宙に浮く。
+  //   地形に埋まっている月の石もある(シードで場所が決まり、拾われるまで残る)。
+  //   拾うのは歩行中の自分だけ(見守りの雪だるまは、まだ拾わない)。
+  // ================================================================
+  const moonStones = createFallingStarSystem({
+    scene,
+    terrainHeightAt,
+    snowDepth: snowNow,
+    testMode: starTest,
+    config: MOON_STONE,
+    kit: { createGeometry: createCrescentGeometry, colors: MOON_STONE.colors, glowStops: MOON_STONE.glowStops },
+    pickLandingSpot: (px, pz) => pickStarLandingSpot({
+      rng: Math.random, playableRadius: PLAYABLE_RADIUS, player: { x: px, z: pz },
+      obstacles: collisionObstacles, riverInfo: (x, z) => distanceToRiver(x, z, riverSamplesForAvoid), waterEdge: getWaterEdgeDistance,
+      heightAt: terrainHeightAt, climbBump: getClimbBump,
+      extraReject: (x, z) => Math.hypot(x - campX, z - campZ) < iglooOuterRadiusPlanned + 4,
+    }),
+    hooks: {
+      onCollected(info) { inventory.add('moon_stone', 1); debugLog.log('moon.collected', { id: info && info.id }); }, // ホットバー優先で、空いている枠へ入る
+      onFallStart(info) { debugLog.log('moon.fall', { id: info && info.id }); },
+      onLanded(info) { debugLog.log('moon.landed', { id: info && info.id }); },
+      onExpired(info) { debugLog.log('moon.expired', { id: info && info.id }); },
+    },
+  });
+  // 地形に埋まっている月の石(ワールドのシードで場所が決まる)
+  const moonBuried = [];
+  {
+    const mrng = makeRng(((worldGen ? deriveSeed(worldGen.seed, 'moonstones') : 31337) ^ 0x4d6f6f6e) >>> 0 || 1);
+    for (let k = 0; k < MOON_STONE.buriedCount; k++) {
+      const spot = pickStarLandingSpot({
+        rng: mrng, playableRadius: PLAYABLE_RADIUS, player: { x: campX, z: campZ },
+        obstacles: collisionObstacles, riverInfo: (x, z) => distanceToRiver(x, z, riverSamplesForAvoid), waterEdge: getWaterEdgeDistance,
+        heightAt: terrainHeightAt, climbBump: getClimbBump,
+        extraReject: (x, z) => Math.hypot(x - campX, z - campZ) < iglooOuterRadiusPlanned + 4 || moonBuried.some((m) => Math.hypot(m.x - x, m.z - z) < 14),
+      });
+      if (spot) moonBuried.push({ x: spot.x, z: spot.z, id: moonStones.plantBuried(spot.x, spot.z) });
+    }
+  }
+
 
   // ================================================================
   // v1.54 E3: 見守りの雪だるまが拾える物(汎用の登録簿)とポーチ
@@ -2991,7 +3036,7 @@ export function initScene(mountEl, options = {}) {
       const out = []; const types = COLLECTIBLE_KINDS.twig.woodTypes;
       for (let i = 0; i < fallenLogs.length; i++) {
         const l = fallenLogs[i];
-        if (l.collected || !types.includes(l.type) || !(l.physics && l.physics.physicsState === 'static')) continue;
+        if (l.collected || !types.includes(l.type) || !(l.physics && l.physics.physicsState === 'static') || shardSystem.isLocked(l)) continue; // v1.69: 据え付けた倒木は拾わない
         const lx = l.mesh.position.x, lz = l.mesh.position.z;
         if (Math.hypot(lx - x, lz - z) <= r) out.push({ id: l.mesh.uuid, x: lx, z: lz, ref: l });
       }
@@ -3064,6 +3109,14 @@ export function initScene(mountEl, options = {}) {
   };
   if (campCollisionIsIgloo) onCampPhysicsModeChange(true);
   const logSystem = createFallenLogSystem({ fallenLogs, physics, burialCandidates, groundAt: snowGroundAt, onSettled: (log) => onLogSettled(log) });
+  // v1.69: 星のかけら(倒木をくっつける)・月のかけら(組んだ物を浮かせる)。貼れるのは、編集モードでつかんでいる倒木だけ。
+  let shardPanelDirty = true;
+  // v1.69: デバッグログ。かけら・接着・浮遊・月の石の出来事を記録して、設定画面かパネルのボタンから、JSONで書き出せる。
+  const debugLog = createDebugLog({ version: APP.version });
+  const shardSystem = createShardSystem({ fallenLogs, physics, logSystem, groundAt: snowGroundAt, log: debugLog.log, onChange: () => { shardPanelDirty = true; } });
+  // 塊(接着した丸太)が動き出した/止まった時
+  physics.on('woke', (r) => { if (r.group) debugLog.log('phys.group.woke', { leader: r.id, members: r.group.ids.length }); });
+  physics.on('settled', (r) => { if (r.group && r.id === r.group.leaderId) debugLog.log('phys.group.settled', { leader: r.id, members: r.group.ids.length, y: +r.position.y.toFixed(3), reason: r.settleReason || '' }); });
   // ================================================================
   // v1.56-H4: 倒木と積雪。
   //  ・隠れる条件: 雪の深さが「丸太の上面の、その場所の地面からの高さ」を超えた時(川にかけた丸太は河床から高い所にあるので、
@@ -3079,6 +3132,7 @@ export function initScene(mountEl, options = {}) {
     c.heightM = logBuryHeight(r.position, r.quaternion, log.length, log.radius, terrainHeightAt);
   }
   function onLogSettled(log) {
+    shardSystem.tryWeld(log); // v1.69: 星のかけらを持つ倒木どうしが触れて止まったら、くっつく
     refreshLogBury(log);
     const r = log.physics, sn = snowNow();
     // 雪に支えられて止まった(一番低い所が雪面にほぼ着いている)なら、雪の深さを覚える。他の丸太や岩の上に乗っている場合は覚えない
@@ -3089,6 +3143,7 @@ export function initScene(mountEl, options = {}) {
   snowFollowers.push((sn) => {
     for (const log of fallenLogs) {
       if (log.collected || !log.snowRest || !log.physics || log.physics.physicsState !== 'static') continue;
+      if (shardSystem.isLocked(log)) continue; // v1.69: 接着した塊・浮いている物は、雪が溶けても、位置を変えない(剛体の相対姿勢を保つ)
       if (sn >= log.snowRest - 0.003) continue; // 雪が増えた/変わらない: 丸太は動かない(増えたら埋もれる)
       log.physics.position.y -= log.snowRest - sn; // 雪が溶けた分だけ、一緒に下がる
       log.snowRest = sn;
@@ -3178,6 +3233,95 @@ export function initScene(mountEl, options = {}) {
   const logAvoidObstacles = createLogObstacleManager(avoidLogCircles, (log) => !traversal.isSteepLog(log) && traversal.needsAction(log));
   function syncLogObstacles() { for (const log of fallenLogs) { logObstacles.sync(log); logAvoidObstacles.sync(log); } }
   syncLogObstacles();
+  // ================================================================
+  // v1.69: かけらの持ち物。編集モードでは、持ち物(ホットバー・リュック)とチェストの中身を、まとめて使える。
+  //   数は両方の合計。使う時は、持ち物から先に、足りなければチェストから取る。
+  // ================================================================
+  const poolCount = (id) => inventory.count(id) + chest.storage.count(id);
+  function poolTake(id, n = 1) {
+    if (poolCount(id) < n) return false;
+    let left = n;
+    const fromInv = Math.min(left, inventory.count(id));
+    if (fromInv > 0 && inventory.remove(id, fromInv)) left -= fromInv;
+    if (left > 0) left -= chest.storage.take(id, left);
+    return left === 0;
+  }
+  /** 星→星のかけら、月の石→月のかけら。入れ物(持ち物→チェスト)に入りきらなければ、元に戻す。 */
+  function craftShardsFromPool(kind) {
+    const recipe = getRecipe(kind === 'moon' ? 'moon_to_shards' : 'star_to_shards');
+    if (!recipe || !poolTake(recipe.input.id, recipe.input.count)) { debugLog.log('craft', { kind, ok: false, reason: 'no-material' }); return false; }
+    let left = recipe.output.count;
+    while (left > 0 && inventory.canAdd(recipe.output.id, 1)) { inventory.add(recipe.output.id, 1); left -= 1; }
+    if (left > 0) left -= chest.storage.store(recipe.output.id, left);
+    if (left > 0) { // 入りきらない: できたぶんを戻して、材料も戻す(何も起きなかったことにする)
+      debugLog.log('craft', { kind, ok: false, reason: 'storage-full' });
+      const made = recipe.output.count - left;
+      poolTake(recipe.output.id, made);
+      if (!inventory.add(recipe.input.id, recipe.input.count)) chest.storage.store(recipe.input.id, recipe.input.count);
+      return false;
+    }
+    shardPanelDirty = true;
+    debugLog.log('craft', { kind, ok: true, pool: { star: poolCount('star'), starShard: poolCount('star_shard'), moonStone: poolCount('moon_stone'), moonShard: poolCount('moon_shard') } });
+    return true;
+  }
+  const heldLog = () => { const h = editMode._internals && editMode._internals.getHeld ? editMode._internals.getHeld() : null; return h || null; };
+  function attachShardToHeld(kind) {
+    const res = attachShardToHeldInner(kind);
+    if (!res.ok) debugLog.log('shard.attach.denied', { kind, reason: res.reason });
+    return res;
+  }
+  function attachShardToHeldInner(kind) {
+    const log = heldLog();
+    if (!log) return { ok: false, reason: 'not-held' };
+    if (kind === 'moon') {
+      if (!shardSystem.canAttachMoon(log)) return { ok: false, reason: 'structure-has-moon' };
+      if (!poolTake('moon_shard', 1)) return { ok: false, reason: 'no-shard' };
+      shardSystem.attachMoon(log); return { ok: true };
+    }
+    if (!shardSystem.canAttachStar(log)) return { ok: false, reason: 'already-has-star' };
+    if (!poolTake('star_shard', 1)) return { ok: false, reason: 'no-shard' };
+    shardSystem.attachStar(log); return { ok: true };
+  }
+  function shardPanelState() {
+    const log = heldLog(), info = log ? shardSystem.info(log) : null;
+    return {
+      editing: editMode.isEnabled(),
+      star: poolCount('star'), starShard: poolCount('star_shard'), moonStone: poolCount('moon_stone'), moonShard: poolCount('moon_shard'),
+      held: !!log, heldHasStar: !!(info && info.hasStar), heldGroupSize: info ? info.groupSize : 0,
+      structureHasMoon: !!(info && info.structureHasMoon),
+      canAttachStar: !!log && shardSystem.canAttachStar(log) && poolCount('star_shard') > 0,
+      canAttachMoon: !!log && shardSystem.canAttachMoon(log) && poolCount('moon_shard') > 0,
+    };
+  }
+  // デバッグログの「その時点の状態」。書き出す時に1回だけ作る(毎フレームの負荷なし)。
+  debugLog.setSnapshot(() => {
+    const groups = [], seen = new Set();
+    for (const l of fallenLogs) {
+      const ids = physics.groupOf(l.physicsId);
+      if (!ids || seen.has(ids[0])) continue;
+      ids.forEach((id) => seen.add(id));
+      groups.push({ members: ids.map((id) => { const r = physics.get(id); return { id, state: r.physicsState, y: +r.position.y.toFixed(3), len: +r.length.toFixed(2), star: !!(logSystem.logOfPhysicsId(id) || {}).starShard, moon: !!(logSystem.logOfPhysicsId(id) || {}).moonShard }; }), floating: shardSystem.floating(l) });
+    }
+    return {
+      seed: worldGen ? worldGen.seed : null,
+      editing: editMode.isEnabled(),
+      panel: shardPanelState(),
+      pool: { star: poolCount('star'), starShard: poolCount('star_shard'), moonStone: poolCount('moon_stone'), moonShard: poolCount('moon_shard') },
+      shardCounts: shardSystem.count(),
+      shardsSaved: shardSystem.serialize(),
+      groups,
+      physics: physics.stats(),
+      moon: { buried: moonBuried.map((m) => ({ id: m.id, x: +m.x.toFixed(1), z: +m.z.toFixed(1), present: moonStones.getLanded().some((s) => s.id === m.id) })), landedNow: moonStones.getLanded().length, config: { intervalSec: MOON_STONE.intervalSec, buriedCount: MOON_STONE.buriedCount } },
+      hour: gameHour, weather: weather.getWeather ? weather.getWeather() : undefined,
+    };
+  });
+  // キー: 編集モードで丸太をつかんでいる間に、F=星のかけらを貼る / M=月のかけらを貼る
+  window.addEventListener('keydown', (e) => {
+    if (!editMode.isEnabled() || e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (e.code === 'KeyF') attachShardToHeld('star');
+    else if (e.code === 'KeyM') attachShardToHeld('moon');
+  });
+
   const editMode = createEditMode({
     camera, domElement: renderer.domElement, orbitControls, scene, logSystem, terrainHeightAt: snowGroundAt, // v1.56-H4: 雪の上に置ける
     bounds: TERRAIN_SIZE / 2, // 編集者は地形の端まで見て回れる(丸太を置けるのもこの範囲)
@@ -3215,9 +3359,9 @@ export function initScene(mountEl, options = {}) {
       kind: 'log',
       getPosition: () => ({ x: log.x, y: terrainHeightAt(log.x, log.z) + Math.max(0.15, log.radius * 1.5), z: log.z }),
       radius: Math.max(0.5, Math.min(1.8, log.length * 0.45)),
-      canInteract: () => !log.collected && inventory.canAdd('log', 1), // 持ち物が一杯なら拾えない(倒木は残る)
+      canInteract: () => !log.collected && !shardSystem.isLocked(log) && inventory.canAdd('log', 1), // 持ち物が一杯なら拾えない(倒木は残る)。v1.69: かけらを持つ/接着した倒木は、世界に据え付けられた物なので拾えない
       onInteract: () => {
-        if (log.collected || !inventory.canAdd('log', 1)) return;
+        if (log.collected || shardSystem.isLocked(log) || !inventory.canAdd('log', 1)) return;
         log.collected = true;
         scene.remove(log.mesh);
         interaction.unregister(logId);
@@ -3581,6 +3725,8 @@ export function initScene(mountEl, options = {}) {
     updateLogSounds(); // v1.56-H3: 着水の検出と、そっと置いた音の補い(動いている丸太が無ければ何もしない)
     syncLogObstacles(); // v1.51: つかんだ/動いている丸太は障害物から外し、静止したら新しい位置で登録する(状態が変わった時だけ作り直す)
     editMode.update(delta);
+    moonStones.update(delta, { playerX: snowX, playerZ: snowZ, canCollect: mode === 'walk' && !wanderActive, isNight: getTimeOfDay(gameHour) === 'night' }); // v1.69
+    shardSystem.update(delta); // v1.69: 月のかけらを貼った物が、浮く高さで落ち着いたら静止させる
     fallingStars.update(delta, {
       playerX: snowX, playerZ: snowZ,
       canCollect: mode === 'walk' && !wanderActive, // v1.54: 見守りの雪だるまは、近づくだけで拾わず、眺めて自分で決める(collectTask)
@@ -3845,6 +3991,8 @@ export function initScene(mountEl, options = {}) {
       chest: chest.storage.serialize(),
       placed: placedItems.slice(0, 400).map((it) => ({ id: it.itemId, x: r3(it.x), z: r3(it.z), yaw: r3(it.mesh.rotation.y) })),
       logs: logs.slice(0, 300),
+      shards: shardSystem.serialize(), // v1.69: 星のかけら・月のかけらを貼った倒木と、接着した塊(倒木の番号で)
+      moonTaken: moonBuried.map((m, i) => (moonStones.getLanded().some((s) => s.id === m.id) ? -1 : i)).filter((i) => i >= 0), // v1.69: 拾われた、埋まっていた月の石
       remnants: remnantField.items.filter((it) => it.collected).map((it) => it.id).slice(0, 400),
       weather: { name: weather.getWeather(), auto: weather.isAutoMode(), snow: r3(weather.getSnowDepth()) },
       snowman: { x: r3(playerSnowman.group.position.x), z: r3(playerSnowman.group.position.z), heading: r3(playerSnowman.group.rotation.y) },
@@ -3874,6 +4022,8 @@ export function initScene(mountEl, options = {}) {
       }
       syncLogObstacles();
     });
+    guard(() => { if (st.shards) shardSystem.restore(st.shards); }); // v1.69: 倒木の位置を戻したあとに、かけらと接着を戻す
+    guard(() => { for (const i of Array.isArray(st.moonTaken) ? st.moonTaken : []) { const m = moonBuried[i]; if (m) moonStones.take(m.id); } }); // v1.69
     guard(() => { for (const id of Array.isArray(st.remnants) ? st.remnants : []) remnantField.take(id); });
     guard(() => {
       for (const e of Array.isArray(st.placed) ? st.placed : []) {
@@ -4109,6 +4259,14 @@ export function initScene(mountEl, options = {}) {
     getWaterReflection: () => waterReflectionEnabled,
     setWeather: (name) => weather.setWeather(name),
     // v1.64(検証用): 星空の状態の確認と、流れ星をすぐ1つ出す
+    // ---- v1.69: 星のかけら・月のかけら(編集モードのパネルから使う) ----
+    getShardPanel: () => shardPanelState(),
+    getDebugLog: () => debugLog.toObject(),          // v1.69: ログ(出来事 + その時点の状態)をオブジェクトで返す
+    downloadDebugLog: () => debugLog.download(),     // v1.69: JSONファイルとして書き出す(ファイル名を返す)
+    debugLogEvent: (kind, data) => debugLog.log(kind, data),
+    craftShards: (kind) => craftShardsFromPool(kind),
+    attachShard: (kind) => attachShardToHeld(kind),
+    debugShards: () => ({ pool: { star: poolCount('star'), starShard: poolCount('star_shard'), moonStone: poolCount('moon_stone'), moonShard: poolCount('moon_shard') }, counts: shardSystem.count(), groups: physics.stats().groups, moon: moonStones.getLanded().length }),
     getStarfieldInfo: () => starfield.getInfo(),
     debugTriggerMeteor: () => starfield.triggerMeteor(),
     debugSetSnowDepth: (d) => weather.debugSetSnowDepth(d), // v1.56-H4: 検証用

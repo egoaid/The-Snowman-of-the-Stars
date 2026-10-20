@@ -68,6 +68,18 @@ export function createPhysics({ groundHeightAt, options = {}, now = () => perfor
   /** @type {Map<string, any>} id -> 記録 */
   const objects = new Map();
   const bodies = new Map();         // 動的ボディ id -> CANNON.Body
+  // v1.69: 接着した丸太の塊(グループ)。塊は、動いている間は「複数の円柱を持つ1つの剛体」として物理を進める
+  //   (関節でつなぐ方式ではないので、つなぎ目がぐらつかず、積んだ櫓が崩れない)。静止したら、また1本ずつの静的な物へ戻る。
+  //   id -> { id, leaderId, ids:[...], rel: Map(id -> {p,q}) (leaderの姿勢から見た各丸太の相対姿勢), props }
+  const groups = new Map();
+  let nextGroupId = 1;
+  const qmul = (a, b) => ({ x: a.w * b.x + a.x * b.w + a.y * b.z - a.z * b.y, y: a.w * b.y - a.x * b.z + a.y * b.w + a.z * b.x, z: a.w * b.z + a.x * b.y - a.y * b.x + a.z * b.w, w: a.w * b.w - a.x * b.x - a.y * b.y - a.z * b.z });
+  const qconj = (q) => ({ x: -q.x, y: -q.y, z: -q.z, w: q.w });
+  const qnorm = (q) => { const l = Math.hypot(q.x, q.y, q.z, q.w) || 1; return { x: q.x / l, y: q.y / l, z: q.z / l, w: q.w / l }; };
+  const qrot = (q, v) => {
+    const ix = q.w * v.x + q.y * v.z - q.z * v.y, iy = q.w * v.y + q.z * v.x - q.x * v.z, iz = q.w * v.z + q.x * v.y - q.y * v.x, iw = -q.x * v.x - q.y * v.y - q.z * v.z;
+    return { x: ix * q.w + iw * -q.x + iy * -q.z - iz * -q.y, y: iy * q.w + iw * -q.y + iz * -q.x - ix * -q.z, z: iz * q.w + iw * -q.z + ix * -q.y - iy * -q.x };
+  };
   const neighborBodies = new Map(); // 衝突相手の静的ボディ id -> CANNON.Body
   // v1.49: 世界の静的コライダー(木・岩・テント・焚き火など)。見た目より大幅に単純な形(円柱・角柱)。
   // 登録しただけでは物理世界に入れない。動的な物体の近くにある物だけを、その間だけ入れる(局所起動)。
@@ -100,6 +112,50 @@ export function createPhysics({ groundHeightAt, options = {}, now = () => perfor
     body.userData = { kind: 'log', id: rec.id, dynamic: mass > 0 };
     if (mass > 0) body.addEventListener('collide', (e) => onCollide(rec, body, e)); // 動く丸太だけが聞く(静的な相手の側は聞かない)
     return body;
+  }
+  /** v1.69: 接着した丸太の塊を、1つの剛体にする(円柱を、leaderから見た相対姿勢で並べる)。 */
+  function makeGroupBody(G) {
+    const leader = objects.get(G.leaderId);
+    let mass = 0;
+    const body = new CANNON.Body({
+      mass: 1, material, allowSleep: true,
+      sleepSpeedLimit: P.sleepSpeedLimit, sleepTimeLimit: P.sleepTimeLimit,
+      linearDamping: P.linearDamping, angularDamping: P.angularDamping,
+    });
+    for (const id of G.ids) {
+      const m = objects.get(id), r = G.rel.get(id);
+      mass += massOf(m);
+      body.addShape(new CANNON.Cylinder(m.radiusTop, m.radiusBottom, m.length, 8), new CANNON.Vec3(r.p.x, r.p.y, r.p.z), new CANNON.Quaternion(r.q.x, r.q.y, r.q.z, r.q.w));
+    }
+    body.mass = mass; body.updateMassProperties();
+    body.position.set(leader.position.x, leader.position.y, leader.position.z);
+    body.quaternion.set(leader.quaternion.x, leader.quaternion.y, leader.quaternion.z, leader.quaternion.w);
+    body.userData = { kind: 'log', id: leader.id, dynamic: true, group: true };
+    body.addEventListener('collide', (e) => onCollide(leader, body, e));
+    return body;
+  }
+  /** v1.69: leaderの姿勢から、塊の全員の姿勢を決め直す。 */
+  function applyLeaderPose(G, lp, lq) {
+    const q0 = qnorm(lq);
+    for (const id of G.ids) {
+      const m = objects.get(id), r = G.rel.get(id);
+      const o = qrot(q0, r.p);
+      m.position = { x: lp.x + o.x, y: lp.y + o.y, z: lp.z + o.z };
+      m.quaternion = qnorm(qmul(q0, r.q));
+    }
+  }
+  /** v1.69: 今の姿勢(全員が整合している時)から、leaderから見た相対姿勢を取り直す。 */
+  function rebuildGroup(G) {
+    const L = objects.get(G.leaderId), ic = qconj(L.quaternion);
+    G.rel = new Map();
+    for (const id of G.ids) {
+      const m = objects.get(id);
+      const d = { x: m.position.x - L.position.x, y: m.position.y - L.position.y, z: m.position.z - L.position.z };
+      G.rel.set(id, { p: qrot(ic, d), q: qnorm(qmul(ic, m.quaternion)) });
+    }
+    let reach = 0;
+    for (const id of G.ids) { const m = objects.get(id), r = G.rel.get(id); reach = Math.max(reach, Math.hypot(r.p.x, r.p.y, r.p.z) + m.length / 2 + m.radiusBottom); }
+    G.reach = reach;
   }
   /**
    * v1.56-H3: 衝突の通知(効果音用)。衝突方向の速さが小さい接触(転がり・静止中の細かい振動)は通知しない。
@@ -204,6 +260,31 @@ export function createPhysics({ groundHeightAt, options = {}, now = () => perfor
     if (moved) rec.position = pos;
     return moved;
   }
+  /** v1.69: 塊の離す前の重なり解消。全員を同じだけ(剛体のまま)押し出す。 */
+  function depenetrateGroup(G) {
+    const shift = { x: 0, y: 0, z: 0 };
+    let moved = false;
+    for (let iter = 0; iter < 8; iter++) {
+      let any = false;
+      for (const id of G.ids) {
+        const m = objects.get(id), q = m.quaternion;
+        const ax = 2 * (q.x * q.y + q.w * q.z), ay = 1 - 2 * (q.x * q.x + q.z * q.z), az = 2 * (q.y * q.z - q.w * q.x);
+        const n = Math.max(2, Math.ceil(m.length / 0.4));
+        for (let i = 0; i <= n; i++) {
+          const t = (i / n - 0.5) * m.length;
+          const r = m.radiusBottom + (m.radiusTop - m.radiusBottom) * (i / n);
+          const px = m.position.x + shift.x + ax * t, py = m.position.y + shift.y + ay * t, pz = m.position.z + shift.z + az * t;
+          for (const c of collidersNear(px, pz, r + 0.2)) {
+            const push = penetration(c, px, py, pz, r);
+            if (push) { shift.x += push.x; shift.y += push.y; shift.z += push.z; any = true; moved = true; }
+          }
+        }
+      }
+      if (!any) break;
+    }
+    if (moved) for (const id of G.ids) { const m = objects.get(id); m.position = { x: m.position.x + shift.x, y: m.position.y + shift.y, z: m.position.z + shift.z }; }
+    return moved;
+  }
   /** 点(半径rの球)がコライダーに食い込んでいる時の、押し出しベクトル。無ければnull。 */
   function penetration(c, px, py, pz, r) {
     if (c.kind === 'prism') {
@@ -273,13 +354,14 @@ export function createPhysics({ groundHeightAt, options = {}, now = () => perfor
   function applyForces(rec, body, dt) {
     let sustained = false;
     const m = body.mass;
-    if (rec.props) {
-      const gs = rec.props.gravityScale;
+    const props = rec.group ? rec.group.props : rec.props; // v1.69: 塊は、塊ぜんたいの性質を使う
+    if (props) {
+      const gs = props.gravityScale;
       if (gs !== 1) body.force.y += m * P.gravity * (gs - 1); // 重力は m*g(g<0)。倍率ぶんだけ上乗せ/打ち消し
-      if (rec.props.liftForce !== 0) body.force.y += rec.props.liftForce;
+      if (props.liftForce !== 0) body.force.y += props.liftForce;
       // 重力(重さ)とつり合うか、それ以上の上向きの力が働いている間だけ「浮かせている」。
       // 重さの方が大きければ(ゆっくり)落ちて、地面で普通に止まる(静的へ戻る)。
-      const netUp = rec.props.liftForce - m * gravityMag() * gs;
+      const netUp = props.liftForce - m * gravityMag() * gs;
       if (netUp >= -P.sustainTolerance * m * gravityMag()) sustained = true;
     }
     for (const f of forceFields.values()) {
@@ -311,6 +393,7 @@ export function createPhysics({ groundHeightAt, options = {}, now = () => perfor
   function setPhysicalProperties(id, patch) {
     const rec = objects.get(id);
     if (!rec) return false;
+    if (rec.group) { rec.group.props = normalizeProps(patch, rec.group.props); const gb = bodies.get(rec.group.leaderId); if (gb) gb.wakeUp(); return true; } // v1.69
     rec.props = normalizeProps(patch, rec.props);
     const b = bodies.get(id);
     if (b) {
@@ -362,6 +445,7 @@ export function createPhysics({ groundHeightAt, options = {}, now = () => perfor
   function unregister(id) {
     const rec = objects.get(id);
     if (!rec) return false;
+    if (rec.group) dissolveGroup(rec.group); // v1.69: 塊の一員が物理から外れる時は、塊をほどく(残りは、今の姿勢のまま1本ずつの物に戻る)
     removeDynamic(id);
     objects.delete(id);
     refreshWorld();
@@ -381,6 +465,17 @@ export function createPhysics({ groundHeightAt, options = {}, now = () => perfor
   function pickUp(id) {
     const rec = objects.get(id);
     if (!rec || rec.physicsState === 'held') return false;
+    if (rec.group) { // v1.69: 塊は、全員がいっしょに持ち上がる
+      const G = rec.group;
+      removeDynamic(G.leaderId);
+      for (const mid of G.ids) {
+        const m = objects.get(mid);
+        m.physicsState = 'held'; m.dynamic = false; m.stable = false; m.grabbable = false;
+      }
+      refreshWorld();
+      for (const mid of G.ids) emit('held', objects.get(mid));
+      return true;
+    }
     removeDynamic(id);
     rec.physicsState = 'held'; rec.dynamic = false; rec.stable = false; rec.grabbable = false;
     refreshWorld();
@@ -392,6 +487,12 @@ export function createPhysics({ groundHeightAt, options = {}, now = () => perfor
     if (!rec || rec.physicsState !== 'held') return false;
     rec.position = { x: position.x, y: position.y, z: position.z };
     if (quaternion) rec.quaternion = { x: quaternion.x, y: quaternion.y, z: quaternion.z, w: quaternion.w };
+    if (rec.group) { // v1.69: 塊の全員を、剛体として動かす(つかんだ丸太の姿勢から、leaderの姿勢を逆算する)
+      const G = rec.group, r = G.rel.get(id);
+      const lq = qnorm(qmul(rec.quaternion, qconj(r.q)));
+      const o = qrot(lq, r.p);
+      applyLeaderPose(G, { x: rec.position.x - o.x, y: rec.position.y - o.y, z: rec.position.z - o.z }, lq);
+    }
     return true;
   }
   /** 静的または持ち上げ中 → 動的。起こすのはこの物体だけ。 */
@@ -399,6 +500,7 @@ export function createPhysics({ groundHeightAt, options = {}, now = () => perfor
     const rec = objects.get(id);
     if (!rec) return false;
     if (rec.physicsState === 'dynamic') return true;
+    if (rec.group) return wakeGroup(rec.group, { velocity });
     if (depenetrate(rec)) stats.depenetrated++;
     const body = makeBody(rec, massOf(rec));
     if (velocity) body.velocity.set(velocity.x, velocity.y, velocity.z);
@@ -421,10 +523,99 @@ export function createPhysics({ groundHeightAt, options = {}, now = () => perfor
     return true;
   }
 
+  /** v1.69: 塊を、1つの剛体として動かし始める。 */
+  function wakeGroup(G, { velocity = null } = {}) {
+    if (depenetrateGroup(G)) stats.depenetrated++;
+    const leader = objects.get(G.leaderId);
+    // depenetrateで全員がずれた(leaderも)ので、相対姿勢は変えずに、leaderの今の姿勢から取り直さない(相対は不変)
+    const body = makeGroupBody(G);
+    if (velocity) body.velocity.set(velocity.x, velocity.y, velocity.z);
+    bodies.set(G.leaderId, body);
+    for (const mid of G.ids) {
+      const m = objects.get(mid);
+      m.physicsState = 'dynamic'; m.dynamic = true; m.stable = false; m.grabbable = true;
+      m.dynamicSince = simTime; m.lastPhysicsTime = simTime; m.restTime = 0;
+    }
+    leader.reach = G.reach; leader.wakeX = leader.position.x; leader.wakeZ = leader.position.z;
+    refreshWorld();
+    world.addBody(body);
+    stats.woke++;
+    emit('woke', leader);
+    return true;
+  }
+  /** v1.69: 塊をほどく(全員が、今の姿勢のまま、1本ずつの物に戻る)。動いている最中なら、その場で止める。 */
+  function dissolveGroup(G) {
+    const b = bodies.get(G.leaderId);
+    if (b) {
+      copyPose(objects.get(G.leaderId), b.position, b.quaternion);
+      applyLeaderPose(G, objects.get(G.leaderId).position, objects.get(G.leaderId).quaternion);
+      world.removeBody(b); bodies.delete(G.leaderId);
+    }
+    for (const mid of G.ids) {
+      const m = objects.get(mid); if (!m) continue;
+      delete m.group;
+      if (m.physicsState === 'dynamic') { m.physicsState = 'static'; m.dynamic = false; m.stable = true; m.grabbable = true; }
+      delete m.reach;
+    }
+    groups.delete(G.id);
+    refreshWorld();
+  }
+  /**
+   * v1.69: 2本の静止した丸太を、剛体として接着する(すでに塊の一員なら、塊どうしを1つにする)。
+   * 位置は変えない(いまの姿勢のまま、相対姿勢を覚える)。どちらかが静止していなければ false。
+   */
+  function weld(idA, idB) {
+    const a = objects.get(idA), b = objects.get(idB);
+    if (!a || !b || a === b) return false;
+    if (a.physicsState !== 'static' || b.physicsState !== 'static') return false;
+    if (a.group && a.group === b.group) return true;
+    let G = a.group;
+    if (!G) {
+      G = { id: 'g' + (nextGroupId++), leaderId: a.id, ids: [a.id], rel: new Map(), props: { ...DEFAULT_PROPS }, reach: 0 };
+      groups.set(G.id, G); a.group = G;
+    }
+    const others = b.group ? b.group.ids.slice() : [b.id];
+    if (b.group) groups.delete(b.group.id);
+    for (const oid of others) { if (!G.ids.includes(oid)) G.ids.push(oid); objects.get(oid).group = G; }
+    rebuildGroup(G);
+    return true;
+  }
+  /** 塊の一員のid一覧(塊でなければ null)。 */
+  function groupOf(id) { const r = objects.get(id); return r && r.group ? r.group.ids.slice() : null; }
+  /** 塊(または1本)を、いまの姿勢でその場に止めて、静的に戻す(宙に浮かせたまま止める時などに使う)。 */
+  function freeze(id) {
+    const rec = objects.get(id);
+    if (!rec) return false;
+    const lid = rec.group ? rec.group.leaderId : id;
+    if (!bodies.has(lid)) return false;
+    settle(lid, 'freeze');
+    return true;
+  }
+  function settleGroup(G, reason) {
+    const body = bodies.get(G.leaderId), leader = objects.get(G.leaderId);
+    copyPose(leader, body.position, body.quaternion);
+    applyLeaderPose(G, leader.position, leader.quaternion);
+    // 地面にめり込んだまま止まらないよう、いちばん深く沈んでいる丸太のぶんだけ、塊ぜんたいを持ち上げる
+    if (reason !== 'freeze') {
+      let lift = 0;
+      for (const mid of G.ids) { const m = objects.get(mid); lift = Math.max(lift, groundHeightAt(m.position.x, m.position.z) + m.radiusBottom * 0.85 - m.position.y); }
+      if (lift > 0) { applyLeaderPose(G, { x: leader.position.x, y: leader.position.y + lift, z: leader.position.z }, leader.quaternion); }
+    }
+    removeDynamic(G.leaderId);
+    for (const mid of G.ids) {
+      const m = objects.get(mid);
+      m.physicsState = 'static'; m.dynamic = false; m.stable = true; m.grabbable = true; m.lastPhysicsTime = simTime; m.settleReason = reason;
+    }
+    delete leader.reach;
+    stats.settled++;
+    refreshWorld();
+    for (const mid of G.ids) emit('settled', objects.get(mid));
+  }
   function settle(id, reason) {
     const rec = objects.get(id);
     const body = bodies.get(id);
     if (!rec || !body) return;
+    if (rec.group) { settleGroup(rec.group, reason); return; } // v1.69
     // 地面にめり込んだまま/地面の下で止まらないよう、中心は地面+半径以上に保つ
     const minY = groundHeightAt(body.position.x, body.position.z) + rec.radiusBottom * 0.85;
     if (body.position.y < minY) body.position.y = minY;
@@ -478,7 +669,7 @@ export function createPhysics({ groundHeightAt, options = {}, now = () => perfor
     let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
     for (const r of dyn) {
       const b = bodies.get(r.id);
-      const reach = r.length / 2 + 1;
+      const reach = (r.reach ?? r.length / 2) + 1; // v1.69: 塊は、塊ぜんたいの広がり
       x0 = Math.min(x0, b.position.x - reach); x1 = Math.max(x1, b.position.x + reach);
       z0 = Math.min(z0, b.position.z - reach); z1 = Math.max(z1, b.position.z + reach);
     }
@@ -503,7 +694,7 @@ export function createPhysics({ groundHeightAt, options = {}, now = () => perfor
     const wantedColliders = new Set();
     for (const r of dyn) {
       const b = bodies.get(r.id);
-      for (const c of collidersNear(b.position.x, b.position.z, P.neighborRadius + r.length / 2)) wantedColliders.add(c.id);
+      for (const c of collidersNear(b.position.x, b.position.z, P.neighborRadius + (r.reach ?? r.length / 2))) wantedColliders.add(c.id);
     }
     for (const [id, b] of colliderBodies) {
       if (!wantedColliders.has(id)) { world.removeBody(b); colliderBodies.delete(id); }
@@ -542,6 +733,7 @@ export function createPhysics({ groundHeightAt, options = {}, now = () => perfor
     for (const [id, body] of [...bodies]) {
       const rec = objects.get(id);
       copyPose(rec, body.position, body.quaternion);
+      if (rec.group) applyLeaderPose(rec.group, rec.position, rec.quaternion); // v1.69: 塊の全員の姿勢を、剛体の姿勢から決め直す
       rec.lastPhysicsTime = simTime;
       const ground = groundHeightAt(body.position.x, body.position.z);
       if (body.position.y < ground - 1.5) { stats.failsafes++; settle(id, 'failsafe'); continue; } // 地面抜けの救済
@@ -579,13 +771,14 @@ export function createPhysics({ groundHeightAt, options = {}, now = () => perfor
 
   return {
     register, unregister, pickUp, setHeldPose, wake, release,
+    weld, groupOf, freeze, // v1.69: 接着(塊)
     addStaticCollider, removeStaticCollider,
     // v1.52: 物理プロパティと外力の窓口(月・星・火・川などのゲーム側の仕組みはこれを使う)
     getPhysicalProperties, setPhysicalProperties,
     addForceField, removeForceField, applyImpulse, liftForceForMass,
     gravity: () => P.gravity,
     /** v1.56-H3: 動いている丸太の今の速度(m/s)。水に落ちた瞬間の検出などに使う。動的でなければnull。 */
-    velocityOf(id) { const b = bodies.get(id); return b ? { x: b.velocity.x, y: b.velocity.y, z: b.velocity.z } : null; },
+    velocityOf(id) { const r0 = objects.get(id); const b = bodies.get(r0 && r0.group ? r0.group.leaderId : id); return b ? { x: b.velocity.x, y: b.velocity.y, z: b.velocity.z } : null; },
     step,
     get: (id) => objects.get(id) || null,
     isGrabbable: (id) => { const r = objects.get(id); return !!r && r.grabbable === true; },
@@ -601,6 +794,7 @@ export function createPhysics({ groundHeightAt, options = {}, now = () => perfor
       activeColliders: colliderBodies.size,
       forceFields: forceFields.size,
       sustained: [...objects.values()].filter((o) => o.sustained).length,
+      groups: groups.size,
       patch: patch ? { x0: patch.x0, x1: patch.x1, z0: patch.z0, z1: patch.z1 } : null,
       worldBodies: world.bodies.length,
       simTime,

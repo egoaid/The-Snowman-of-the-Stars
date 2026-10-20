@@ -98,6 +98,12 @@ export function createFallenLogSystem({ fallenLogs, physics, burialCandidates = 
     applyPoseToMesh(log.mesh, log.length, rec.position, rec.quaternion);
     log.x = rec.position.x; log.z = rec.position.z; // 「拾う」対象の位置(interactionが参照)
   }
+  /** v1.69: 接着した塊の全員のメッシュを、物理の姿勢へ合わせる(塊でなければ、その1本だけ)。 */
+  function syncGroup(log) {
+    const ids = physics.groupOf(log.physicsId);
+    if (!ids) { syncMesh(log); return; }
+    for (const id of ids) { const l = byId.get(id); if (l) syncMesh(l); }
+  }
 
   physics.on('settled', (rec) => {
     const log = byId.get(rec.id);
@@ -123,14 +129,14 @@ export function createFallenLogSystem({ fallenLogs, physics, burialCandidates = 
         physics.setHeldPose(log.physicsId, { x: r.position.x, y: r.position.y - clearance + 0.03, z: r.position.z }, r.quaternion);
       }
     }
-    syncMesh(log); // 動いている最中につかんだ場合も、つかんだ瞬間の姿勢を見た目に反映する
+    syncGroup(log); // 動いている最中につかんだ場合も、つかんだ瞬間の姿勢を見た目に反映する(v1.69: 塊なら全員)
     return true;
   }
   /** 持ち上げ中の丸太を、中心の位置と向き(クォータニオン)で置く。X/Y/Z移動とX/Y/Z回転はこれで表す。 */
   function moveHeldPose(log, position, quaternion) {
     if (!log || log.physics.physicsState !== 'held') return false;
     physics.setHeldPose(log.physicsId, position, quaternion);
-    syncMesh(log);
+    syncGroup(log); // v1.69: 接着した塊なら、全員がいっしょに動く
     return true;
   }
   /** 互換: 位置と水平の向き(yaw)で置く。 */
@@ -163,6 +169,9 @@ export function createFallenLogSystem({ fallenLogs, physics, burialCandidates = 
     attach, grab, moveHeld, moveHeldPose, release, remove, update,
     /** v1.56-H4: 物理の姿勢をメッシュへ反映し直す(雪が溶けて丸太が下がった時など)。 */
     syncPose: syncMesh,
+    syncGroup, // v1.69
+    /** v1.69: 物理のid → 倒木。 */
+    logOfPhysicsId: (id) => byId.get(id) || null,
     logs: () => fallenLogs.filter((l) => !l.collected),
     meshes: () => fallenLogs.filter((l) => !l.collected).map((l) => l.mesh),
     logOfMesh(obj) {

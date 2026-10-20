@@ -13,6 +13,11 @@ export const ITEM_DEFS = {
   // 星のかけら: 星から作る(星1個 → 10個)。星より小さい。物と物を貼り付ける力があり、
   // おもちゃを木に飾る・木でおもちゃを作る・川に橋をかける時に使う。
   star_shard: { id: 'star_shard', name: '星のかけら', icon: '✦', maxStack: 64, category: 'material', hand: 'right', description: '星から作った小さなかけら。物と物をくっつける力がある。' },
+  // v1.69: 月の石 / 月のかけら。月の石は、星のように時々空から降ってくる三日月の形の光る石で、地面に埋まっていることもある。
+  //   (月面のクレーターができる時に生まれ、隕石として地球に落ちた物。今も降ってくるのは、この世界の謎の1つ。)
+  //   星が「重力を与える」のに対し、月の石は「反重力」を持つ。月のかけらを丸太の組んだ物に貼ると、その物が少し宙に浮く。
+  moon_stone: { id: 'moon_stone', name: '月の石', icon: '🌙', maxStack: 64, category: 'collectible', hand: 'right', description: '三日月の形に光る石。反重力の力を持つ。' },
+  moon_shard: { id: 'moon_shard', name: '月のかけら', icon: '☾', maxStack: 64, category: 'material', hand: 'right', description: '月の石から作った小さなかけら。貼った物を、少し宙に浮かせる。' },
   torch:   { id: 'torch',   name: '松明',   icon: '🔥', maxStack: 64, category: 'utility',     hand: 'left',  description: '夜道をほのかに照らす。' },
   log:     { id: 'log',     name: '丸太',   icon: '🪵', maxStack: 64, category: 'resource',    hand: 'right', description: '倒木から拾った丸太。木材10個に分けられる。' },
   wood:    { id: 'wood',    name: '木材',   icon: '🟫', maxStack: 64, category: 'resource',    hand: 'right', description: '丸太から取れる、使いやすい木材。' },
