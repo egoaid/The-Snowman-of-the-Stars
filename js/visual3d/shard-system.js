@@ -186,13 +186,37 @@ export function createShardSystem({ fallenLogs, physics, logSystem, groundAt, on
         dbg('shard.hover.freeze', { leader: leaderId, err: +st.err.toFixed(3), members: (physics.groupOf(leaderId) || [leaderId]).length });
       }
     }
+    // v1.70: 浮いている建造物は、塊ぜんたいが1つの剛体として、同じ位相でふわふわする(上下+ごくわずかな傾き)。
+    // 以前は月のかけらを持つ1本だけが揺れて、つなぎ目がずれて見えていた。
+    const done = new Set();
     for (const log of fallenLogs) {
-      if (!log.moonShard && !log.moonFloat) continue;
+      if (log.collected || done.has(log)) continue;
       const rec = log.physics;
       if (!rec || rec.physicsState !== 'static') continue;
+      if (!log.moonShard && !rec.group) continue; // 単独で、月のかけらも無い物は、浮かない
       if (!isFloatingRec(rec)) continue;
-      const off = Math.sin(time * 1.1 + (log.physicsId.length * 1.7) + (rec.group ? rec.group.id.length : 0)) * 0.035;
-      applyPoseToMesh(log.mesh, log.length, { x: rec.position.x, y: rec.position.y + off, z: rec.position.z }, rec.quaternion);
+      const members = structureLogs(log).filter((l) => !l.collected && l.physics && l.physics.physicsState === 'static');
+      for (const m of members) done.add(m);
+      bobStructure(members, rec.group ? rec.group.id : rec.id);
+    }
+  }
+  const _qs = new THREE.Quaternion(), _qm = new THREE.Quaternion(), _e = new THREE.Euler(), _v = new THREE.Vector3();
+  function bobStructure(members, key) {
+    let ph = 0; for (let i = 0; i < key.length; i++) ph = (ph * 31 + key.charCodeAt(i)) % 628;
+    ph /= 100; // 塊ごとに位相が違う(塊の中では全員同じ)
+    const w = (Math.PI * 2) / cfg.bobPeriodSec;
+    const dy = Math.sin(time * w + ph) * cfg.bobAmplitude;
+    const tilt = (cfg.bobTiltDeg * Math.PI) / 180;
+    _e.set(Math.sin(time * w * 0.8 + ph + 1.3) * tilt, 0, Math.cos(time * w * 0.7 + ph) * tilt);
+    _qs.setFromEuler(_e);
+    let cx = 0, cy = 0, cz = 0;
+    for (const m of members) { cx += m.physics.position.x; cy += m.physics.position.y; cz += m.physics.position.z; }
+    cx /= members.length; cy /= members.length; cz /= members.length;
+    for (const m of members) {
+      const r = m.physics;
+      _v.set(r.position.x - cx, r.position.y - cy, r.position.z - cz).applyQuaternion(_qs);
+      _qm.set(r.quaternion.x, r.quaternion.y, r.quaternion.z, r.quaternion.w).premultiply(_qs);
+      applyPoseToMesh(m.mesh, m.length, { x: cx + _v.x, y: cy + _v.y + dy, z: cz + _v.z }, _qm);
     }
   }
 

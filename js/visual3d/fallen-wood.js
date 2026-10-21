@@ -46,6 +46,15 @@ export const WOOD_PLAN = [
 ];
 export const WOOD_PLAN_TOTAL = WOOD_PLAN.reduce((s, [, n]) => s + n, 0);
 
+// v1.70: 追加の倒木(計30本)。最初の30本(WOOD_PLAN)は、位置も番号も変えない。追加分は別の乱数で『あとから』置き、番号は30番以降になる
+// (保存データは倒木の番号で覚えているので、古い保存も壊れない)。建造物の素材になる丸太・細い丸太・枝を多めにする。
+export const WOOD_PLAN_EXTRA = [
+  ['long_trunk', 1], ['thick_trunk', 1], ['bare_tree', 1], ['leafy_tree', 1],
+  ['medium_log', 5], ['short_log', 4], ['thin_log', 4],
+  ['large_branch', 4], ['medium_branch', 3], ['small_branch', 3], ['twig', 3],
+];
+export const WOOD_PLAN_EXTRA_TOTAL = WOOD_PLAN_EXTRA.reduce((s, [, n]) => s + n, 0);
+
 // 物理の円柱の下限(細すぎると地面をすり抜けやすい)
 const MIN_COLLISION_RADIUS = 0.03;
 
@@ -414,9 +423,11 @@ function segDist2D(ax, az, bx, bz, cx, cz, dx, dz) {
  * @param {Array} [p.plan]
  * @returns {Array<{spec, dims, pose, x, z, yaw}>}
  */
-export function placeFallenWood({ rng, groundHeightAt, isBlocked, treeAnchors = [], range = 57, plan = WOOD_PLAN, maxAttemptsPerItem = 120 }) {
-  const placed = [];
-  const heavy = [];
+export function placeFallenWood({ rng, groundHeightAt, isBlocked, treeAnchors = [], range = 57, plan = WOOD_PLAN, maxAttemptsPerItem = 120, existing = [] }) {
+  // v1.70: existing = すでに置かれた倒木(この関数が前に返した物)。重ならないように避ける。戻り値には含めない。
+  const placed = existing.slice();
+  const heavy = existing.filter((o) => o.spec.radius >= 0.14 && o.spec.length >= 2).map((o) => ({ x: o.x, z: o.z }));
+  const created = [];
   const overlaps = (cand) => {
     for (const o of placed) {
       const clear = cand.spec.radius + o.spec.radius + 0.05;
@@ -461,11 +472,11 @@ export function placeFallenWood({ rng, groundHeightAt, isBlocked, treeAnchors = 
           b: { x: x + Math.cos(yaw) * h, z: z - Math.sin(yaw) * h },
         };
         if (overlaps(cand)) continue;
-        placed.push(cand);
+        placed.push(cand); created.push(cand);
         if (spec.radius >= 0.14 && spec.length >= 2) heavy.push({ x, z });
         break;
       }
     }
   }
-  return placed;
+  return created;
 }

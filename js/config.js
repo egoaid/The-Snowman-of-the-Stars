@@ -7,7 +7,7 @@
 export const APP = {
   titleJa: '星の雪だるま',
   titleEn: 'The Snowman of the Stars',
-  version: '1.69',
+  version: '1.70',
   // 表記上の統一形式。実際の権利は All rights reserved。
   copyright: '© 2026 egoaid',
   // v1.57: 公開(GitHub Pages)。絶対URLが必要な所(canonical・sitemap・OGP・manifest)の基準。
@@ -89,6 +89,10 @@ export const SHARDS = {
   contactTolerance: 0.1,   // 2本の丸太の「触れている」とみなす隙間(m)。静止した丸太の軸どうしの距離 ≤ 半径の和 + この値
   hoverClearance: 0.7,     // 月のかけらを貼った物が、地面から浮く高さ(m。いちばん低い所の隙間)
   hoverSteadySec: 1.0,     // 浮く高さで落ち着いてから、静止(静的)に戻すまでの時間
+  // v1.70: 浮いている建造物は、塊ぜんたいが同じ動きでふわふわする(見た目だけ。あたり判定は元の高さのまま)
+  bobAmplitude: 0.08,      // 上下のゆれ幅(m、±)
+  bobPeriodSec: 6,         // 上下1往復の秒数
+  bobTiltDeg: 0.5,         // 傾きのゆれ(度、±)。塊の中心まわりに、ごくわずかに揺れる
 };
 
 

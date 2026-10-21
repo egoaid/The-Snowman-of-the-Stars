@@ -39,7 +39,7 @@ import { createCameraDirector } from './camera-director.js';
 import { createWalkControls, EYE_HEIGHT } from './walk-controls.js';
 import { createSnowmanCharacter, createFirstPersonHands, createTorch } from './snowman.js';
 import { makeRng, randRange, deriveSeed } from './rng.js';
-import { createFallenWood, placeFallenWood, woodPhysicalProperties, woodMaterial, collisionDims } from './fallen-wood.js';
+import { createFallenWood, placeFallenWood, WOOD_PLAN_EXTRA, woodPhysicalProperties, woodMaterial, collisionDims } from './fallen-wood.js';
 import { createLogObstacleManager, isWalkOver } from './log-obstacles.js';
 import { createTraversal, createVerticalState, createClimbController, createTraversalFailureMemory, ACTION, climbDurationFor } from './traversal.js';
 import { createStagnationWatchdog, createRepeatDetector, blockerSignature, findRescueSpot, hopPoint } from './wander-watchdog.js';
@@ -1817,8 +1817,7 @@ export function initScene(mountEl, options = {}) {
   // 乱数は専用の列(木・岩とは独立)なので、この変更で木・岩の配置は変わらない。
   // v1.49: 岩・木の幹・テントとも重ならないように、岩を置いた『あと』で置く(岩は木の乱数と無関係なので配置は不変)。
   const fallenRng = makeRng(worldGen ? deriveSeed(worldGen.seed, 'fallenwood') : 3131);
-  const placedWood = placeFallenWood({
-    rng: fallenRng,
+  const woodPlaceOpts = {
     groundHeightAt: terrainHeightAt,
     range: PLAYABLE_RADIUS,
     treeAnchors: livingTreePositions.slice(1).map((t) => ({ x: t.x, z: t.z, radius: Math.max(1.2, t.scale * 0.9) })), // 先頭は大木。それ以外=森の木の近く
@@ -1841,7 +1840,12 @@ export function initScene(mountEl, options = {}) {
       }
       return false;
     },
-  });
+  };
+  const placedWoodBase = placeFallenWood({ ...woodPlaceOpts, rng: fallenRng });
+  // v1.70: 追加の倒木(30本)。最初の30本のあとに、別の乱数で置く(最初の30本の位置・番号は変わらない)。
+  const fallenRng2 = makeRng(worldGen ? deriveSeed(worldGen.seed, 'fallenwood2') : 3132);
+  const placedWoodExtra = placeFallenWood({ ...woodPlaceOpts, rng: fallenRng2, plan: WOOD_PLAN_EXTRA, existing: placedWoodBase });
+  const placedWood = placedWoodBase.concat(placedWoodExtra);
   for (const w of placedWood) {
     const wood = createFallenWood(w.spec);
     wood.position.copy(w.pose.base);
