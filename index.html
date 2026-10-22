@@ -1,9 +1,11 @@
 <!DOCTYPE html>
-<html lang="ja">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <title>星の雪だるま — The Snowman of the Stars</title>
+  <title>The Snowman of the Stars — 星の雪だるま</title>
+  <!-- v1.72: 言語の設定。日本語を選んでいる時だけ、読み込みが終わるまで起動画面を隠す(英語の文字が一瞬見えないように)。3秒で必ず外す -->
+  <script>(function(){try{if(localStorage.getItem('snowman.lang.v1')==='ja'){document.documentElement.lang='ja';document.documentElement.classList.add('i18n-pending');setTimeout(function(){document.documentElement.classList.remove('i18n-pending');},3000);}}catch(e){}})();</script>
   <meta name="description" content="雪だるまが暮らす3Dの自然を、歩いて、眺めて、物を動かして楽しむ、ブラウザで遊べる箱庭。川・雨・風・虫・鳥・焚き火の環境音はすべてその場で生成。無料・インストール不要・スマホ対応。">
   <meta name="robots" content="index,follow,max-image-preview:large">
   <meta name="theme-color" content="#0b1a2e">
@@ -63,9 +65,9 @@
       <p>A calm 3D browser sandbox where a snowman lives in a generated natural world. Walk around, watch, and rearrange things. All ambient sounds (river, rain, wind, insects, birds, campfire) are synthesized live. JavaScript is required.</p>
     </main>
   </noscript>
-  <section class="sr-only" aria-label="アプリの説明">
-    <h2>星の雪だるまについて</h2>
-    <p>雪だるまが暮らす3Dの自然を舞台にした、ブラウザで遊べる箱庭アプリです。歩行モードで自分で歩く、見守りモードで雪だるまの暮らしを眺める、編集モードで丸太などを動かす、の3つの遊び方があります。昼夜・季節・天候が変わり、環境音はすべてその場で生成されます。ユーザーとワールドを作って、ワールドごとにこの端末のブラウザ内へ保存できます。無料で、インストールは不要です。スマートフォンにも対応しています。</p>
+  <section class="sr-only" aria-label="About this app" data-i18n-aria-label="seo.aboutLabel">
+    <h2 data-i18n="seo.aboutTitle">About The Snowman of the Stars</h2>
+    <p data-i18n="seo.about">A calm 3D sandbox you can play in your browser, set in a natural world where a snowman lives. There are three ways to play: Walk Mode (explore on foot), Watch Mode (watch the snowman go about its day) and Edit Mode (move logs and other things around). Day and night, the seasons and the weather change, and every ambient sound is synthesized live. Create users and worlds and save each world in this device’s browser. Free, no installation needed, and works on smartphones.</p>
   </section>
 
   <div id="error-banner"></div>
@@ -73,14 +75,15 @@
   <!-- v1.58: 新しい版のお知らせ。起動時の確認で新しい版が見つかった時だけ出る(✕で閉じられる) -->
   <div id="updateBanner" role="status" hidden>
     <span id="updateBannerText"></span>
-    <button id="updateBannerBtn" type="button">キャッシュを削除して再読み込み</button>
-    <button id="updateBannerClose" type="button" aria-label="閉じる">✕</button>
+    <button id="updateBannerBtn" type="button" data-i18n="update.clearReload">Clear cache and reload</button>
+    <button id="updateBannerClose" type="button" aria-label="Close" data-i18n-aria-label="common.close">✕</button>
   </div>
 
   <!-- v1.42: タイトル画面(マイクラ方式)。スタート/設定の2択。裏では既に3Dシーンの
        読み込みが始まっているので、「スタート」を押した瞬間に世界が見える。 -->
   <div id="titleScreen">
     <div class="title-card">
+      <div class="lang-switch lang-switch-title" data-lang-switch role="group" aria-label="Language / 言語"><button type="button" data-lang="en" aria-pressed="true">English</button><button type="button" data-lang="ja" aria-pressed="false">日本語</button></div>
       <h1 class="title-jp" id="titleScreenJa"></h1>
       <div class="title-world" id="titleWorldInfo"></div>
       <div class="title-en" id="titleScreenEn"></div>
@@ -88,177 +91,175 @@
            start(はじめる) → form(作る/ワールドを選ぶ) → modes(歩行・見守り・編集・設定) -->
       <div class="title-stage" id="titleStageStart">
         <div class="title-buttons">
-          <button id="titleStartBtn" type="button" class="title-start-btn"><span class="mode-name">はじめる</span></button>
-          <button id="titleSettingsBtn" type="button" class="js-title-settings" hidden>設定</button>
+          <button id="titleStartBtn" type="button" class="title-start-btn"><span class="mode-name" data-i18n="title.start">Start</span></button>
+          <button id="titleSettingsBtn" type="button" class="js-title-settings" hidden data-i18n="title.settings">Settings</button>
         </div>
       </div>
       <div class="title-stage" id="titleStageForm" hidden></div>
       <div class="title-stage" id="titleStageModes" hidden>
         <div class="title-buttons">
-          <button id="titleWalkBtn" class="mode-btn" type="button" data-mode="walk"><span class="mode-name">歩行モード</span><span class="mode-hint">自分で歩いて世界をめぐる</span></button>
-          <button id="titleWatchBtn" class="mode-btn" type="button" data-mode="watch"><span class="mode-name">見守りモード</span><span class="mode-hint">雪だるまの暮らしを眺める</span></button>
-          <button id="titleEditBtn" class="mode-btn" type="button" data-mode="edit"><span class="mode-name">編集モード</span><span class="mode-hint">雪だるまが歩く世界で、物を動かす</span></button>
-          <button id="titleSettingsBtn2" type="button" class="js-title-settings">設定</button>
-          <button id="titleReselectBtn" type="button" class="link-btn">ワールドをえらびなおす</button>
+          <button id="titleWalkBtn" class="mode-btn" type="button" data-mode="walk"><span class="mode-name" data-i18n="title.mode.walk">Walk Mode</span><span class="mode-hint" data-i18n="title.mode.walk.hint">Explore the world on foot</span></button>
+          <button id="titleWatchBtn" class="mode-btn" type="button" data-mode="watch"><span class="mode-name" data-i18n="title.mode.watch">Watch Mode</span><span class="mode-hint" data-i18n="title.mode.watch.hint">Watch the snowman go about its day</span></button>
+          <button id="titleEditBtn" class="mode-btn" type="button" data-mode="edit"><span class="mode-name" data-i18n="title.mode.edit">Edit Mode</span><span class="mode-hint" data-i18n="title.mode.edit.hint">Move things around while the snowman wanders</span></button>
+          <button id="titleSettingsBtn2" type="button" class="js-title-settings" data-i18n="title.settings">Settings</button>
+          <button id="titleReselectBtn" type="button" class="link-btn" data-i18n="title.reselect">Choose another world</button>
         </div>
       </div>
       <div class="title-footer">
         <span id="titleVersionFooter"></span><a id="titleUpdateNote" class="update-note" href="#" hidden></a>
-        <button id="titleClearCacheBtn" type="button" class="link-btn">キャッシュを削除して再読み込み</button>
+        <button id="titleClearCacheBtn" type="button" class="link-btn" data-i18n="title.clearCache">Clear cache and reload</button>
         <span id="titleCopyrightFooter"></span>
       </div>
     </div>
   </div>
 
-  <button id="settingsIconBtn" class="auto-ui" type="button" title="起動画面にもどる">⚙️</button>
-  <button id="fullscreenIconBtn" class="auto-ui" type="button" title="フルスクリーン">⛶</button>
-  <button id="walkExitBtn" type="button" title="歩行を終える">✕</button>
-  <div id="settingsPanel" class="set-inv" role="dialog" aria-label="せってい">
+  <button id="settingsIconBtn" class="auto-ui" type="button" title="Back to the title screen" data-i18n-title="ui.backToTitle">⚙️</button>
+  <button id="fullscreenIconBtn" class="auto-ui" type="button" title="Fullscreen" data-i18n-title="ui.fullscreen">⛶</button>
+  <button id="walkExitBtn" type="button" title="Stop walking" data-i18n-title="ui.walkExit">✕</button>
+  <div id="settingsPanel" class="set-inv" role="dialog" aria-label="Settings" data-i18n-aria-label="set.title">
     <div class="set-head">
-      <div class="set-title">⚙️ せってい <span class="set-sub"><span id="appTitleHeader"></span><small id="appTitleEnHeader"></small></span></div>
-      <button id="settingsCloseBtn" class="set-x" type="button" aria-label="とじる">✕</button>
+      <div class="set-title">⚙️ <span data-i18n="set.title">Settings</span> <span class="set-sub"><span id="appTitleHeader"></span><small id="appTitleEnHeader"></small></span></div>
+      <button id="settingsCloseBtn" class="set-x" type="button" aria-label="Close" data-i18n-aria-label="set.close">✕</button>
     </div>
-    <div class="set-tabs" role="tablist"><button type="button" class="set-tab active" role="tab" data-tab="sound"><span class="set-tab-ico">🔊</span><span class="set-tab-name">おと</span></button><button type="button" class="set-tab" role="tab" data-tab="screen"><span class="set-tab-ico">🖥️</span><span class="set-tab-name">がめん</span></button><button type="button" class="set-tab" role="tab" data-tab="world"><span class="set-tab-ico">🌦️</span><span class="set-tab-name">せかい</span></button><button type="button" class="set-tab" role="tab" data-tab="play"><span class="set-tab-ico">🎮</span><span class="set-tab-name">そうさ</span></button><button type="button" class="set-tab" role="tab" data-tab="save"><span class="set-tab-ico">💾</span><span class="set-tab-name">ほぞん</span></button><button type="button" class="set-tab" role="tab" data-tab="app"><span class="set-tab-ico">ℹ️</span><span class="set-tab-name">アプリ</span></button><button type="button" class="set-tab" role="tab" data-tab="dev" data-admin-only><span class="set-tab-ico">🛠️</span><span class="set-tab-name">開発</span></button></div>
+    <div class="set-tabs" role="tablist"><button type="button" class="set-tab active" role="tab" data-tab="sound"><span class="set-tab-ico">🔊</span><span class="set-tab-name" data-i18n="set.tab.sound">Sound</span></button><button type="button" class="set-tab" role="tab" data-tab="screen"><span class="set-tab-ico">🖥️</span><span class="set-tab-name" data-i18n="set.tab.screen">Screen</span></button><button type="button" class="set-tab" role="tab" data-tab="world"><span class="set-tab-ico">🌦️</span><span class="set-tab-name" data-i18n="set.tab.world">World</span></button><button type="button" class="set-tab" role="tab" data-tab="play"><span class="set-tab-ico">🎮</span><span class="set-tab-name" data-i18n="set.tab.play">Controls</span></button><button type="button" class="set-tab" role="tab" data-tab="save"><span class="set-tab-ico">💾</span><span class="set-tab-name" data-i18n="set.tab.save">Save</span></button><button type="button" class="set-tab" role="tab" data-tab="app"><span class="set-tab-ico">ℹ️</span><span class="set-tab-name" data-i18n="set.tab.app">App</span></button><button type="button" class="set-tab" role="tab" data-tab="dev" data-admin-only><span class="set-tab-ico">🛠️</span><span class="set-tab-name">開発</span></button></div>
     <div class="set-body">
       <section class="set-page" data-page="sound">
         <div class="set-block">
-      <h3 class="set-h">🔊 音</h3>
-      <button id="audioStartBtn">🔊 音を有効にする</button>
+      <h3 class="set-h">🔊 <span data-i18n="set.sound.h">Sound</span></h3>
+      <button id="audioStartBtn" data-i18n="audio.enable">🔊 Enable sound</button>
     </div>
         <div class="set-block" id="volumeSection">
       <label class="field">
-        🌿 環境音の音量:
+        <span data-i18n="set.volume.ambient">🌿 Ambient volume:</span>
         <input type="range" id="ambientVolumeSlider" min="0" max="150" step="5" value="100" style="width:50%;">
         <span id="ambientVolumeValue" style="display:inline-block; min-width:3.2em; text-align:right;">100%</span>
       </label>
       <label class="field">
-        🔔 効果音の音量:
+        <span data-i18n="set.volume.sfx">🔔 Sound effects volume:</span>
         <input type="range" id="sfxVolumeSlider" min="0" max="150" step="5" value="100" style="width:50%;">
         <span id="sfxVolumeValue" style="display:inline-block; min-width:3.2em; text-align:right;">100%</span>
       </label>
-      <div style="font-size:11px; opacity:0.75; margin-top:2px;">環境音は川・雨・風・虫・鳥・焚き火・雷、効果音は足音・拾う/置く・チェスト・丸太・星の鈴の音です。</div>
+      <div style="font-size:11px; opacity:0.75; margin-top:2px;" data-i18n="set.volume.note">Ambient sounds are the river, rain, wind, insects, birds, campfire and thunder. Sound effects are footsteps, picking up and placing things, the chest, logs and the star chimes.</div>
     </div>
       </section>
       <section class="set-page" data-page="screen" hidden>
+        <div class="set-block"><h3 class="set-h" data-i18n="lang.heading">🌐 Language / 言語</h3><div class="lang-switch" data-lang-switch role="group" aria-label="Language / 言語"><button type="button" data-lang="en" aria-pressed="true">English</button><button type="button" data-lang="ja" aria-pressed="false">日本語</button></div><div class="small-note" data-i18n="lang.note">Your choice is remembered on this device.</div></div>
         <div class="set-block">
-      <h3 class="set-h">💧 水面</h3>
+      <h3 class="set-h" data-i18n="set.water.h">💧 Water</h3>
       <label class="field">
-        💧 水面の品質:
+        <span data-i18n="set.water.quality">💧 Water quality:</span>
         <select id="waterQualitySelect">
-          <option value="high">高(雨の波紋・流れ・きらめき)</option>
-          <option value="standard">標準(波紋を少なく・軽め)</option>
-          <option value="off">オフ(水面処理なし・最軽量)</option>
+          <option value="high" data-i18n="set.water.high">High (rain ripples, flow, sparkle)</option>
+          <option value="standard" data-i18n="set.water.standard">Standard (fewer ripples, lighter)</option>
+          <option value="off" data-i18n="set.water.off">Off (no water effects, lightest)</option>
         </select>
       </label>
-      <div style="font-size:11px; opacity:0.75; margin-top:2px;">動作が重い端末では「標準」か「オフ」にしてください。</div>
+      <div style="font-size:11px; opacity:0.75; margin-top:2px;" data-i18n="set.water.note">If your device runs slowly, choose “Standard” or “Off”.</div>
       <label style="display:block; margin-top:8px;">
-        <input type="checkbox" id="waterReflectionCheckbox" checked> ✨ 川面に星と月を映す
+        <input type="checkbox" id="waterReflectionCheckbox" checked> <span data-i18n="set.water.reflection">✨ Reflect the stars and moon on the river</span>
       </label>
-      <div style="font-size:11px; opacity:0.75; margin-top:2px;">夜の川に、星空と月が映ります。水面の品質が「オフ」の時は映りません。</div>
-      <button type="button" id="debugLogBtn" style="margin-top:10px; font:inherit; font-size:12px; padding:5px 10px;">📋 動作ログを書き出す(JSON)</button>
-      <div style="font-size:11px; opacity:0.75; margin-top:2px;">かけら・接着・浮遊・月の石の記録と、その時の状態を、JSONファイルで保存します(動作確認用)。</div>
+      <div style="font-size:11px; opacity:0.75; margin-top:2px;" data-i18n="set.water.reflection.note">The night sky and the moon are reflected in the river. Not shown when water quality is “Off”.</div>
+      <button type="button" id="debugLogBtn" style="margin-top:10px; font:inherit; font-size:12px; padding:5px 10px;" data-i18n="set.debuglog">📋 Export activity log (JSON)</button>
+      <div style="font-size:11px; opacity:0.75; margin-top:2px;" data-i18n="set.debuglog.note">Saves a record of shards, gluing, floating and moon stones, plus the state at that moment, as a JSON file (for troubleshooting).</div>
     </div>
         <div class="set-block">
-          <h3 class="set-h">📱 画面</h3>
+          <h3 class="set-h" data-i18n="set.screen.h">📱 Screen</h3>
           <label>
-        <input type="checkbox" id="wakeLockCheckbox"> 画面をつけたままにする
+        <input type="checkbox" id="wakeLockCheckbox"> <span data-i18n="set.wakelock">Keep the screen on</span>
       </label>
       <div id="wakeLockNote" class="small-note"></div>
         </div>
-        <div class="set-block"><h3 class="set-h">🖥️ ひょうじ</h3><button id="settingsFullscreenBtn" type="button">⛶ フルスクリーンにする</button></div>
+        <div class="set-block"><h3 class="set-h" data-i18n="set.display.h">🖥️ Display</h3><button id="settingsFullscreenBtn" type="button" data-i18n="set.fullscreen">⛶ Enter fullscreen</button></div>
       </section>
       <section class="set-page" data-page="world" hidden>
         <div class="set-block">
-      <h3 class="set-h">🌦️ 季節と天気</h3>
+      <h3 class="set-h" data-i18n="set.season.h">🌦️ Season &amp; weather</h3>
       <label class="field">
-        季節:
+        <span data-i18n="set.season.label">Season:</span>
         <select id="seasonSelect">
-          <option value="auto" selected>自動(実際の暦に合わせる)</option>
-          <option value="spring">春</option>
-          <option value="tsuyu">梅雨</option>
-          <option value="summer">夏</option>
-          <option value="typhoon">台風シーズン</option>
-          <option value="autumn">秋</option>
-          <option value="winter">冬</option>
+          <option value="auto" selected data-i18n="set.season.auto">Auto (follow the real calendar)</option>
+          <option value="spring" data-i18n="set.season.spring">Spring</option>
+          <option value="tsuyu" data-i18n="set.season.tsuyu">Rainy season</option>
+          <option value="summer" data-i18n="set.season.summer">Summer</option>
+          <option value="typhoon" data-i18n="set.season.typhoon">Typhoon season</option>
+          <option value="autumn" data-i18n="set.season.autumn">Autumn</option>
+          <option value="winter" data-i18n="set.season.winter">Winter</option>
         </select>
       </label>
       <label class="field">
-        天候(手動切替):
+        <span data-i18n="set.weather.label">Weather (manual):</span>
         <select id="weatherSelect">
-          <option value="auto" selected>自動(季節に応じて変化)</option>
-          <option value="clear">晴れ</option>
-          <option value="rain">雨</option>
-          <option value="storm">雷雨</option>
-          <option value="snow">雪</option>
+          <option value="auto" selected data-i18n="set.weather.auto">Auto (changes with the season)</option>
+          <option value="clear" data-i18n="set.weather.clear">Clear</option>
+          <option value="rain" data-i18n="set.weather.rain">Rain</option>
+          <option value="storm" data-i18n="set.weather.storm">Thunderstorm</option>
+          <option value="snow" data-i18n="set.weather.snow">Snow</option>
           <option value="rainbow-debug" data-admin-only>虹(デバッグ表示)</option>
         </select>
       </label>
-      <div style="font-size:11px; color:#9aa;">
-        「自動」では梅雨に雨が増え、台風シーズンに雷雨が増え、冬は雪になるなど、
-        季節ごとに天候の傾向が変わります。
+      <div style="font-size:11px; color:#9aa;" data-i18n="set.weather.note">
+        In “Auto”, the weather follows the season: more rain in the rainy season, more thunderstorms in typhoon season, and snow in winter.
       </div>
     </div>
         <div class="set-block">
-      <h3 class="set-h">🌳 木のしげり具合</h3>
-      <div class="set-seg" id="lushSeg" role="radiogroup" aria-label="木のしげり具合">
-        <button type="button" role="radio" data-lush="light">すっきり</button>
-        <button type="button" role="radio" data-lush="normal">ふつう</button>
-        <button type="button" role="radio" data-lush="lush">こんもり</button>
+      <h3 class="set-h" data-i18n="set.lush.h">🌳 Tree density</h3>
+      <div class="set-seg" id="lushSeg" role="radiogroup" aria-label="Tree density" data-i18n-aria-label="set.lush.label">
+        <button type="button" role="radio" data-lush="light" data-i18n="set.lush.light">Sparse</button>
+        <button type="button" role="radio" data-lush="normal" data-i18n="set.lush.normal">Normal</button>
+        <button type="button" role="radio" data-lush="lush" data-i18n="set.lush.lush">Lush</button>
       </div>
-      <div class="small-note">テントのそばの大きな木の、枝と葉の多さが変わります。変えると、木を作り直すために世界を読み込み直します(ワールドは保存されます)。</div>
-      <button id="lushApplyBtn" type="button" hidden>この茂り具合で、木を作り直す</button>
+      <div class="small-note" data-i18n="set.lush.note">Changes how many branches and leaves the big tree beside the tent has. Changing it reloads the world to rebuild the tree (your world is saved).</div>
+      <button id="lushApplyBtn" type="button" hidden data-i18n="set.lush.apply">Rebuild the tree with this density</button>
     </div>
     <div class="set-block">
-      <h3 class="set-h">🕐 時間</h3>
+      <h3 class="set-h" data-i18n="set.time.h">🕐 Time</h3>
       <div id="gameClock">🕐 --:--</div>
-      <label class="field">時刻をジャンプ:
+      <label class="field"><span data-i18n="set.time.jump">Jump to time:</span>
         <select id="timeSelect">
-          <option value="morning">朝</option>
-          <option value="day" selected>昼</option>
-          <option value="evening">夕</option>
-          <option value="night">夜</option>
+          <option value="morning" data-i18n="set.time.morning">Morning</option>
+          <option value="day" selected data-i18n="set.time.day">Day</option>
+          <option value="evening" data-i18n="set.time.evening">Evening</option>
+          <option value="night" data-i18n="set.time.night">Night</option>
         </select>
       </label>
-      <div style="font-size:11px; color:#9aa;">
-        現実の20分でゲーム内1日が経過します(マインクラフト相当の速さ)。
+      <div style="font-size:11px; color:#9aa;" data-i18n="set.time.note">
+        One in-game day passes every 20 minutes of real time (about the same pace as Minecraft).
       </div>
     </div>
       </section>
       <section class="set-page" data-page="play" hidden>
         <div class="set-block">
-      <h3 class="set-h">そうさ</h3>
-      <div class="manual-help-body">
-        <p><strong>PC</strong><br>
-        WASD: 移動 / マウス: 視点 / Space: ジャンプ / Shift: 走る(押している間)<br>
-        V: 視点切替(一人称・三人称) / E: インベントリの開閉 / 1〜9・ホイール: ホットバー選択<br>
-        左クリック: 狙っている物へアクション / Esc: 歩行モードを終える</p>
-        <p><strong>スマートフォン</strong><br>
-        画面左のジョイスティック: 移動 / 画面のドラッグ: 視点 / A: ジャンプ<br>
-        👝: インベントリの開閉 / ✦: 狙っている物へアクション / 📷: 視点の切り替え / 画面右上の✕: 歩行モードを終える<br>
-        ホットバーのアイコンをタップ: 持つ物を選ぶ</p>
+      <h3 class="set-h" data-i18n="set.controls.h">Controls</h3>
+      <div class="manual-help-body" data-i18n-html="set.controls.html">
+        <p><strong>Computer</strong><br>
+        WASD: move / Mouse: look / Space: jump / Shift: run (while held)<br>
+        V: switch view (first / third person) / E: open or close the inventory / 1–9, wheel: select hotbar slot<br>
+        Left click: act on what you’re aiming at / Esc: stop walking</p>
+        <p><strong>Smartphone</strong><br>
+        Left joystick: move / Drag the screen: look / A: jump<br>
+        👝: open or close the inventory / ✦: act on what you’re aiming at / 📷: switch view / ✕ at the top right: stop walking<br>
+        Tap a hotbar icon: choose what to hold</p>
       </div>
     </div>
       </section>
       <section class="set-page" data-page="save" hidden>
         <div class="set-block" id="worldSection">
-      <h3 class="set-h">💾 いまのワールド</h3>
+      <h3 class="set-h" data-i18n="set.save.h">💾 Current world</h3>
       <div id="settingsWorldInfo" class="small-note"></div>
-      <button id="saveNowBtn" type="button">💾 今すぐ保存</button>
+      <button id="saveNowBtn" type="button" data-i18n="set.save.now">💾 Save now</button>
       <div id="saveStatus" class="small-note"></div>
     </div>
       </section>
       <section class="set-page" data-page="app" hidden>
         <div class="set-block" id="updateSection">
-      <h3 class="set-h">🔄 こうしん</h3>
+      <h3 class="set-h" data-i18n="set.update.h">🔄 Updates</h3>
       <div id="updateStatus" class="small-note"></div>
-      <button id="updateCheckBtn" type="button">🔄 更新を確認</button>
-      <button id="updateClearBtn" type="button">🧹 キャッシュを削除して再読み込み</button>
-      <div class="small-note">古い表示が残る時に使います。ワールドの保存データは消えません。</div>
+      <button id="updateCheckBtn" type="button" data-i18n="set.update.check">🔄 Check for updates</button>
+      <button id="updateClearBtn" type="button" data-i18n="set.update.clear">🧹 Clear cache and reload</button>
+      <div class="small-note" data-i18n="set.update.note">Use this if you still see an old version. Your saved worlds are not deleted.</div>
     </div>
-        <div class="set-block"><div class="note" id="mainDescriptionNote">
-      Three.jsによる3Dシーンです。地形の高さを実際にサンプリングして
-      木・テント・焚き火を配置しているため、2D版で起きていた
-      「木が川の中に立つ」等の矛盾が構造的に起きない設計にしています。
+        <div class="set-block"><div class="note" id="mainDescriptionNote" data-i18n="set.app.description">
+      A 3D scene built with Three.js. Trees, the tent and the campfire are placed by sampling the actual terrain height, so problems like “a tree standing in the river” can’t happen by design.
     </div></div>
         <div class="settings-footer">
       <div><span id="appVersionFooter"></span><a id="appUpdateNote" class="update-note" href="#" hidden></a></div>
@@ -504,13 +505,13 @@
     </div>
   </div>
 
-  <div id="previewBar" class="preview-bar" hidden role="region" aria-label="ワールドのプレビュー">
+  <div id="previewBar" class="preview-bar" hidden role="region" aria-label="World preview" data-i18n-aria-label="preview.label">
     <div class="pv-title" id="previewTitle"></div>
     <div id="previewSeed" class="small-note"></div>
     <div class="pv-row">
-      <button id="previewStartBtn" class="world-btn primary" type="button">このワールドで始める</button>
-      <button id="previewRerollBtn" class="world-btn" type="button">🎲 作り直す</button>
-      <button id="previewCancelBtn" class="world-btn plain" type="button">やめる</button>
+      <button id="previewStartBtn" class="world-btn primary" type="button" data-i18n="preview.start">Start in this world</button>
+      <button id="previewRerollBtn" class="world-btn" type="button" data-i18n="preview.reroll">🎲 Regenerate</button>
+      <button id="previewCancelBtn" class="world-btn plain" type="button" data-i18n="preview.cancel">Cancel</button>
     </div>
   </div>
   <div id="saveBanner" class="save-banner" hidden role="alert"></div>
@@ -558,6 +559,7 @@
     import { createUpdateChecker } from './js/update-check.js';
     import { clearCachesAndReload } from './js/app-update.js';
     import { createTitleFlow } from './js/title-flow.js';
+    import { t as tr, initI18n, onLangChange } from './js/i18n.js'; // v1.72: 日本語/英語。tr('キー', {差し込み})
 
     // v1.57: 管理者・保存・ワールドの判定は main() の中で行う(読み込み時の外側では何もしない)。
     //   ADMIN の初期値 true は、main() が正しい値に置き換えるまでの仮の値。デバッグ表示は、CSS側で「管理者になるまで隠す」。
@@ -565,8 +567,13 @@
     let worldUi = null;
     let playAllowed = true; // main() が、ワールドを選ぶまでは false にする
 
+    // v1.72: 言語。静的な文字を、いまの言語で埋める。動的な文字は、live に登録した関数が、切り替え時に作り直す
+    const live = [];
+    initI18n();
+    onLangChange(() => { for (const f of live) { try { f(); } catch (e) { console.warn('[i18n]', e); } } });
+
     // --- v1.38: タイトル・バージョン・著作権表記は js/config.js の1か所から反映する ---
-    document.title = `${APP.titleJa} — ${APP.titleEn}`;
+    document.title = tr('app.documentTitle'); // v1.72: 言語に合わせる(日本語: 星の雪だるま — …/ 英語: The Snowman of the Stars — …)
     document.getElementById('appTitleHeader').textContent = APP.titleJa;
     document.getElementById('appTitleEnHeader').textContent = APP.titleEn;
     document.getElementById('appVersionFooter').textContent = `v${APP.version}`;
@@ -1290,7 +1297,7 @@
           + 'line-height:1.6;border:1px solid rgba(255,255,255,0.18);text-align:center;';
         document.body.appendChild(t);
       }
-      t.textContent = 'この端末ではフルスクリーンボタンが使えません。共有ボタンから「ホーム画面に追加」して開くと、全画面で遊べます。';
+      t.textContent = tr('fs.unavailable');
       t.style.display = 'block';
       clearTimeout(fsToastTimer);
       fsToastTimer = setTimeout(() => { t.style.display = 'none'; }, 6000);
@@ -1354,12 +1361,13 @@
       if (fsElement()) {
         wakeLockWanted = true;
         acquireWakeLock();
-        fullscreenIconBtn.title = 'フルスクリーン解除';
+        fullscreenIconBtn.title = tr('ui.exitFullscreen');
       } else {
         releaseWakeLock();
-        fullscreenIconBtn.title = 'フルスクリーン';
+        fullscreenIconBtn.title = tr('ui.fullscreen');
       }
     });
+    live.push(() => { fullscreenIconBtn.title = tr(fsElement() ? 'ui.exitFullscreen' : 'ui.fullscreen'); });
     // タブがバックグラウンドから復帰した際、ブラウザによってはWake Lockが
     // 自動的に解放されているため、フルスクリーン継続中なら再取得する。
     document.addEventListener('visibilitychange', () => {
@@ -1668,10 +1676,10 @@
     }
 
     window.addEventListener('error', (e) => {
-      showError('エラー: ', e.error || e.message);
+      showError(tr('err.prefix'), e.error || e.message);
     });
     window.addEventListener('unhandledrejection', (e) => {
-      showError('エラー(Promise): ', e.reason);
+      showError(tr('err.promisePrefix'), e.reason);
     });
 
     async function main() {
@@ -1703,11 +1711,7 @@
         // 「真っ暗で何も表示されない」まま原因不明になるのを防ぐため。
         ({ initScene } = await import('./js/visual3d/scene3d.js'));
       } catch (e) {
-        showError(
-          '3Dシーンの読み込みに失敗しました。ページを再読み込みしてください。直らない場合は、'
-          + 'ブラウザを最新にするか、別のブラウザをお試しください(WebGLが使える必要があります)。詳細: ',
-          e
-        );
+        showError(tr('err.sceneLoad'), e);
         return;
       }
 
@@ -1785,23 +1789,23 @@
         let lastRev = null; // 最後に読んだ/保存した保存データの目印。別のタブが保存したかを見つけるのに使う
         const hhmm = (d) => `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
         function updateWorldInfo() {
-          const t = current.ok ? `👤 ${current.userName}　🌍 ${current.world.name}` : (manualWorldGen ? '管理者の手動生成(保存しません)' : 'ユーザー・ワールドを選んでください');
+          const t = current.ok ? `👤 ${current.userName}　🌍 ${current.world.name}` : (manualWorldGen ? tr('world.info.manual') : tr('world.info.choose'));
           $('titleWorldInfo').textContent = t; $('settingsWorldInfo').textContent = t;
         }
         function saveNow(manual = false) {
-          if (!autosaveOn || !current.ok) { if (manual) saveStatusEl.textContent = '保存できる状態ではありません。'; return; }
+          if (!autosaveOn || !current.ok) { if (manual) saveStatusEl.textContent = tr('save.cantSave'); return; }
           try {
             const r = store.saveWorldState(current.userId, current.worldId, scene.captureWorldState(), { expectRev: lastRev });
-            if (r.ok) { lastRev = r.rev; saveStatusEl.textContent = `最終保存 ${hhmm(new Date())}${storageOk ? '' : '(このタブの間だけ)'}`; }
+            if (r.ok) { lastRev = r.rev; saveStatusEl.textContent = tr('save.last', { time: hhmm(new Date()), note: storageOk ? '' : tr('save.tabOnly') }); }
             else if (r.code === 'conflict') {
               // 同じワールドを、別のタブでも開いて、そちらが保存した。古い内容で上書きして失わないよう、選ぶまで自動保存を止める
-              autosaveOn = false; saveStatusEl.textContent = '別のタブで保存されたため、このタブの保存を止めています。';
-              showBanner('このワールドは、別のタブで保存されました。このタブの内容で上書きすると、別のタブで進めた分が消えます。', [
-                { label: '別のタブの内容を読み込む(再読み込み)', onClick: () => location.reload() },
-                { label: 'このタブの内容で上書きする', onClick: () => { lastRev = r.rev; autosaveOn = true; saveNow(true); } },
+              autosaveOn = false; saveStatusEl.textContent = tr('save.stoppedOtherTab');
+              showBanner(tr('save.conflict.msg'), [
+                { label: tr('save.conflict.reload'), onClick: () => location.reload() },
+                { label: tr('save.conflict.overwrite'), onClick: () => { lastRev = r.rev; autosaveOn = true; saveNow(true); } },
               ]);
-            } else { saveStatusEl.textContent = `保存できませんでした: ${r.error}`; if (manual) showBanner(`保存できませんでした: ${r.error}`); }
-          } catch (e) { console.warn('[save]', e); saveStatusEl.textContent = '保存できませんでした。'; }
+            } else { saveStatusEl.textContent = tr('save.failedWith', { error: r.error }); if (manual) showBanner(tr('save.failedWith', { error: r.error })); }
+          } catch (e) { console.warn('[save]', e); saveStatusEl.textContent = tr('save.failed'); }
         }
         worldUi = createWorldUi({
           store,
@@ -1836,8 +1840,8 @@
         }
         $('worldSwitchBtn').addEventListener('click', () => { settingsPanel.style.display = 'none'; worldUi.open(); });
         $('saveNowBtn').addEventListener('click', () => saveNow(true));
-        updateWorldInfo();
-        if (!storageOk) showBanner('この環境ではブラウザの保存が使えません。ワールドの保存は、このタブを開いている間だけ有効です(プライベートモードやサイトデータの設定をご確認ください)。', [{ label: 'わかりました' }]);
+        updateWorldInfo(); live.push(updateWorldInfo);
+        if (!storageOk) showBanner(tr('save.noStorage'), [{ label: tr('common.ok') }]);
 
         if (manualWorldGen) {
           // 管理者の手動生成: ワールドの保存とは無関係
@@ -1847,8 +1851,11 @@
           // 作ったばかりのワールド: 見て、気に入れば始める。気に入らなければ作り直す(古い地形は残らない)
           document.body.classList.add('preview-mode');
           const bar = $('previewBar'); bar.hidden = false;
-          $('previewTitle').textContent = `「${current.world.name}」の地形ができました`;
-          $('previewSeed').textContent = `${current.userName} さんのワールド ・ シード ${current.world.seed} ・ 気に入らなければ、何度でも作り直せます`;
+          const renderPreviewTexts = () => {
+            $('previewTitle').textContent = tr('preview.title', { name: current.world.name });
+            $('previewSeed').textContent = tr('preview.seed', { user: current.userName, seed: current.world.seed });
+          };
+          renderPreviewTexts(); live.push(renderPreviewTexts);
           $('previewStartBtn').addEventListener('click', () => {
             const r = store.confirmWorld(current.userId, current.worldId);
             if (!r.ok) { showBanner(r.error); return; }
@@ -1866,9 +1873,9 @@
             autosaveOn = true;
           } else {
             // 壊れている/新しすぎる保存データ。勝手に上書きして失わないよう、選ぶまで自動保存を止める
-            showBanner(`保存データを読み込めませんでした(${loaded.error})。ワールドの地形はそのまま使えます。`, [
-              { label: 'このまま新しく始める(今の保存データは上書きされます)', onClick: () => { lastRev = store.peekRev(current.worldId); autosaveOn = true; saveNow(); } },
-              { label: 'ワールドの選択へ', onClick: () => worldUi.open() },
+            showBanner(tr('save.loadFailed.msg', { error: loaded.error }), [
+              { label: tr('save.loadFailed.continue'), onClick: () => { lastRev = store.peekRev(current.worldId); autosaveOn = true; saveNow(); } },
+              { label: tr('save.loadFailed.select'), onClick: () => worldUi.open() },
             ]);
           }
         }
@@ -2043,27 +2050,33 @@
           bind('ambientVolumeSlider', 'ambientVolumeValue', KEY_AMB, (v) => window.SoundEngine.setAmbientVolume(v));
           bind('sfxVolumeSlider', 'sfxVolumeValue', KEY_SFX, (v) => window.SoundEngine.setSfxVolume(v));
         }
+        let audioBtnKey = 'audio.enable'; // 言語を切り替えても、いまの状態の文字になるように、キーを覚える
+        const setAudioBtn = (key) => { audioBtnKey = key; audioStartBtn.dataset.i18n = key; audioStartBtn.textContent = tr(key); };
+        live.push(() => { audioStartBtn.textContent = tr(audioBtnKey); });
         audioStartBtn.addEventListener('click', async () => {
           audioStartBtn.disabled = true;
-          audioStartBtn.textContent = '🔊 有効化中...';
+          setAudioBtn('audio.enabling');
           try {
             await scene.startAudio();
-            audioStartBtn.textContent = '🔊 音は有効です';
+            setAudioBtn('audio.enabled');
           } catch (err) {
             audioStartBtn.disabled = false;
-            audioStartBtn.textContent = '🔊 音を有効にする(再試行)';
+            setAudioBtn('audio.retry');
             console.error(err);
           }
         });
         // ----- v1.57: 画面をつけたままにする(Screen Wake Lock)。スマホの自動スリープを抑える -----
         {
           const cb = $('wakeLockCheckbox'), note = $('wakeLockNote');
-          const wake = createWakeLock({ onChange: (active, how) => { note.textContent = active ? (how && how.video ? '画面は消えません(この画面を見ている間・動画方式)' : '画面は消えません(この画面を見ている間)') : (cb.checked ? '画面にさわると、画面を消さない設定をかけ直します' : ''); } });
-          if (!wake.supported) { cb.checked = false; cb.disabled = true; note.textContent = 'このブラウザ・端末では使えません。'; }
+          let wakeKey = '';
+          const setWakeNote = (key) => { wakeKey = key; note.textContent = key ? tr(key) : ''; };
+          live.push(() => { note.textContent = wakeKey ? tr(wakeKey) : ''; });
+          const wake = createWakeLock({ onChange: (active, how) => { setWakeNote(active ? (how && how.video ? 'wake.active.video' : 'wake.active') : (cb.checked ? 'wake.reacquire' : '')); } });
+          if (!wake.supported) { cb.checked = false; cb.disabled = true; setWakeNote('wake.unsupported'); }
           else {
             const pref = storage.getItem('snowman.wakeLock') !== '0'; // 既定はオン
             cb.checked = pref; if (pref) wake.enable();
-            cb.addEventListener('change', () => { storage.setItem('snowman.wakeLock', cb.checked ? '1' : '0'); if (cb.checked) wake.enable(); else { wake.disable(); note.textContent = ''; } });
+            cb.addEventListener('change', () => { storage.setItem('snowman.wakeLock', cb.checked ? '1' : '0'); if (cb.checked) wake.enable(); else { wake.disable(); setWakeNote(''); } });
           }
         }
         // ----- v1.60: 木のしげり具合(すっきり / ふつう / こんもり)。変えた時だけ、木を作り直すために読み込み直す -----
@@ -2089,9 +2102,18 @@
           const banner = $('updateBanner'), bannerText = $('updateBannerText'), bannerBtn = $('updateBannerBtn'), bannerClose = $('updateBannerClose');
           const statusEl = $('updateStatus'), checkBtn = $('updateCheckBtn'), clearBtn = $('updateClearBtn'), titleClearBtn = $('titleClearCacheBtn');
           const refreshBtns = [bannerBtn, clearBtn, titleClearBtn];
-          const labels = new Map(refreshBtns.map((b) => [b, b.textContent]));
+          const labelOf = (b) => (b.dataset.i18n ? tr(b.dataset.i18n) : b.textContent); // 言語を切り替えても、もとの文字を取り戻せるように
           let refreshing = false;
+          let newerVersion = null, statusKey = null, statusParams = null; // 言語を切り替えた時に、同じ内容を作り直すために覚える
           const setStatus = (t) => { statusEl.textContent = t; };
+          const setStatusKey = (key, params) => { statusKey = key; statusParams = params; statusEl.textContent = tr(key, params); };
+          const renderUpdateTexts = () => {
+            if (!newerVersion) return;
+            for (const n of notes) n.textContent = tr('update.note', { v: newerVersion });
+            bannerText.textContent = tr('update.banner', { v: newerVersion, cur: APP.version });
+            setStatusKey('update.status.new', { v: newerVersion });
+          };
+          live.push(() => { if (newerVersion) renderUpdateTexts(); else if (statusKey) statusEl.textContent = tr(statusKey, statusParams); });
           const doRefresh = async (e) => {
             if (e && e.preventDefault) e.preventDefault();
             if (refreshing) return;
@@ -2102,28 +2124,27 @@
               await clearCachesAndReload({ saveNow: () => { try { saveNow(); } catch (_) { /* 保存できなくても更新は進める */ } }, onStatus: show });
             } catch (err) {
               refreshing = false;
-              for (const b of refreshBtns) { b.disabled = false; b.textContent = labels.get(b); }
-              setStatus('更新に失敗しました。ページを閉じて開き直してください。');
+              for (const b of refreshBtns) { b.disabled = false; b.textContent = labelOf(b); }
+              setStatus(tr('update.failed'));
             }
           };
           for (const n of notes) n.addEventListener('click', doRefresh);
           for (const b of refreshBtns) b.addEventListener('click', doRefresh);
           bannerClose.addEventListener('click', () => { banner.hidden = true; });
           const checker = createUpdateChecker({ currentVersion: APP.version, onUpdate: (v) => {
-            for (const n of notes) { n.textContent = `新しい版 v${v} があります`; n.hidden = false; }
-            bannerText.textContent = `新しい版 v${v} があります(いまは v${APP.version})`;
+            newerVersion = v; renderUpdateTexts();
+            for (const n of notes) n.hidden = false;
             banner.hidden = false;
-            setStatus(`新しい版 v${v} があります。「キャッシュを削除して再読み込み」で更新できます。`);
           } });
           checkBtn.addEventListener('click', async () => {
-            checkBtn.disabled = true; setStatus('確認しています…');
+            checkBtn.disabled = true; setStatusKey('update.checking');
             const r = await checker.check({ force: true });
             checkBtn.disabled = false;
-            if (r.error) setStatus('確認できませんでした(オフラインかもしれません)。');
-            else if (r.newer) setStatus(`新しい版 v${r.server} があります。「キャッシュを削除して再読み込み」で更新できます。`);
-            else setStatus(`最新です(v${APP.version})。`);
+            if (r.error) setStatusKey('update.checkFailed');
+            else if (r.newer) { newerVersion = r.server; renderUpdateTexts(); }
+            else setStatusKey('update.latest', { v: APP.version });
           });
-          setStatus(`いまの版: v${APP.version}`);
+          setStatusKey('update.current', { v: APP.version });
           checker.check({ force: true }); // 起動したらすぐ確認する(ネットワークが無ければ静かに何もしない)
           document.addEventListener('visibilitychange', () => { if (!document.hidden) { checker.check(); if (swReg) swReg.update().catch(() => {}); } });
           setInterval(() => checker.check({ force: true }), 15 * 60 * 1000);

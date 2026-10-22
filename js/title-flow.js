@@ -5,12 +5,14 @@
 //   modes  … ワールドが決まったあと。歩行モード・見守りモード・編集モード・設定
 // プレイヤーが自分で押すまで、何も自動では開かない。利用者が入れた名前は、必ず textContent で表示する(innerHTML は使わない)。
 
-const DEFAULT_USER_NAME = 'ゆきだるま';
+import { t, localeTag, onLangChange } from './i18n.js';
+
 
 export function createTitleFlow({ store, doc = document, startEl, formEl, modesEl, onEnterWorld, onCreatePreview, onManage = () => {}, onStageChange = () => {} }) {
   const stages = { start: startEl, form: formEl, modes: modesEl };
   let stage = 'start';
   let message = { text: '', kind: 'info' };
+  let lastRender = null;   // v1.72: 形(フォーム)の画面を、言語を切り替えた時に作り直すため
 
   const el = (tag, props = {}, children = []) => {
     const n = doc.createElement(tag);
@@ -24,8 +26,10 @@ export function createTitleFlow({ store, doc = document, startEl, formEl, modesE
     return n;
   };
   const btn = (text, onclick, cls = '') => el('button', { type: 'button', class: cls, text, onclick });
-  const fmt = (t) => { try { return new Date(t).toLocaleDateString('ja-JP'); } catch (e) { return ''; } };
+  const fmt = (ms) => { try { return new Date(ms).toLocaleDateString(localeTag()); } catch (e) { return ''; } };
   const say = (text, kind = 'info') => { message = { text, kind }; };
+  // 空(null)の子は入れない。append(null) は、文字の「null」を画面に出してしまう
+  const put = (...nodes) => formEl.append(...nodes.filter(Boolean));
   const msgNode = () => (message.text ? el('div', { class: `tf-msg ${message.kind}`, role: 'status', text: message.text }) : null);
 
   function show(name) {
@@ -41,25 +45,35 @@ export function createTitleFlow({ store, doc = document, startEl, formEl, modesE
   }
 
   function showForm(render) {
+    lastRender = render;
     formEl.textContent = '';
     render();
     show('form');
   }
+  /** 言語を切り替えた時: 表示中のフォームを、入力した文字を残したまま作り直す(メッセージは、そのまま) */
+  function relocalize() {
+    if (stage !== 'form' || !lastRender) { refreshStart(); return; }
+    const vals = [...formEl.querySelectorAll('input')].map((i) => i.value);
+    formEl.textContent = '';
+    lastRender();
+    [...formEl.querySelectorAll('input')].forEach((i, k) => { if (vals[k] !== undefined && vals[k] !== '') i.value = vals[k]; });
+  }
+  onLangChange(relocalize);
 
   // ---- 作る(ユーザー名+ワールド名。ユーザーがすでにいる時は、ワールド名だけ) ----
   function renderCreate({ userId = null } = {}) {
     const user = userId ? store.listUsers().find((u) => u.id === userId) : null;
     const defaultWorld = () => {
       const names = new Set(store.listWorlds(user ? user.id : '__none__').map((w) => w.name));
-      for (let n = 1; n < 100; n++) { const c = `ワールド ${n}`; if (!names.has(c)) return c; }
-      return 'ワールド';
+      for (let n = 1; n < 100; n++) { const c = t('tf.defaultWorld', { n }); if (!names.has(c)) return c; }
+      return t('tf.defaultWorldBase');
     };
-    const userInput = user ? null : el('input', { type: 'text', maxlength: '20', placeholder: DEFAULT_USER_NAME, 'aria-label': 'ユーザー名', autocomplete: 'off', enterkeyhint: 'next' });
-    const worldInput = el('input', { type: 'text', maxlength: '20', placeholder: defaultWorld(), 'aria-label': 'ワールド名', autocomplete: 'off', enterkeyhint: 'done' });
+    const userInput = user ? null : el('input', { type: 'text', maxlength: '20', placeholder: t('tf.defaultUser'), 'aria-label': t('tf.userName'), autocomplete: 'off', enterkeyhint: 'next' });
+    const worldInput = el('input', { type: 'text', maxlength: '20', placeholder: defaultWorld(), 'aria-label': t('tf.worldName'), autocomplete: 'off', enterkeyhint: 'done' });
     const make = () => {
       let uid = user ? user.id : null;
       if (!uid) {
-        const r = store.createUser(userInput.value.trim() || DEFAULT_USER_NAME);
+        const r = store.createUser(userInput.value.trim() || userInput.placeholder);
         if (!r.ok) { say(r.error, 'error'); showForm(() => renderCreate({ userId })); return; }
         uid = r.user.id;
       }
@@ -72,13 +86,13 @@ export function createTitleFlow({ store, doc = document, startEl, formEl, modesE
     if (userInput) userInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); worldInput.focus(); } });
     worldInput.addEventListener('keydown', onEnter);
     const backTo = () => { say('', 'info'); if (user) renderWorlds(user.id); else show('start'); };
-    formEl.append(
-      el('h2', { class: 'tf-h', text: user ? `${user.name} さんの あたらしいワールド` : 'はじめまして' }),
+    put(
+      el('h2', { class: 'tf-h', text: user ? t('tf.newWorldOf', { name: user.name }) : t('tf.hello') }),
       msgNode(),
-      userInput && el('label', { class: 'tf-field' }, [el('span', { text: 'ユーザー名' }), userInput]),
-      el('label', { class: 'tf-field' }, [el('span', { text: 'ワールド名' }), worldInput]),
-      el('p', { class: 'tf-note', text: '空のままでも大丈夫です。名前は、あとから変えられます。つくると地形(起伏と川)が自動で作られ、気に入らなければ何度でも作り直せます。' }),
-      el('div', { class: 'title-buttons' }, [btn('つくる', make, 'tf-primary'), btn('もどる', backTo, 'tf-plain')]),
+      userInput && el('label', { class: 'tf-field' }, [el('span', { text: t('tf.userName') }), userInput]),
+      el('label', { class: 'tf-field' }, [el('span', { text: t('tf.worldName') }), worldInput]),
+      el('p', { class: 'tf-note', text: t('tf.note.create') }),
+      el('div', { class: 'title-buttons' }, [btn(t('tf.create'), make, 'tf-primary'), btn(t('tf.back'), backTo, 'tf-plain')]),
     );
   }
 
@@ -89,18 +103,18 @@ export function createTitleFlow({ store, doc = document, startEl, formEl, modesE
     const worlds = store.listWorlds(userId).slice().sort((a, b) => (b.lastPlayedAt || 0) - (a.lastPlayedAt || 0));
     if (!worlds.length) { renderCreate({ userId }); return; }
     const users = store.listUsers();
-    formEl.append(
-      el('h2', { class: 'tf-h', text: `${user.name} さんの ワールド` }),
+    put(
+      el('h2', { class: 'tf-h', text: t('tf.worldsOf', { name: user.name }) }),
       msgNode(),
       el('div', { class: 'tf-list' }, worlds.map((w) => el('button', { type: 'button', class: 'tf-item', onclick: () => { say('', 'info'); onEnterWorld(userId, w.id); } }, [
         el('span', { class: 'tf-item-name', text: w.name }),
-        el('span', { class: 'tf-item-meta', text: w.lastPlayedAt ? `最後に遊んだ日 ${fmt(w.lastPlayedAt)}` : '' }),
+        el('span', { class: 'tf-item-meta', text: w.lastPlayedAt ? t('tf.lastPlayed', { date: fmt(w.lastPlayedAt) }) : '' }),
       ]))),
       el('div', { class: 'title-buttons' }, [
-        btn('あたらしいワールド', () => { say('', 'info'); showForm(() => renderCreate({ userId })); }, 'tf-plain'),
-        btn(users.length > 1 ? 'ユーザーをかえる' : 'ユーザーをふやす・かえる', () => { say('', 'info'); showForm(() => renderUsers()); }, 'tf-plain'),
-        btn('ワールドの管理(名前・削除・書き出し)', () => onManage(userId), 'tf-link'),
-        btn('もどる', () => { say('', 'info'); show('start'); }, 'tf-plain'),
+        btn(t('tf.newWorld'), () => { say('', 'info'); showForm(() => renderCreate({ userId })); }, 'tf-plain'),
+        btn(users.length > 1 ? t('tf.switchUser') : t('tf.addSwitchUser'), () => { say('', 'info'); showForm(() => renderUsers()); }, 'tf-plain'),
+        btn(t('tf.manage'), () => onManage(userId), 'tf-link'),
+        btn(t('tf.back'), () => { say('', 'info'); show('start'); }, 'tf-plain'),
       ]),
     );
   }
@@ -108,16 +122,16 @@ export function createTitleFlow({ store, doc = document, startEl, formEl, modesE
   // ---- ユーザーを選ぶ ----
   function renderUsers() {
     const users = store.listUsers();
-    formEl.append(
-      el('h2', { class: 'tf-h', text: 'ユーザーをえらんでください' }),
+    put(
+      el('h2', { class: 'tf-h', text: t('tf.pickUser') }),
       msgNode(),
       el('div', { class: 'tf-list' }, users.map((u) => el('button', { type: 'button', class: 'tf-item', onclick: () => { say('', 'info'); showForm(() => renderWorlds(u.id)); } }, [
         el('span', { class: 'tf-item-name', text: u.name }),
-        el('span', { class: 'tf-item-meta', text: `ワールド ${u.worldCount} 個` }),
+        el('span', { class: 'tf-item-meta', text: t('tf.worldCount', { n: u.worldCount }) }),
       ]))),
       el('div', { class: 'title-buttons' }, [
-        btn('あたらしいユーザー', () => { say('', 'info'); showForm(() => renderCreate({})); }, 'tf-plain'),
-        btn('もどる', () => { say('', 'info'); show('start'); }, 'tf-plain'),
+        btn(t('tf.newUser'), () => { say('', 'info'); showForm(() => renderCreate({})); }, 'tf-plain'),
+        btn(t('tf.back'), () => { say('', 'info'); show('start'); }, 'tf-plain'),
       ]),
     );
   }

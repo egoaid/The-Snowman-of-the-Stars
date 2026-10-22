@@ -7,10 +7,13 @@
 //   見守り: 音ON / 雪だるまが自律で動く / 自動カメラON
 //   編集 : 音ON / 雪だるまが自律で動く(世界は止めない) / 自動カメラOFF / 自由に物を動かせる
 
+import { t } from './i18n.js';
+
+// label / hint は、言語に合わせて、読むたびに引く(切り替えがすぐ反映される)
 export const SESSION_MODES = {
-  walk:  { id: 'walk',  label: '歩行モード',   hint: '自分で歩いて世界をめぐる', sound: true, player: true,  wander: false, autoCamera: false, edit: false },
-  watch: { id: 'watch', label: '見守りモード', hint: '雪だるまの暮らしを眺める', sound: true, player: false, wander: true,  autoCamera: true,  edit: false },
-  edit:  { id: 'edit',  label: '編集モード',   hint: '雪だるまが歩く世界で、物を動かす', sound: true, player: false, wander: true,  autoCamera: false, edit: true },
+  walk:  { id: 'walk',  get label() { return t('mode.walk.label'); },   get hint() { return t('mode.walk.hint'); }, sound: true, player: true,  wander: false, autoCamera: false, edit: false },
+  watch: { id: 'watch', get label() { return t('mode.watch.label'); }, get hint() { return t('mode.watch.hint'); }, sound: true, player: false, wander: true,  autoCamera: true,  edit: false },
+  edit:  { id: 'edit',  get label() { return t('mode.edit.label'); },   get hint() { return t('mode.edit.hint'); }, sound: true, player: false, wander: true,  autoCamera: false, edit: true },
 };
 export const SESSION_MODE_IDS = Object.keys(SESSION_MODES);
 

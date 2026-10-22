@@ -901,3 +901,14 @@ body:has(#titleScreen:not(.hidden)) #settingsIconBtn { visibility: hidden; }
 #shardPanel .sp-note { margin-top: 6px; font-size: 11px; color: #aab8d4; }
 @media (max-width: 640px) { #shardPanel { top: 64px; width: 200px; } }
 #shardPanel .sp-log { display: block; width: 100%; margin-top: 7px; opacity: 0.85; }
+
+/* v1.72: 言語の切り替え(English | 日本語)。起動画面と設定画面に置く */
+html.i18n-pending #titleScreen, html.i18n-pending #settingsPanel { visibility: hidden; } /* 日本語を選んでいる時だけ、読み込み中は隠す(英語の文字が一瞬見えないように) */
+.lang-switch { display: inline-flex; border: 1px solid rgba(255, 233, 168, 0.4); border-radius: 8px; overflow: hidden; }
+.lang-switch button, #settingsPanel .lang-switch button, #titleScreen .lang-switch button {
+  width: auto; margin: 0; padding: 6px 14px; border: 0; border-radius: 0; background: transparent; color: inherit;
+  font: inherit; font-size: 13px; cursor: pointer; opacity: 0.7; box-shadow: none; min-height: 0;
+}
+.lang-switch button + button { border-left: 1px solid rgba(255, 233, 168, 0.3); }
+.lang-switch button[aria-pressed="true"], #settingsPanel .lang-switch button[aria-pressed="true"], #titleScreen .lang-switch button[aria-pressed="true"] { background: rgba(255, 233, 168, 0.22); opacity: 1; font-weight: 700; }
+.lang-switch-title { display: flex; width: max-content; margin: 0 auto 16px; }

@@ -9,6 +9,8 @@
 //   5. 再読み込みする
 // ワールドの保存データ(IndexedDB・localStorage)には触れない。消えるのはキャッシュだけ。
 
+import { t } from './i18n.js';
+
 /** service-worker.js の中身(文字列)から、PRECACHE のファイル一覧を取り出す。読めなければ空。 */
 export function parsePrecacheList(swSource) {
   const m = /const\s+PRECACHE\s*=\s*\[([\s\S]*?)\]\s*;/.exec(String(swSource || ''));
@@ -36,7 +38,7 @@ export async function clearCachesAndReload({
 } = {}) {
   const result = { unregistered: 0, cachesDeleted: 0, refreshed: 0, failed: 0 };
   try { saveNow(); } catch (e) { /* 保存に失敗しても、更新は続ける */ }
-  onStatus('更新を準備しています…');
+  onStatus(t('update.preparing'));
 
   // 先に、取り直すファイルの一覧を得る(Service Workerを消すと、一覧の入口が変わる前に取っておく)
   let list = [];
@@ -56,7 +58,7 @@ export async function clearCachesAndReload({
   } catch (e) { /* 続ける */ }
 
   // このアプリのキャッシュだけを削除
-  onStatus('キャッシュを削除しています…');
+  onStatus(t('update.clearing'));
   try {
     if (cachesApi && cachesApi.keys) {
       for (const key of await cachesApi.keys()) {
@@ -77,13 +79,13 @@ export async function clearCachesAndReload({
           if (r && r.ok) result.refreshed++; else result.failed++;
         } catch (e) { result.failed++; }
         done++;
-        if (done % 6 === 0 || done === list.length) onStatus(`最新のファイルを取得しています… (${done}/${list.length})`);
+        if (done % 6 === 0 || done === list.length) onStatus(t('update.fetching', { done, total: list.length }));
       }
     };
     await Promise.all(Array.from({ length: Math.max(1, concurrency) }, worker));
   }
 
-  onStatus('再読み込みします…');
+  onStatus(t('update.reloading'));
   reload();
   return result;
 }
