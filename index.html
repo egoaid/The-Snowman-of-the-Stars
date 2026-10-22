@@ -424,6 +424,35 @@
     <div class="sp-sep"></div>
     <button type="button" id="spAttachStar">✦ 星のかけらを貼る <kbd>F</kbd></button>
     <button type="button" id="spAttachMoon">☾ 月のかけらを貼る <kbd>M</kbd></button>
+    <div class="sp-row sp-detach">
+      <button type="button" id="spDetachStar" title="つかんでいる丸太から、星のかけらを外して、持ち物へ戻します。その丸太の接着は、すべてほどけます">✦ 外す</button>
+      <button type="button" id="spDetachMoon" title="つかんでいる丸太(や塊)から、月のかけらを外して、持ち物へ戻します。浮いていた物は降ります">☾ 外す</button>
+    </div>
+    <div class="sp-sep"></div>
+    <!-- v1.71: 接着モード。位置と角度を決めて接着する(再編集・接着を外すもここ) -->
+    <button type="button" id="spGlueBegin">🔗 接着モード <kbd>C</kbd></button>
+    <div id="glueBox" hidden>
+      <div id="glueHint" class="sp-note"></div>
+      <div id="glueCtl">
+        <label class="gl-row"><span>相手の位置</span><input type="range" id="glTb" min="0" max="100" step="1"><b id="glTbV"></b></label>
+        <div class="gl-btns" data-param="tb"><button type="button" data-v="0">根元</button><button type="button" data-v="0.25">¼</button><button type="button" data-v="0.5">中央</button><button type="button" data-v="0.75">¾</button><button type="button" data-v="1">先端</button></div>
+        <label class="gl-row"><span>自分の位置</span><input type="range" id="glTa" min="0" max="100" step="1"><b id="glTaV"></b></label>
+        <div class="gl-btns" data-param="ta"><button type="button" data-v="0">根元</button><button type="button" data-v="0.5">中央</button><button type="button" data-v="1">先端</button></div>
+        <label class="gl-row"><span>交差角</span><input type="range" id="glPsi" min="-180" max="180" step="1"><b id="glPsiV"></b></label>
+        <div class="gl-btns" data-param="psi"><button type="button" data-v="0">平行</button><button type="button" data-v="45">45°</button><button type="button" data-v="90">直角</button></div>
+        <label class="gl-row"><span>起こし角</span><input type="range" id="glTheta" min="-90" max="90" step="1"><b id="glThetaV"></b></label>
+        <div class="gl-btns" data-param="theta"><button type="button" data-v="0">寝かせる</button><button type="button" data-v="45">45°</button><button type="button" data-v="90">立てる</button></div>
+        <label class="gl-row"><span>まわり込み</span><input type="range" id="glRoll" min="-180" max="180" step="1"><b id="glRollV"></b></label>
+        <div class="gl-btns" data-param="roll"><button type="button" data-v="0">上</button><button type="button" data-v="90">横</button><button type="button" data-v="180">下</button><button type="button" data-v="-90">逆の横</button></div>
+        <label class="gl-check"><input type="checkbox" id="glSnap"> 角度を15°きざみにする</label>
+      </div>
+      <div id="glueWarn" class="sp-note gl-warn"></div>
+      <div class="gl-actions"><button type="button" id="glConfirm">✓ 接着する <kbd>Enter</kbd></button><button type="button" id="glCancel">やめる <kbd>Esc</kbd></button></div>
+    </div>
+    <div id="jointBox" hidden>
+      <div class="sp-note">🔗 接着点を選んでいます(金色の輪)</div>
+      <div class="gl-actions"><button type="button" id="jtEdit">角度を直す</button><button type="button" id="jtDetach">接着を外す</button><button type="button" id="jtClose">閉じる</button></div>
+    </div>
     <div id="spNote" class="sp-note"></div>
     <button type="button" id="spLog" class="sp-log" title="動作確認用。かけら・接着・浮遊・月の石の記録を、JSONファイルで保存します">📋 ログを書き出す</button>
   </div>
@@ -1104,6 +1133,13 @@
         editBtnRotate.setAttribute('aria-pressed', String(st.mode === 'rotate'));
       }
       if (!st || !st.editing) { editHint.style.display = 'none'; return; }
+      if (st.glue) { // v1.71: 接着モード中
+        editHint.textContent = isCoarsePointer
+          ? '接着モード: 相手の丸太をタップ → 左のパネルで位置と角度を調整 → 「接着する」'
+          : '接着モード: 相手の丸太をクリック → 左のパネルで位置と角度を調整 → Enterで接着 / Escでやめる';
+        editHint.style.display = 'block';
+        return;
+      }
       if (isCoarsePointer) {
         // スマホ向けの案内(キーボード・右クリックの説明は出さない)
         if (st.holding) {
@@ -1121,7 +1157,7 @@
           ? '回転: 赤・緑・青の輪をドラッグ(Shiftで15度刻み) / G:移動に戻る / 何もない所をクリックかSpaceで離す'
           : '移動: 赤(X)・緑(高さ)・青(Z)の矢印をドラッグ / 丸太をドラッグで水平移動 / R:回転 / 何もない所をクリックかSpaceで離す';
       } else {
-        editHint.textContent = '編集モード: 倒木をクリックでつかむ / 右ドラッグ:視点を回す / 中ドラッグかWASD:移動 / ホイール:ズーム / Tab:戻る';
+        editHint.textContent = '編集モード: 倒木をクリックでつかむ / 金色の輪(接着点)をクリックで接着を直す・外す / 右ドラッグ:視点を回す / 中ドラッグかWASD:移動 / Tab:戻る';
       }
       editHint.style.display = 'block';
     }
@@ -1877,6 +1913,23 @@
           sp('spCraftMoon').addEventListener('click', () => { scene.craftShards('moon'); });
           sp('spAttachStar').addEventListener('click', () => { scene.attachShard('star'); });
           sp('spAttachMoon').addEventListener('click', () => { scene.attachShard('moon'); });
+          sp('spDetachStar').addEventListener('click', () => { scene.detachShard('star'); });
+          sp('spDetachMoon').addEventListener('click', () => { scene.detachShard('moon'); });
+          // --- v1.71: 接着モード ---
+          sp('spGlueBegin').addEventListener('click', () => { scene.glueBegin(); });
+          sp('glConfirm').addEventListener('click', () => { scene.glueConfirm(); });
+          sp('glCancel').addEventListener('click', () => { scene.glueCancel(); });
+          sp('jtEdit').addEventListener('click', () => { scene.glueBeginEdit(); });
+          sp('jtDetach').addEventListener('click', () => { scene.glueDetach(); });
+          sp('jtClose').addEventListener('click', () => { scene.glueClearSelection(); });
+          sp('glSnap').addEventListener('change', (e) => { scene.glueSetSnap(e.target.checked); });
+          // スライダー: 位置(tb/ta)は 0〜100% → 0〜1。角度は度。
+          const glueSliders = [['glTb', 'tb', 0.01, (v) => Math.round(v * 100) + '%'], ['glTa', 'ta', 0.01, (v) => Math.round(v * 100) + '%'], ['glPsi', 'psi', 1, (v) => Math.round(v) + '°'], ['glTheta', 'theta', 1, (v) => Math.round(v) + '°'], ['glRoll', 'roll', 1, (v) => Math.round(v) + '°']];
+          for (const [id, key, k] of glueSliders) sp(id).addEventListener('input', (e) => { scene.glueSetParam(key, Number(e.target.value) * k); });
+          panel.querySelectorAll('.gl-btns').forEach((box) => box.addEventListener('click', (e) => {
+            const b = e.target.closest('button'); if (!b) return;
+            scene.glueSetParam(box.dataset.param, Number(b.dataset.v));
+          }));
           const saveLog = () => { try { scene.downloadDebugLog(); } catch (e) { console.error('debug log export failed', e); } };
           sp('spLog').addEventListener('click', saveLog);
           const dlb = document.getElementById('debugLogBtn'); if (dlb) dlb.addEventListener('click', saveLog);
@@ -1890,8 +1943,30 @@
             sp('spCraftMoon').disabled = st.moonStone < 1;
             sp('spAttachStar').disabled = !st.canAttachStar;
             sp('spAttachMoon').disabled = !st.canAttachMoon;
+            sp('spDetachStar').disabled = !st.canDetachStar;
+            sp('spDetachMoon').disabled = !st.canDetachMoon;
+            // v1.71: 接着モード・接着点の操作
+            const gl = st.glue || { active: false };
+            sp('spGlueBegin').hidden = gl.active || !!gl.selected;
+            sp('spGlueBegin').disabled = !gl.canBegin;
+            sp('spGlueBegin').title = gl.beginReason === 'no-star' ? '星のかけらを貼った丸太をつかんでください' : (gl.beginReason === 'not-held' ? '接着する丸太をつかんでください' : '');
+            sp('glueBox').hidden = !gl.active;
+            sp('jointBox').hidden = !gl.selected || gl.active;
+            if (gl.active) {
+              sp('glueHint').textContent = (gl.message ? gl.message + ' ' : '') + gl.hint;
+              sp('glueCtl').hidden = !gl.hasTarget;
+              sp('glueWarn').textContent = gl.warning || '';
+              sp('glConfirm').disabled = !gl.canConfirm;
+              sp('glSnap').checked = !!gl.snap;
+              if (gl.params) for (const [id, key, k, fmt] of glueSliders) {
+                const el = sp(id);
+                if (document.activeElement !== el) el.value = String(Math.round(gl.params[key] / k));
+                sp(id + 'V').textContent = fmt(gl.params[key]);
+              }
+            } else if (gl.message) { sp('spNote').textContent = gl.message; }
             let note;
-            if (!st.held) note = '丸太をつかむと、かけらを貼れます。星のかけらを貼った丸太どうしが、触れて止まると、くっつきます。';
+            if (gl.active) note = null;
+            else if (!st.held) note = '丸太をつかむと、かけらを貼れます。星のかけらを貼った丸太は、「接着モード」で、位置と角度を決めて、ほかの丸太に接着できます。接着した所の金色の輪をクリックすると、角度を直したり、外したりできます。';
             else {
               const parts = [];
               parts.push(st.heldHasStar ? 'この丸太には星のかけらが付いています(1本に1つ)。' : '星のかけらを貼ると、この丸太が「くっつける力」を持ちます。');
@@ -1899,7 +1974,7 @@
               if (st.structureHasMoon) parts.push('この塊には月のかけらが付いています(1つだけ)。');
               note = parts.join(' ');
             }
-            sp('spNote').textContent = note;
+            if (note !== null) sp('spNote').textContent = note; else if (!gl.message) sp('spNote').textContent = '';
           }, 250);
         }
         waterReflectionCheckbox.addEventListener('change', () => {

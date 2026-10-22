@@ -580,6 +580,31 @@ export function createPhysics({ groundHeightAt, options = {}, now = () => perfor
     rebuildGroup(G);
     return true;
   }
+  /** v1.71: 塊(または1本)をほどく。全員が今の姿勢のまま、1本ずつの静的な物に戻る(塊でなければ何もしない)。 */
+  function dissolve(id) {
+    const rec = objects.get(id);
+    if (!rec || !rec.group) return false;
+    dissolveGroup(rec.group);
+    return true;
+  }
+  /**
+   * v1.71: 持ち上げ中の丸太(塊なら全員)を、いまの姿勢のまま、落とさずに静的にする(位置を決めて据える時に使う)。
+   * 全員に 'settled' を通知する(メッシュの同期・雪の記録など、止まった時の処理をそのまま使うため)。
+   */
+  function placeStatic(id) {
+    const rec = objects.get(id);
+    if (!rec || rec.physicsState !== 'held') return false;
+    const ids = rec.group ? rec.group.ids.slice() : [id];
+    for (const mid of ids) {
+      const m = objects.get(mid);
+      m.physicsState = 'static'; m.dynamic = false; m.stable = true; m.grabbable = true;
+      m.lastPhysicsTime = simTime; m.settleReason = 'placed';
+    }
+    if (rec.group) delete objects.get(rec.group.leaderId).reach;
+    refreshWorld();
+    for (const mid of ids) emit('settled', objects.get(mid));
+    return true;
+  }
   /** 塊の一員のid一覧(塊でなければ null)。 */
   function groupOf(id) { const r = objects.get(id); return r && r.group ? r.group.ids.slice() : null; }
   /** 塊(または1本)を、いまの姿勢でその場に止めて、静的に戻す(宙に浮かせたまま止める時などに使う)。 */
@@ -772,6 +797,7 @@ export function createPhysics({ groundHeightAt, options = {}, now = () => perfor
   return {
     register, unregister, pickUp, setHeldPose, wake, release,
     weld, groupOf, freeze, // v1.69: 接着(塊)
+    dissolve, placeStatic, // v1.71: 塊をほどく / 持ち上げ中の物をその場で据える
     addStaticCollider, removeStaticCollider,
     // v1.52: 物理プロパティと外力の窓口(月・星・火・川などのゲーム側の仕組みはこれを使う)
     getPhysicalProperties, setPhysicalProperties,

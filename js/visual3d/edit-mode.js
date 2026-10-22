@@ -103,6 +103,9 @@ export function createEditMode({ camera, domElement, orbitControls, scene, logSy
   let held = null;         // つかんでいる倒木
   let mode = 'move';       // 'move' | 'rotate'
   let drag = null;         // ドラッグ中の操作
+  let glueActive = false;  // v1.71: 接着モードの間は、つかんだ丸太の移動・回転・離す操作を止める(glue-toolが姿勢を決める)
+  let pointerHook = null;  // v1.71: (e, ray) => true なら、その操作は接着の道具が処理した(通常の編集操作はしない)
+  let beforeDisable = null; // v1.71: 編集モードを抜ける直前に呼ぶ(接着モードの後始末)
   let hoverHandle = null;
   const pose = { pos: new THREE.Vector3(), quat: new THREE.Quaternion() }; // つかんでいる丸太の姿勢(この値を物理へ渡す)
   const keys = new Set();
@@ -128,7 +131,7 @@ export function createEditMode({ camera, domElement, orbitControls, scene, logSy
   const dropRing = new THREE.Mesh(new THREE.RingGeometry(0.8, 1, 24), ringMat);
   dropRing.rotation.x = -Math.PI / 2; dropRing.visible = false; dropRing.renderOrder = 998; scene.add(dropRing);
 
-  const notify = () => { if (onChange) onChange({ editing: enabled, holding: !!held, mode }); };
+  const notify = () => { if (onChange) onChange({ editing: enabled, holding: !!held, mode, glue: glueActive }); }; // v1.71: glue = 接着モード中
   const setCursor = (c) => { domElement.style.cursor = c; };
 
   function pointerRay(e) {
@@ -230,6 +233,8 @@ export function createEditMode({ camera, domElement, orbitControls, scene, logSy
   function onPointerDown(e) {
     if (!enabled || (e.pointerType === 'mouse' && e.button !== 0)) return;
     const ray = pointerRay(e);
+    if (pointerHook && pointerHook(e, ray)) { e.stopImmediatePropagation(); return; } // v1.71
+    if (glueActive) return;
     if (held) {
       const h = pickHandle(ray);
       if (h) { e.stopImmediatePropagation(); if (beginDrag(mode, ray, e, h)) setCursor('grabbing'); return; }
@@ -245,7 +250,7 @@ export function createEditMode({ camera, domElement, orbitControls, scene, logSy
     if (held && e.pointerType !== 'touch') releaseHeld(); // 何もない所をクリック: 離す(落ちる)
   }
   function onPointerMove(e) {
-    if (!enabled) return;
+    if (!enabled || glueActive) return;
     if (drag) { if (e.pointerId === drag.pointerId) updateDrag(e); return; }
     if (e.pointerType === 'touch') return;
     const ray = pointerRay(e);
@@ -265,7 +270,7 @@ export function createEditMode({ camera, domElement, orbitControls, scene, logSy
     if (!enabled) return;
     if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') { keys.add(e.code); return; } // パンを速くする修飾キー
     if (e.code === 'KeyW' || e.code === 'KeyA' || e.code === 'KeyS' || e.code === 'KeyD' || e.code.startsWith('Arrow')) { keys.add(e.code); e.preventDefault && e.preventDefault(); return; }
-    if (!held) return;
+    if (!held || glueActive) return;
     if (e.code === 'KeyG') { mode = 'move'; notify(); }
     else if (e.code === 'KeyR') { mode = 'rotate'; notify(); }
     else if (e.code === 'Space' || e.code === 'Enter' || e.code === 'Escape') { e.preventDefault && e.preventDefault(); releaseHeld(); }
@@ -303,6 +308,8 @@ export function createEditMode({ camera, domElement, orbitControls, scene, logSy
   }
   function disable() {
     if (!enabled) return;
+    if (beforeDisable) beforeDisable(); // v1.71: 接着モード中なら、後始末(やめる)
+    glueActive = false;
     if (held) releaseHeld(); // つかんだまま抜けても、丸太は落として置かれる
     enabled = false; hover = null; drag = null; keys.clear();
     domElement.style.touchAction = savedTouchAction;
@@ -360,7 +367,7 @@ export function createEditMode({ camera, domElement, orbitControls, scene, logSy
       marker.position.set(c.x, c.y, c.z); marker.quaternion.set(q.x, q.y, q.z, q.w);
       marker.scale.set(target.radius * 1.5 + 0.08, target.length * 1.02, target.radius * 1.5 + 0.08);
     }
-    if (held) {
+    if (held && !glueActive) {
       gizmo.group.visible = true;
       gizmo.move.visible = mode === 'move'; gizmo.rotate.visible = mode === 'rotate';
       gizmo.group.position.copy(pose.pos);
@@ -387,7 +394,25 @@ export function createEditMode({ camera, domElement, orbitControls, scene, logSy
     /** v1.58: スマホの画面ボタンから、移動/回転を切り替える(つかんでいる時だけ)。 */
     setMode(m) { if (!held || (m !== 'move' && m !== 'rotate')) return; mode = m; notify(); },
     /** v1.58: スマホの「離す」ボタン。つかんでいる丸太を離す(落ちて置かれる)。 */
-    release() { releaseHeld(); },
+    release() { if (!glueActive) releaseHeld(); },
+    // ---- v1.71: 接着モード(glue-tool.js)用 ----
+    /** 接着モードの間は true。移動・回転の矢印と離す操作を止め、姿勢は glue-tool が決める。 */
+    setGlueActive(v) { glueActive = !!v; if (glueActive) { drag = null; orbitControls.enabled = true; } notify(); },
+    isGlueActive: () => glueActive,
+    setPointerHook(fn) { pointerHook = fn; },
+    setBeforeDisable(fn) { beforeDisable = fn; },
+    /** つかんでいる丸太の、いまの物理の姿勢を、矢印・輪の基準(pose)へ取り込む(接着をやめた時など)。 */
+    syncPoseFromHeld() {
+      if (!held) return;
+      const r = held.physics;
+      pose.pos.set(r.position.x, r.position.y, r.position.z); pose.quat.set(r.quaternion.x, r.quaternion.y, r.quaternion.z, r.quaternion.w);
+    },
+    /** 物理側ですでに据えた/離した時に、つかんでいる状態だけを忘れる(落とさない。物理には触れない)。 */
+    forgetHeld() {
+      held = null; drag = null; hoverHandle = null; glueActive = false;
+      gizmo.group.visible = false; dropRing.visible = false; marker.visible = false;
+      orbitControls.enabled = true; setCursor(''); notify();
+    },
     _internals: { grabLog, releaseHeld, onPointerMove, onPointerDown, onPointerUp, onKeyDown, onKeyUp, getHeld: () => held, getHover: () => hover, getPose: () => pose, getDrag: () => drag, gizmo, marker, dropRing },
   };
 }

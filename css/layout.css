@@ -870,6 +870,7 @@ body:has(#titleScreen:not(.hidden)) #settingsIconBtn { visibility: hidden; }
   padding: 8px 10px 9px; border-radius: 10px;
   background: rgba(14, 18, 30, 0.78); color: #e9eef8; border: 1px solid rgba(160, 190, 255, 0.28);
   font-size: 12px; line-height: 1.45; backdrop-filter: blur(3px);
+  max-height: calc(100vh - 110px); overflow-y: auto; /* v1.71: 接着モードで縦に長くなるので、はみ出す時は中でスクロール */
 }
 #shardPanel[hidden] { display: none; }
 #shardPanel .sp-title { font-weight: 700; margin-bottom: 4px; color: #cfe2ff; }
@@ -880,6 +881,22 @@ body:has(#titleScreen:not(.hidden)) #settingsIconBtn { visibility: hidden; }
 #shardPanel button:disabled { opacity: 0.38; cursor: default; }
 #shardPanel #spAttachStar, #shardPanel #spAttachMoon { display: block; width: 100%; margin-top: 5px; padding: 6px 8px; text-align: left; }
 #shardPanel kbd { float: right; opacity: 0.7; font-family: inherit; }
+/* v1.71: 接着モード */
+#shardPanel .sp-detach { gap: 5px; margin-top: 5px; }
+#shardPanel .sp-detach button { flex: 1; }
+#shardPanel #spGlueBegin { display: block; width: 100%; margin-top: 5px; padding: 6px 8px; text-align: left; }
+#shardPanel #spGlueBegin[hidden], #shardPanel #glueBox[hidden], #shardPanel #jointBox[hidden], #shardPanel #glueCtl[hidden] { display: none; }
+#shardPanel .gl-row { display: flex; align-items: center; gap: 6px; margin-top: 5px; }
+#shardPanel .gl-row span { width: 5.6em; font-size: 11px; white-space: nowrap; }
+#shardPanel .gl-row input[type=range] { flex: 1; min-width: 0; }
+#shardPanel .gl-row b { min-width: 2.6em; text-align: right; font-variant-numeric: tabular-nums; font-size: 11.5px; }
+#shardPanel .gl-btns { display: flex; gap: 3px; margin: 2px 0 0 5.6em; flex-wrap: wrap; }
+#shardPanel .gl-btns button { padding: 1px 6px; font-size: 10.5px; }
+#shardPanel .gl-check { display: block; margin-top: 6px; font-size: 11.5px; }
+#shardPanel .gl-warn { color: #ffb4a0; min-height: 1.2em; }
+#shardPanel .gl-actions { display: flex; gap: 5px; margin-top: 6px; }
+#shardPanel .gl-actions button { flex: 1; padding: 6px 8px; }
+#shardPanel #glConfirm { background: rgba(80, 140, 90, 0.7); }
 #shardPanel .sp-sep { height: 1px; background: rgba(160, 190, 255, 0.22); margin: 6px 0 2px; }
 #shardPanel .sp-note { margin-top: 6px; font-size: 11px; color: #aab8d4; }
 @media (max-width: 640px) { #shardPanel { top: 64px; width: 200px; } }

@@ -7,7 +7,7 @@
 export const APP = {
   titleJa: '星の雪だるま',
   titleEn: 'The Snowman of the Stars',
-  version: '1.70',
+  version: '1.71',
   // 表記上の統一形式。実際の権利は All rights reserved。
   copyright: '© 2026 egoaid',
   // v1.57: 公開(GitHub Pages)。絶対URLが必要な所(canonical・sitemap・OGP・manifest)の基準。
@@ -92,6 +92,10 @@ export const SHARDS = {
   // v1.70: 浮いている建造物は、塊ぜんたいが同じ動きでふわふわする(見た目だけ。あたり判定は元の高さのまま)
   bobAmplitude: 0.08,      // 上下のゆれ幅(m、±)
   bobPeriodSec: 6,         // 上下1往復の秒数
+  // v1.71: 接着は「接着モード」で、位置と角度を決めて行う。以前の『落ちて止まった所で触れていたら自動で接着』は、既定ではしない。
+  autoWeld: false,
+  glueRotateSnap: 15,      // 接着モードの「きざみ」ONの角度(度)
+  glueGroundSlack: 0.03,   // 接着の位置が地面に沈んでいてよい深さ(m)。これより深いと確定できない
   bobTiltDeg: 0.5,         // 傾きのゆれ(度、±)。塊の中心まわりに、ごくわずかに揺れる
 };
 

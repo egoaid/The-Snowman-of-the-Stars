@@ -46,6 +46,7 @@ import { createStagnationWatchdog, createRepeatDetector, blockerSignature, findR
 import { createFallingStarSystem, pickStarLandingSpot } from './falling-star.js';
 import { getRecipe } from '../recipes.js'; // v1.69
 import { createDebugLog } from './debug-log.js'; // v1.69: 動作確認用のログ(JSONで書き出せる)
+import { createGlueTool } from './glue-tool.js'; // v1.71: 接着モード(位置と角度を決めて接着・再編集)
 import { createShardSystem } from './shard-system.js'; // v1.69: 星のかけら・月のかけら(倒木を接着する・浮かせる)
 import { createCrescentGeometry } from './moon-stone.js'; // v1.69: 月の石の形(三日月)
 import { createTreeDecorations, computeTreeTop } from './tree-decor.js';
@@ -3136,7 +3137,7 @@ export function initScene(mountEl, options = {}) {
     c.heightM = logBuryHeight(r.position, r.quaternion, log.length, log.radius, terrainHeightAt);
   }
   function onLogSettled(log) {
-    shardSystem.tryWeld(log); // v1.69: 星のかけらを持つ倒木どうしが触れて止まったら、くっつく
+    shardSystem.tryWeld(log); // v1.69: 星のかけらを持つ倒木どうしが触れて止まったら、くっつく(v1.71: 既定ではOFF。接着は接着モードで)
     refreshLogBury(log);
     const r = log.physics, sn = snowNow();
     // 雪に支えられて止まった(一番低い所が雪面にほぼ着いている)なら、雪の深さを覚える。他の丸太や岩の上に乗っている場合は覚えない
@@ -3250,6 +3251,11 @@ export function initScene(mountEl, options = {}) {
     if (left > 0) left -= chest.storage.take(id, left);
     return left === 0;
   }
+  /** v1.71: 1つ、入れ物(持ち物→チェスト)へ戻す。入りきらなければ false。 */
+  function poolGive(id) {
+    if (inventory.canAdd(id, 1)) { inventory.add(id, 1); return true; }
+    return chest.storage.store(id, 1) > 0;
+  }
   /** 星→星のかけら、月の石→月のかけら。入れ物(持ち物→チェスト)に入りきらなければ、元に戻す。 */
   function craftShardsFromPool(kind) {
     const recipe = getRecipe(kind === 'moon' ? 'moon_to_shards' : 'star_to_shards');
@@ -3286,9 +3292,27 @@ export function initScene(mountEl, options = {}) {
     if (!poolTake('star_shard', 1)) return { ok: false, reason: 'no-shard' };
     shardSystem.attachStar(log); return { ok: true };
   }
+  /** v1.71: つかんでいる丸太(や塊)から、星のかけら/月のかけらを外して、持ち物へ戻す。 */
+  function detachShardFromHeld(kind) {
+    const log = heldLog();
+    if (!log) return { ok: false, reason: 'not-held' };
+    if (glueTool.isActive()) return { ok: false, reason: 'glue-active' };
+    const id = kind === 'moon' ? 'moon_shard' : 'star_shard';
+    if (kind === 'moon' ? !shardSystem.info(log).structureHasMoon : !log.starShard) return { ok: false, reason: kind === 'moon' ? 'no-moon' : 'no-star' };
+    if (!poolGive(id)) return { ok: false, reason: 'storage-full' };
+    const res = kind === 'moon' ? shardSystem.removeMoon(log) : shardSystem.removeStar(log);
+    if (!res.ok) { poolTake(id, 1); return res; } // 外せなかった: 戻したぶんを取り消す
+    if (res.droppedHeld) editMode.forgetHeld(); // 塊をほどいたので、つかんでいる状態は終わる(物理は、外した部分を落として止める)
+    debugLog.log('shard.detach.done', { kind, ...res });
+    return res;
+  }
   function shardPanelState() {
     const log = heldLog(), info = log ? shardSystem.info(log) : null;
+    const glueState = glueTool.getState();
     return {
+      glue: glueState,
+      canDetachStar: !!log && !!(info && info.hasStar) && !glueState.active,
+      canDetachMoon: !!log && !!(info && info.structureHasMoon) && !glueState.active,
       editing: editMode.isEnabled(),
       star: poolCount('star'), starShard: poolCount('star_shard'), moonStone: poolCount('moon_stone'), moonShard: poolCount('moon_shard'),
       held: !!log, heldHasStar: !!(info && info.hasStar), heldGroupSize: info ? info.groupSize : 0,
@@ -3313,6 +3337,7 @@ export function initScene(mountEl, options = {}) {
       pool: { star: poolCount('star'), starShard: poolCount('star_shard'), moonStone: poolCount('moon_stone'), moonShard: poolCount('moon_shard') },
       shardCounts: shardSystem.count(),
       shardsSaved: shardSystem.serialize(),
+      joints: shardSystem.joints(),
       groups,
       physics: physics.stats(),
       moon: { buried: moonBuried.map((m) => ({ id: m.id, x: +m.x.toFixed(1), z: +m.z.toFixed(1), present: moonStones.getLanded().some((s) => s.id === m.id) })), landedNow: moonStones.getLanded().length, config: { intervalSec: MOON_STONE.intervalSec, buriedCount: MOON_STONE.buriedCount } },
@@ -3332,6 +3357,11 @@ export function initScene(mountEl, options = {}) {
     clampXZ: (x, z) => { const d = Math.hypot(x, z); return d > PLAYABLE_RADIUS ? { x: x * PLAYABLE_RADIUS / d, z: z * PLAYABLE_RADIUS / d } : { x, z }; },
     getFocus: () => ({ x: playerSnowman.group.position.x, y: playerSnowman.group.position.y + 0.8, z: playerSnowman.group.position.z }),
     onChange: (st) => { if (options.onEditModeChange) options.onEditModeChange(st); },
+  });
+  // v1.71: 接着モード。編集モードでつかんだ丸太を、位置と角度を決めて、ほかの丸太へ接着する。接着点(金色の輪)から、再編集・外すができる。
+  const glueTool = createGlueTool({
+    scene, domElement: renderer.domElement, editMode, logSystem, physics, shardSystem, groundAt: snowGroundAt,
+    onChange: () => { shardPanelDirty = true; }, log: debugLog.log,
   });
   // v1.56-H4: 雪に埋もれて見えなくなった倒木は、編集モードの間だけ青い輪郭(雪を透かして見える)で場所を示す。
   // 狙って選べば、つかんだ瞬間に雪面の上へ掘り出される(fallen-log-system.grab)。
@@ -3731,6 +3761,7 @@ export function initScene(mountEl, options = {}) {
     editMode.update(delta);
     moonStones.update(delta, { playerX: snowX, playerZ: snowZ, canCollect: mode === 'walk' && !wanderActive, isNight: getTimeOfDay(gameHour) === 'night' }); // v1.69
     shardSystem.update(delta); // v1.69: 月のかけらを貼った物が、浮く高さで落ち着いたら静止させる
+    glueTool.update(delta); // v1.71: 接着点の輪の表示・接着モードの見張り
     fallingStars.update(delta, {
       playerX: snowX, playerZ: snowZ,
       canCollect: mode === 'walk' && !wanderActive, // v1.54: 見守りの雪だるまは、近づくだけで拾わず、眺めて自分で決める(collectTask)
@@ -4270,6 +4301,12 @@ export function initScene(mountEl, options = {}) {
     debugLogEvent: (kind, data) => debugLog.log(kind, data),
     craftShards: (kind) => craftShardsFromPool(kind),
     attachShard: (kind) => attachShardToHeld(kind),
+    detachShard: (kind) => detachShardFromHeld(kind), // v1.71
+    // v1.71: 接着モード
+    glueBegin: () => glueTool.begin(), glueCancel: () => glueTool.cancel(), glueConfirm: () => glueTool.confirm(),
+    glueSetParam: (name, v) => glueTool.setParam(name, v), glueSetParams: (o) => glueTool.setParams(o), glueSetSnap: (on) => glueTool.setSnap(on),
+    glueBeginEdit: () => glueTool.beginEdit(), glueDetach: () => glueTool.detachSelected(), glueClearSelection: () => glueTool.clearSelection(),
+    getGlueState: () => glueTool.getState(), _glueTool: glueTool, _editMode: editMode, // _ で始まる物は、確認用(管理者のデバッグ画面から使う)
     debugShards: () => ({ pool: { star: poolCount('star'), starShard: poolCount('star_shard'), moonStone: poolCount('moon_stone'), moonShard: poolCount('moon_shard') }, counts: shardSystem.count(), groups: physics.stats().groups, moon: moonStones.getLanded().length }),
     getStarfieldInfo: () => starfield.getInfo(),
     debugTriggerMeteor: () => starfield.triggerMeteor(),
@@ -4307,6 +4344,7 @@ export function initScene(mountEl, options = {}) {
       running = false;
       orbitControls.dispose();
       walk.dispose();
+      glueTool.dispose();
     },
   };
 }

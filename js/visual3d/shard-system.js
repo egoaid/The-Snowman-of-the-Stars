@@ -1,11 +1,13 @@
-// shard-system.js (v1.69)
+// shard-system.js (v1.69 / v1.71: 接着点・外す・再編集)
 // 星のかけら・月のかけらで、倒木をくっつける/浮かせる。ゲーム側の決まりごと(物理エンジンは、決まりを知らない)。
 //
 // 星は重力を与える力を持つ。星のかけらは、倒木ほどの物をくっつけられる重力の力を持つ。
 //   ・星のかけらを貼った倒木は、「くっつける力」を持つ。見た目は、倒木の真ん中あたりにかけらが付いている。
 //   ・1本の倒木に付けられる星のかけらは、1つだけ。
 //   ・1本ぶんの力はそれほど強くないので、2本をくっつけるには、2本のどちらにも星のかけらが要る。
-//   ・星のかけらを貼った倒木どうしが、止まった時に触れていると、その場所でくっつく(物理は physics.weld)。
+//   ・v1.71: 接着は「接着モード」(glue-tool.js)で、位置と角度を決めて行う。接着した所は『接着点』(joints)として覚える。
+//     (v1.69の『落ちて止まった所で触れていたら自動で接着』は、SHARDS.autoWeld=true の時だけ。既定はOFF)
+//   ・v1.71: 星のかけら・月のかけらは外せる。接着点だけを外すこともできる。
 // 月は反重力の力を持つ。月のかけらを、組んだ物(1本でもよい)のどこかに貼ると、その物が少し宙に浮く。
 //   ・組んだ物ぜんたいに、月のかけらは1つだけ。
 //   ・浮く時は、地面から hoverClearance の高さへ、ゆっくり持ち上がって止まる(静止すれば静的に戻る。物理は動き続けない)。
@@ -17,36 +19,13 @@ import { applyPoseToMesh, logMinClearance } from './fallen-log-system.js';
 import { createCrescentGeometry } from './moon-stone.js';
 import { createStarGeometry } from './snowman.js';
 import { SHARDS } from '../config.js';
+import { segmentClosest } from './glue-math.js';
 
 const _q = new THREE.Quaternion();
 const _a = new THREE.Vector3();
 
 /** 2本の線分(3D)の最短距離。(Ericsonの方法) */
-export function segmentDistance(p1, q1, p2, q2) {
-  const d1 = { x: q1.x - p1.x, y: q1.y - p1.y, z: q1.z - p1.z };
-  const d2 = { x: q2.x - p2.x, y: q2.y - p2.y, z: q2.z - p2.z };
-  const r = { x: p1.x - p2.x, y: p1.y - p2.y, z: p1.z - p2.z };
-  const dot = (u, v) => u.x * v.x + u.y * v.y + u.z * v.z;
-  const a = dot(d1, d1), e = dot(d2, d2), f = dot(d2, r);
-  let s, t;
-  const EPS = 1e-9;
-  if (a <= EPS && e <= EPS) { s = t = 0; }
-  else if (a <= EPS) { s = 0; t = Math.min(1, Math.max(0, f / e)); }
-  else {
-    const c = dot(d1, r);
-    if (e <= EPS) { t = 0; s = Math.min(1, Math.max(0, -c / a)); }
-    else {
-      const b = dot(d1, d2), denom = a * e - b * b;
-      s = denom > EPS ? Math.min(1, Math.max(0, (b * f - c * e) / denom)) : 0;
-      t = (b * s + f) / e;
-      if (t < 0) { t = 0; s = Math.min(1, Math.max(0, -c / a)); }
-      else if (t > 1) { t = 1; s = Math.min(1, Math.max(0, (b - c) / a)); }
-    }
-  }
-  const c1 = { x: p1.x + d1.x * s, y: p1.y + d1.y * s, z: p1.z + d1.z * s };
-  const c2 = { x: p2.x + d2.x * t, y: p2.y + d2.y * t, z: p2.z + d2.z * t };
-  return Math.hypot(c1.x - c2.x, c1.y - c2.y, c1.z - c2.z);
-}
+export function segmentDistance(p1, q1, p2, q2) { return segmentClosest(p1, q1, p2, q2).dist; }
 
 /** 物理の記録(位置=中心、向き)から、丸太の軸の両端を求める。 */
 export function logEnds(rec) {
@@ -122,12 +101,88 @@ export function createShardSystem({ fallenLogs, physics, logSystem, groundAt, on
     return true;
   }
 
+  // ---- v1.71: 接着点(どの丸太とどの丸太が、つながっているか)。物理の『塊』は、この一覧から作り直せる ----
+  const joints = []; // { a, b } 物理のid
+  const hasJoint = (a, b) => joints.some((j) => (j.a === a && j.b === b) || (j.a === b && j.b === a));
+  const isStatic = (l) => !!l && !l.collected && !!l.physics && l.physics.physicsState === 'static';
+  const jointsOfId = (id) => joints.filter((j) => j.a === id || j.b === id);
+  /** ids(物理のid)の塊をほどいて、残っている接着点だけで、塊を作り直す。できた塊(idの配列)の一覧を返す。 */
+  function rebuild(ids) {
+    const set = new Set(ids);
+    for (const id of ids) physics.dissolve(id);
+    for (const j of joints) if (set.has(j.a) && set.has(j.b)) physics.weld(j.a, j.b);
+    const seen = new Set(), comps = [];
+    for (const id of ids) {
+      if (seen.has(id)) continue;
+      const g = physics.groupOf(id) || [id];
+      g.forEach((x) => seen.add(x)); comps.push(g);
+    }
+    return comps;
+  }
+  const structureIds = (id) => physics.groupOf(id) || [id];
+  /** 塊(や1本)を、動かし始める。浮く物は浮く高さへ、浮かない物は地面へ落ちて止まる。 */
+  function wakeComps(comps) { for (const c of comps) physics.wake(c[0]); }
+  /** 2本を、いまの姿勢のまま接着する(どちらも静止していること)。 */
+  function addJoint(la, lb, { wake = true } = {}) {
+    if (!la || !lb || la === lb || !isStatic(la) || !isStatic(lb)) return false;
+    if (!physics.weld(la.physicsId, lb.physicsId)) return false;
+    if (!hasJoint(la.physicsId, lb.physicsId)) joints.push({ a: la.physicsId, b: lb.physicsId });
+    if (wake && structureHasMoon(la)) physics.wake(la.physicsId); // 月のかけらがあれば、浮く高さへ
+    dbg('shard.joint.add', { a: la.physicsId, b: lb.physicsId, groupSize: structureIds(la.physicsId).length });
+    changed();
+    return true;
+  }
+  /**
+   * 接着点を1つ外す。外したあとの塊(あれば2つ以上)を返す。全員が静止していなければ null。
+   * @param {boolean} wake  外したあと、動かし始める(浮かない物は落ちて止まる)。再編集の途中は false
+   */
+  function removeJoint(a, b, { wake = true } = {}) {
+    const k = joints.findIndex((j) => (j.a === a && j.b === b) || (j.a === b && j.b === a));
+    if (k < 0) return null;
+    const ids = [...new Set([...structureIds(a), ...structureIds(b)])];
+    if (!ids.every((id) => isStatic(logOf(id)))) return null;
+    joints.splice(k, 1);
+    const comps = rebuild(ids);
+    if (wake) wakeComps(comps);
+    dbg('shard.joint.remove', { a, b, parts: comps.length });
+    changed();
+    return comps;
+  }
+  /** 星のかけらを外す。その丸太の接着点は、すべて外れる。(かけらを持ち物へ戻すのは、呼ぶ側) */
+  function removeStar(log) {
+    if (!log || log.collected || !log.starShard) return { ok: false, reason: 'no-star' };
+    const mine = jointsOfId(log.physicsId);
+    const st = log.physics.physicsState;
+    let droppedHeld = false;
+    if (mine.length) {
+      if (st === 'held') { physics.placeStatic(log.physicsId); droppedHeld = true; } // 塊をその場で据えてから、ほどく
+      else if (st !== 'static') return { ok: false, reason: 'moving' };
+      const ids = [...new Set(mine.flatMap((j) => [...structureIds(j.a), ...structureIds(j.b)]))];
+      for (const j of mine) joints.splice(joints.indexOf(j), 1);
+      wakeComps(rebuild(ids));
+    } else if (st !== 'held' && st !== 'static') return { ok: false, reason: 'moving' };
+    log.starShard = false; removeVisual(log, 'star'); changed();
+    dbg('shard.detach', { kind: 'star', log: log.physicsId, joints: mine.length });
+    return { ok: true, droppedHeld, removedJoints: mine.length };
+  }
+  /** 月のかけらを外す。浮いていた物は、ゆっくり降りて止まる(つかんでいる間は、そのまま)。 */
+  function removeMoon(log) {
+    const m = log && structureLogs(log).find((l) => l.moonShard);
+    if (!m) return { ok: false, reason: 'no-moon' };
+    m.moonShard = false; m.moonFloat = false; removeVisual(m, 'moon');
+    if (isStatic(log)) physics.wake(log.physicsId);
+    changed();
+    dbg('shard.detach', { kind: 'moon', log: m.physicsId });
+    return { ok: true };
+  }
+
   // ---- くっつく: 止まった時に、星のかけらを持つ者どうしが触れていれば、その場所でくっつく ----
   /**
    * 静止した倒木(と、その塊の全員)が、星のかけらを持つ他の倒木に触れていれば、くっつける。
    * @returns {number} くっついた(新しく接着した)組の数
    */
   function tryWeld(log) {
+    if (!cfg.autoWeld) return 0; // v1.71: 既定では自動で接着しない(接着モードで位置と角度を決める)
     if (!log || log.collected || !log.physics || log.physics.physicsState !== 'static') return 0;
     let n = 0;
     const members = structureLogs(log);
@@ -138,7 +193,7 @@ export function createShardSystem({ fallenLogs, physics, logSystem, groundAt, on
         const g = physics.groupOf(x.physicsId);
         if (g && g.includes(m.physicsId)) continue; // すでに同じ塊
         if (logsTouching(m.physics, x.physics, cfg.contactTolerance) && physics.weld(m.physicsId, x.physicsId)) {
-          n++;
+          n++; if (!hasJoint(m.physicsId, x.physicsId)) joints.push({ a: m.physicsId, b: x.physicsId });
           dbg('shard.weld', { a: m.physicsId, b: x.physicsId, groupSize: (physics.groupOf(m.physicsId) || []).length });
         }
       }
@@ -236,27 +291,55 @@ export function createShardSystem({ fallenLogs, physics, logSystem, groundAt, on
       const ids = physics.groupOf(l.physicsId);
       if (ids && !seen.has(ids[0])) { ids.forEach((x) => seen.add(x)); g.push(ids.map((x) => indexOf(logOf(x))).filter((i2) => i2 >= 0)); }
     });
-    return { s, m, g };
+    // v1.71: 接着点。(古い保存には j が無い。その時は g(塊)から、触れている組を接着点として作り直す)
+    const j = joints.map((x) => [indexOf(logOf(x.a)), indexOf(logOf(x.b))]).filter((p2) => p2[0] >= 0 && p2[1] >= 0);
+    return { s, m, g, j };
+  }
+  /** 古い保存(接着点なし)の塊から、接着点を作る: 触れている組を結び、つながらない所は、いちばん近い組で結ぶ。 */
+  function deriveLegacyJoints(ls) {
+    const parent = ls.map((_, i) => i);
+    const find = (i) => (parent[i] === i ? i : (parent[i] = find(parent[i])));
+    const pairs = [];
+    for (let i = 0; i < ls.length; i++) for (let k = i + 1; k < ls.length; k++) {
+      const A = logEnds(ls[i].physics), B = logEnds(ls[k].physics);
+      pairs.push({ i, k, d: segmentDistance(A.a, A.b, B.a, B.b) });
+    }
+    pairs.sort((x, y) => x.d - y.d);
+    const out = [];
+    for (const p2 of pairs) { // 近い組から結ぶ(すでにつながっている組は結ばない)
+      if (find(p2.i) === find(p2.k)) continue;
+      parent[find(p2.i)] = find(p2.k); out.push([ls[p2.i], ls[p2.k]]);
+    }
+    return out;
   }
   function restore(d) {
     if (!d) return;
     for (const i of d.s || []) { const l = fallenLogs[i]; if (l && !l.collected && !l.starShard) { l.starShard = true; addVisual(l, 'star'); } }
     for (const i of d.m || []) { const l = fallenLogs[i]; if (l && !l.collected && !l.moonShard) { l.moonShard = true; l.moonFloat = true; addVisual(l, 'moon'); } }
-    for (const grp of d.g || []) {
-      const ls = grp.map((i) => fallenLogs[i]).filter((l) => l && !l.collected && l.physics && l.physics.physicsState === 'static');
-      for (let k = 1; k < ls.length; k++) physics.weld(ls[0].physicsId, ls[k].physicsId);
+    if (d.j && d.j.length) {
+      for (const [ia, ib] of d.j) { const la = fallenLogs[ia], lb = fallenLogs[ib]; if (isStatic(la) && isStatic(lb)) addJoint(la, lb, { wake: false }); }
+    } else {
+      for (const grp of d.g || []) {
+        const ls = grp.map((i) => fallenLogs[i]).filter((l) => isStatic(l));
+        for (const [la, lb] of deriveLegacyJoints(ls)) addJoint(la, lb, { wake: false });
+      }
     }
     changed();
-    dbg('shard.restore', { star: (d.s || []).length, moon: (d.m || []).length, groups: (d.g || []).length });
+    dbg('shard.restore', { star: (d.s || []).length, moon: (d.m || []).length, groups: (d.g || []).length, joints: joints.length });
   }
 
   return {
     canAttachStar, canAttachMoon, attachStar, attachMoon,
     tryWeld, update, isLocked, floating, serialize, restore,
+    addJoint, removeJoint, removeStar, removeMoon, // v1.71
+    joints: () => joints.map((j) => ({ a: j.a, b: j.b })),
+    jointsOf: (log) => (log ? jointsOfId(log.physicsId).map((j) => ({ a: j.a, b: j.b })) : []),
+    structureLogs, rebuild,
     info(log) {
       return {
         held: isHeld(log), hasStar: !!(log && log.starShard), structureHasMoon: log ? structureHasMoon(log) : false,
         groupSize: log ? (physics.groupOf(log.physicsId) || [1]).length : 0,
+        hasMoon: !!(log && log.moonShard), joints: log ? jointsOfId(log.physicsId).length : 0,
       };
     },
     count: () => ({ star: fallenLogs.filter((l) => l.starShard && !l.collected).length, moon: fallenLogs.filter((l) => l.moonShard && !l.collected).length }),
