@@ -15,6 +15,8 @@
 //   checksum は、state の文字列からFNV-1aで作った8桁の16進数。壊れたデータ(途中で切れた/手で書き換えた)を見つけるためで、
 //   セキュリティ目的ではない。版が新しすぎるデータは読み込まない(上書きして壊さない)。古いデータは MIGRATIONS で変換する。
 
+import { t } from '../i18n.js';
+
 export const SAVE_FORMAT = 'snowman-save';
 export const SAVE_VERSION = 1;
 export const LIMITS = { users: 10, worldsPerUser: 20, nameMax: 20, stateBytes: 2_000_000 };
@@ -37,9 +39,9 @@ const nameKey = (s) => normalizeName(s).toLowerCase();
 /** 名前の検査。{ok:true,name} または {ok:false,error}。制御文字・長すぎる・空は不可。 */
 export function validateName(raw, max = LIMITS.nameMax) {
   const name = normalizeName(raw);
-  if (!name) return { ok: false, error: '名前を入力してください。' };
-  if ([...name].length > max) return { ok: false, error: `名前は${max}文字までです。` };
-  if (/[\u0000-\u001f\u007f<>]/.test(name)) return { ok: false, error: '使えない文字が含まれています。' };
+  if (!name) return { ok: false, error: t('ss.nameRequired') };
+  if ([...name].length > max) return { ok: false, error: t('ss.nameTooLong', { max }) };
+  if (/[\u0000-\u001f\u007f<>]/.test(name)) return { ok: false, error: t('ss.badChars') };
   return { ok: true, name };
 }
 
@@ -57,7 +59,7 @@ export function createSaveStore(storage, { now = () => Date.now(), rng = Math.ra
   }
   function writeRaw(key, text) {
     try { storage.setItem(key, text); return { ok: true }; }
-    catch (e) { return fail('quota', 'この端末の保存領域がいっぱいか、保存が許可されていません。'); }
+    catch (e) { return fail('quota', t('ss.quota')); }
   }
   function removeKey(key) { try { storage.removeItem(key); } catch (e) { /* 消せなくても続行 */ } }
 
@@ -75,15 +77,15 @@ export function createSaveStore(storage, { now = () => Date.now(), rng = Math.ra
   function createUser(rawName) {
     const v = validateName(rawName); if (!v.ok) return fail('name', v.error);
     const idx = loadIndex();
-    if (idx.users.length >= LIMITS.users) return fail('limit', `ユーザーは${LIMITS.users}人までです。`);
-    if (idx.users.some((u) => nameKey(u.name) === nameKey(v.name))) return fail('duplicate', 'その名前のユーザーはすでにいます。');
+    if (idx.users.length >= LIMITS.users) return fail('limit', t('ss.userLimit', { n: LIMITS.users }));
+    if (idx.users.some((u) => nameKey(u.name) === nameKey(v.name))) return fail('duplicate', t('ss.userDup'));
     const user = { id: uid('u'), name: v.name, createdAt: now(), worlds: [] };
     idx.users.push(user);
     const w = saveIndex(idx); if (!w.ok) return w;
     return { ok: true, user: { id: user.id, name: user.name } };
   }
   function deleteUser(userId) {
-    const idx = loadIndex(); const u = findUser(idx, userId); if (!u) return fail('missing', 'ユーザーが見つかりません。');
+    const idx = loadIndex(); const u = findUser(idx, userId); if (!u) return fail('missing', t('ss.userMissing'));
     for (const w of u.worlds) removeKey(KEY.world(w.id));
     idx.users = idx.users.filter((x) => x.id !== userId);
     const w = saveIndex(idx); if (!w.ok) return w;
@@ -101,14 +103,14 @@ export function createSaveStore(storage, { now = () => Date.now(), rng = Math.ra
   /** 新しいワールド(プレビュー状態)を作る。地形のシードはここで決まる。同じユーザーに同じ名前は作れない。 */
   function createWorld(userId, rawName, seed = null) {
     const v = validateName(rawName); if (!v.ok) return fail('name', v.error);
-    const idx = loadIndex(); const u = findUser(idx, userId); if (!u) return fail('missing', 'ユーザーが見つかりません。');
-    if (u.worlds.filter((w) => w.status === 'ready').length >= LIMITS.worldsPerUser) return fail('limit', `ワールドは1人${LIMITS.worldsPerUser}個までです。`);
-    if (u.worlds.some((w) => nameKey(w.name) === nameKey(v.name) && w.status === 'ready')) return fail('duplicate', 'その名前のワールドはすでにあります。');
+    const idx = loadIndex(); const u = findUser(idx, userId); if (!u) return fail('missing', t('ss.userMissing'));
+    if (u.worlds.filter((w) => w.status === 'ready').length >= LIMITS.worldsPerUser) return fail('limit', t('ss.worldLimit', { n: LIMITS.worldsPerUser }));
+    if (u.worlds.some((w) => nameKey(w.name) === nameKey(v.name) && w.status === 'ready')) return fail('duplicate', t('ss.worldDup'));
     // 名前が同じ未確定(プレビュー)が残っていれば、それは古い作り直しの残りなので捨てる
     for (const w of u.worlds.filter((x) => x.status === 'preview' && nameKey(x.name) === nameKey(v.name))) removeKey(KEY.world(w.id));
     u.worlds = u.worlds.filter((x) => !(x.status === 'preview' && nameKey(x.name) === nameKey(v.name)));
-    const t = now();
-    const world = { id: uid('w'), name: v.name, seed: Number.isFinite(seed) ? Math.floor(seed) : newSeed(), status: 'preview', createdAt: t, updatedAt: t, lastPlayedAt: t };
+    const ts = now(); // (t は翻訳の関数の名前なので、時刻には使わない)
+    const world = { id: uid('w'), name: v.name, seed: Number.isFinite(seed) ? Math.floor(seed) : newSeed(), status: 'preview', createdAt: ts, updatedAt: ts, lastPlayedAt: ts };
     u.worlds.push(world);
     const w = saveIndex(idx); if (!w.ok) return w;
     return { ok: true, world: pub(world) };
@@ -116,8 +118,8 @@ export function createSaveStore(storage, { now = () => Date.now(), rng = Math.ra
   /** 気に入らない時の作り直し: 新しいシードにして、古い保存データは捨てる(プレビューの間だけ可能)。 */
   function rerollWorld(userId, worldId) {
     const idx = loadIndex(); const u = findUser(idx, userId); const w = u && u.worlds.find((x) => x.id === worldId);
-    if (!w) return fail('missing', 'ワールドが見つかりません。');
-    if (w.status !== 'preview') return fail('state', '始めたワールドは作り直せません(削除してから作ってください)。');
+    if (!w) return fail('missing', t('ss.worldMissing'));
+    if (w.status !== 'preview') return fail('state', t('ss.cannotRegen'));
     let s = newSeed(); if (s === w.seed) s = (s + 1) % 1e9;
     w.seed = s; w.updatedAt = now(); removeKey(KEY.world(w.id));
     const r = saveIndex(idx); if (!r.ok) return r;
@@ -126,15 +128,15 @@ export function createSaveStore(storage, { now = () => Date.now(), rng = Math.ra
   /** 「このワールドで始める」: プレビュー → 本番。以後、自動保存の対象になる。 */
   function confirmWorld(userId, worldId) {
     const idx = loadIndex(); const u = findUser(idx, userId); const w = u && u.worlds.find((x) => x.id === worldId);
-    if (!w) return fail('missing', 'ワールドが見つかりません。');
-    if (w.status === 'preview' && u.worlds.some((x) => x.id !== w.id && x.status === 'ready' && nameKey(x.name) === nameKey(w.name))) return fail('duplicate', 'その名前のワールドはすでにあります。');
+    if (!w) return fail('missing', t('ss.worldMissing'));
+    if (w.status === 'preview' && u.worlds.some((x) => x.id !== w.id && x.status === 'ready' && nameKey(x.name) === nameKey(w.name))) return fail('duplicate', t('ss.worldDup'));
     w.status = 'ready'; w.updatedAt = now(); w.lastPlayedAt = now();
     const r = saveIndex(idx); if (!r.ok) return r;
     return { ok: true, world: pub(w) };
   }
   function deleteWorld(userId, worldId) {
-    const idx = loadIndex(); const u = findUser(idx, userId); if (!u) return fail('missing', 'ユーザーが見つかりません。');
-    if (!u.worlds.some((x) => x.id === worldId)) return fail('missing', 'ワールドが見つかりません。');
+    const idx = loadIndex(); const u = findUser(idx, userId); if (!u) return fail('missing', t('ss.userMissing'));
+    if (!u.worlds.some((x) => x.id === worldId)) return fail('missing', t('ss.worldMissing'));
     u.worlds = u.worlds.filter((x) => x.id !== worldId); removeKey(KEY.world(worldId));
     const r = saveIndex(idx); if (!r.ok) return r;
     const cur = getCurrent(); if (cur.ok && cur.worldId === worldId) clearCurrent();
@@ -143,8 +145,8 @@ export function createSaveStore(storage, { now = () => Date.now(), rng = Math.ra
   function renameWorld(userId, worldId, rawName) {
     const v = validateName(rawName); if (!v.ok) return fail('name', v.error);
     const idx = loadIndex(); const u = findUser(idx, userId); const w = u && u.worlds.find((x) => x.id === worldId);
-    if (!w) return fail('missing', 'ワールドが見つかりません。');
-    if (u.worlds.some((x) => x.id !== worldId && x.status === 'ready' && nameKey(x.name) === nameKey(v.name))) return fail('duplicate', 'その名前のワールドはすでにあります。');
+    if (!w) return fail('missing', t('ss.worldMissing'));
+    if (u.worlds.some((x) => x.id !== worldId && x.status === 'ready' && nameKey(x.name) === nameKey(v.name))) return fail('duplicate', t('ss.worldDup'));
     w.name = v.name; w.updatedAt = now();
     const r = saveIndex(idx); if (!r.ok) return r;
     return { ok: true, world: pub(w) };
@@ -165,7 +167,7 @@ export function createSaveStore(storage, { now = () => Date.now(), rng = Math.ra
 
   // ---- 現在の選択 ----
   function setCurrent(userId, worldId) {
-    const w = getWorld(userId, worldId); if (!w) return fail('missing', 'ワールドが見つかりません。');
+    const w = getWorld(userId, worldId); if (!w) return fail('missing', t('ss.worldMissing'));
     return writeRaw(KEY.current, JSON.stringify({ userId, worldId }));
   }
   function getCurrent() {
@@ -190,34 +192,34 @@ export function createSaveStore(storage, { now = () => Date.now(), rng = Math.ra
    * まだ何も保存されていないワールドの expectRev は null。
    */
   function saveWorldState(userId, worldId, state, { expectRev } = {}) {
-    const w = getWorld(userId, worldId); if (!w) return fail('missing', 'ワールドが見つかりません。');
-    if (w.status !== 'ready') return fail('state', '始める前のワールドは保存しません。');
+    const w = getWorld(userId, worldId); if (!w) return fail('missing', t('ss.worldMissing'));
+    if (w.status !== 'ready') return fail('state', t('ss.notStartedNoSave'));
     if (expectRev !== undefined) {
       const cur = readJson(KEY.world(worldId));
       const curRev = cur.ok && cur.value && typeof cur.value === 'object' ? (cur.value.rev ?? null) : null;
-      if (curRev !== expectRev) return { ...fail('conflict', '別のタブで、このワールドが保存されました。'), rev: curRev };
+      if (curRev !== expectRev) return { ...fail('conflict', t('ss.conflict')), rev: curRev };
     }
     const env = makeEnvelope(worldId, state);
     const text = JSON.stringify(env);
-    if (text.length > LIMITS.stateBytes) return fail('too-large', '保存データが大きすぎます。');
+    if (text.length > LIMITS.stateBytes) return fail('too-large', t('ss.tooLarge'));
     const r = writeRaw(KEY.world(worldId), text); if (!r.ok) return r;
     const idx = loadIndex(); const u = findUser(idx, userId); const x = u.worlds.find((y) => y.id === worldId); x.updatedAt = now(); x.lastPlayedAt = now(); saveIndex(idx);
     return { ok: true, bytes: text.length, rev: env.rev };
   }
   /** 版・形式・チェックサムを確かめて、必要なら古い版から変換する。 */
   function verifyEnvelope(env) {
-    if (!env || typeof env !== 'object' || env.format !== SAVE_FORMAT || !env.state || typeof env.state !== 'object') return fail('corrupt', '保存データの形式が違います。');
-    if (!Number.isInteger(env.v) || env.v < 1) return fail('corrupt', '保存データの版が読めません。');
-    if (env.v > SAVE_VERSION) return fail('newer', 'このアプリより新しい版で作られた保存データです。アプリを更新してください。');
-    if (fnv1a(JSON.stringify(env.state)) !== env.checksum) return fail('corrupt', '保存データが壊れています(チェックサムが合いません)。');
+    if (!env || typeof env !== 'object' || env.format !== SAVE_FORMAT || !env.state || typeof env.state !== 'object') return fail('corrupt', t('ss.badFormat'));
+    if (!Number.isInteger(env.v) || env.v < 1) return fail('corrupt', t('ss.badVersion'));
+    if (env.v > SAVE_VERSION) return fail('newer', t('ss.newer'));
+    if (fnv1a(JSON.stringify(env.state)) !== env.checksum) return fail('corrupt', t('ss.checksum'));
     let state = env.state, v = env.v;
-    while (v < SAVE_VERSION) { const m = MIGRATIONS[v]; if (!m) return fail('corrupt', `版${v}の保存データを変換できません。`); state = m(state); v++; }
+    while (v < SAVE_VERSION) { const m = MIGRATIONS[v]; if (!m) return fail('corrupt', t('ss.migrate', { v })); state = m(state); v++; }
     return { ok: true, state, migrated: env.v !== SAVE_VERSION };
   }
   function loadWorldState(userId, worldId) {
-    const w = getWorld(userId, worldId); if (!w) return fail('missing', 'ワールドが見つかりません。');
+    const w = getWorld(userId, worldId); if (!w) return fail('missing', t('ss.worldMissing'));
     const r = readJson(KEY.world(worldId));
-    if (!r.ok) return r.code === 'missing' ? { ok: true, state: null, fresh: true, rev: null } : fail(r.code, '保存データを読めませんでした。');
+    if (!r.ok) return r.code === 'missing' ? { ok: true, state: null, fresh: true, rev: null } : fail(r.code, t('ss.readFail'));
     const v = verifyEnvelope(r.value); if (!v.ok) return v;
     return { ok: true, state: v.state, migrated: v.migrated, savedAt: r.value.savedAt, rev: r.value.rev ?? null };
   }
@@ -230,18 +232,18 @@ export function createSaveStore(storage, { now = () => Date.now(), rng = Math.ra
 
   // ---- 書き出し・読み込み(JSONファイル) ----
   function exportWorld(userId, worldId) {
-    const w = getWorld(userId, worldId); if (!w) return fail('missing', 'ワールドが見つかりません。');
+    const w = getWorld(userId, worldId); if (!w) return fail('missing', t('ss.worldMissing'));
     const loaded = loadWorldState(userId, worldId); if (!loaded.ok) return loaded;
     const env = makeEnvelope(worldId, loaded.state || {});
     return { ok: true, filename: `snowman-${w.name.replace(/[^\p{L}\p{N}_-]+/gu, '_')}.json`, text: JSON.stringify({ ...env, world: { name: w.name, seed: w.seed } }, null, 1) };
   }
   function importWorld(userId, text) {
-    let data; try { data = JSON.parse(text); } catch (e) { return fail('corrupt', 'JSONとして読めませんでした。'); }
+    let data; try { data = JSON.parse(text); } catch (e) { return fail('corrupt', t('ss.notJson')); }
     const v = verifyEnvelope(data); if (!v.ok) return v;
     const meta = data.world || {};
-    if (!Number.isFinite(meta.seed)) return fail('corrupt', 'ワールドのシードが見つかりません。');
-    const u = findUser(loadIndex(), userId); if (!u) return fail('missing', 'ユーザーが見つかりません。');
-    const base = validateName(meta.name || 'ワールド'); let name = base.ok ? base.name : 'ワールド';
+    if (!Number.isFinite(meta.seed)) return fail('corrupt', t('ss.noSeed'));
+    const u = findUser(loadIndex(), userId); if (!u) return fail('missing', t('ss.userMissing'));
+    const base = validateName(meta.name || t('tf.defaultWorldBase')); let name = base.ok ? base.name : t('tf.defaultWorldBase');
     for (let n = 2; u.worlds.some((w) => w.status === 'ready' && nameKey(w.name) === nameKey(name)) && n < 100; n++) name = `${[...base.name].slice(0, LIMITS.nameMax - 4).join('')} (${n})`;
     const c = createWorld(userId, name, meta.seed); if (!c.ok) return c;
     const k = confirmWorld(userId, c.world.id); if (!k.ok) return k;

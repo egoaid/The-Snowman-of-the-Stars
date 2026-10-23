@@ -15,16 +15,10 @@
 //   梅雨は見た目としては夏(深緑)、台風シーズンは見た目としては秋(色づき始め)
 //   の値を流用する。
 
+import { t as tr } from '../i18n.js'; // (このファイルでは t を補間の変数に使うので、別名にする)
+
 export const SEASONS = ['spring', 'tsuyu', 'summer', 'typhoon', 'autumn', 'winter'];
 
-const SEASON_LABELS = {
-  spring: '春',
-  tsuyu: '梅雨',
-  summer: '夏',
-  typhoon: '台風シーズン',
-  autumn: '秋',
-  winter: '冬',
-};
 
 /**
  * 季節ごとの天候の「出やすさ」の重み(合計が1である必要はない。
@@ -199,8 +193,9 @@ export function getAutoSeason(date = new Date()) {
   return result;
 }
 
+/** 季節の表示名。言語に合わせて、設定画面と同じ辞書(set.season.<id>)から引く。 */
 export function getSeasonLabel(season) {
-  return SEASON_LABELS[season] || season;
+  return SEASONS.includes(season) ? tr(`set.season.${season}`) : season;
 }
 
 /**

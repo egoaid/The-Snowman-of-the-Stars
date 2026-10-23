@@ -10,6 +10,7 @@
 import * as THREE from 'three';
 import { logMinClearance } from './fallen-log-system.js';
 import { SHARDS } from '../config.js';
+import { t } from '../i18n.js';
 import {
   GLUE_DEFAULTS, clampParam, frameOf, moverPose, inferParams, endsOf, segmentClosest, radiusOfRec,
 } from './glue-math.js';
@@ -56,7 +57,7 @@ export function createGlueTool({ scene, domElement, editMode, logSystem, physics
     return g;
   }
   function disposeMarker(g) { if (g.parent) g.parent.remove(g); g.userData.ring.geometry.dispose(); g.children.forEach((c) => c.geometry && c.geometry.dispose()); }
-  function syncMarkers(t) {
+  function syncMarkers(time) {
     const joints = shardSystem.joints();
     const key = joints.map((j) => j.a + '|' + j.b).join(',');
     if (key !== markersKey) {
@@ -70,7 +71,7 @@ export function createGlueTool({ scene, domElement, editMode, logSystem, physics
       g.visible = show;
       const sel = selected && ((selected.a + '|' + selected.b) === k);
       g.userData.ring.material = sel ? ringMatSel : ringMatBase;
-      const pulse = sel ? 1 + Math.sin(t * 6) * 0.08 : 1;
+      const pulse = sel ? 1 + Math.sin(time * 6) * 0.08 : 1;
       g.userData.ring.scale.setScalar(pulse);
     }
   }
@@ -128,8 +129,8 @@ export function createGlueTool({ scene, domElement, editMode, logSystem, physics
   function pickTarget(log, point) {
     const s = session; if (!s) return false;
     if (!log || log.collected || !log.physics) return false;
-    if (log.physics.physicsState !== 'static') { message = '動いている丸太です。止まってから選んでください'; changed(); return false; }
-    if (!log.starShard) { message = '相手の丸太にも、星のかけらが要ります(2本とも)'; changed(); return false; }
+    if (log.physics.physicsState !== 'static') { message = t('glue.msg.moving'); changed(); return false; }
+    if (!log.starShard) { message = t('glue.msg.noStarTarget'); changed(); return false; }
     const T = endsOf(log.physics);
     const L = log.physics.length;
     const tb = Math.max(0, Math.min(1, ((point.x - T.a.x) * T.u.x + (point.y - T.a.y) * T.u.y + (point.z - T.a.z) * T.u.z) / L));
@@ -152,7 +153,7 @@ export function createGlueTool({ scene, domElement, editMode, logSystem, physics
     editMode.syncPoseFromHeld();
     let minC = Infinity;
     for (const m of membersOf(s.mover)) { const r = m.physics; minC = Math.min(minC, logMinClearance(r.position, r.quaternion, m.length, m.radius, groundAt)); }
-    s.warning = minC < -cfg.glueGroundSlack ? '地面にめり込んでいます。角度か位置を変えてください' : '';
+    s.warning = minC < -cfg.glueGroundSlack ? t('glue.warn.ground') : '';
     pivot.position.copy(fr.P); pivot.visible = true;
   }
 
@@ -185,7 +186,7 @@ export function createGlueTool({ scene, domElement, editMode, logSystem, physics
     editMode.forgetHeld();
     if (!shardSystem.addJoint(mover, target)) { // 通常は起きない。つかみ直して、続けられるようにする
       editMode._internals.grabLog(mover); editMode.setGlueActive(true);
-      message = '接着できませんでした(相手が動いています)';
+      message = t('glue.msg.weldFailed');
       changed();
       return { ok: false, reason: 'weld-failed' };
     }
@@ -220,11 +221,11 @@ export function createGlueTool({ scene, domElement, editMode, logSystem, physics
     const la = logOfId(a), lb = logOfId(b);
     if (!la || !lb) return { ok: false, reason: 'gone' };
     const comps = shardSystem.removeJoint(a, b, { wake: false });
-    if (!comps) { message = '動いている最中は直せません'; changed(); return { ok: false, reason: 'moving' }; }
+    if (!comps) { message = t('glue.msg.cantEditMoving'); changed(); return { ok: false, reason: 'moving' }; }
     const ca = comps.find((c) => c.includes(a)), cb = comps.find((c) => c.includes(b));
     if (ca === cb) { // ほかの接着で輪になっている: 戻す
       shardSystem.addJoint(la, lb, { wake: false });
-      message = 'ほかの接着で輪になっているので、そのままでは直せません。先に、ほかの接着を外してください';
+      message = t('glue.msg.loop');
       changed();
       return { ok: false, reason: 'loop' };
     }
@@ -232,7 +233,7 @@ export function createGlueTool({ scene, domElement, editMode, logSystem, physics
     const mover = moveA ? la : lb, target = moveA ? lb : la;
     if (!editMode._internals.grabLog(mover)) {
       shardSystem.addJoint(la, lb, { wake: false });
-      message = 'つかめませんでした'; changed();
+      message = t('glue.msg.grabFailed'); changed();
       return { ok: false, reason: 'grab-failed' };
     }
     const params = inferParams(target.physics, mover.physics);
@@ -247,7 +248,7 @@ export function createGlueTool({ scene, domElement, editMode, logSystem, physics
   function detachSelected() {
     if (session || !selected) return { ok: false, reason: 'no-selection' };
     const comps = shardSystem.removeJoint(selected.a, selected.b, { wake: true }); // 外した部分は、落ちて止まる(月のかけらがあれば浮く)
-    if (!comps) { message = '動いている最中は外せません'; changed(); return { ok: false, reason: 'moving' }; }
+    if (!comps) { message = t('glue.msg.cantDetachMoving'); changed(); return { ok: false, reason: 'moving' }; }
     dbg('glue.detach', { a: selected.a, b: selected.b });
     selected = null; message = ''; changed();
     return { ok: true };
@@ -257,12 +258,12 @@ export function createGlueTool({ scene, domElement, editMode, logSystem, physics
   // ---- 状態・更新・キー ----
   editMode.setPointerHook(pointerHook);
   editMode.setBeforeDisable(() => { if (session) cancel(); selected = null; });
-  let t = 0;
+  let clock = 0; // (t は、翻訳の関数の名前なので、時間には使わない)
   function update(dt) {
-    t += dt;
+    clock += dt;
     if (session && !editMode.isEnabled()) endSession();
     if (session && session.mover.physics.physicsState !== 'held') endSession(); // 何かで離れた
-    syncMarkers(t);
+    syncMarkers(clock);
     if (selected && !(logOfId(selected.a) && logOfId(selected.b) && shardSystem.joints().some((j) => (j.a === selected.a && j.b === selected.b)))) selected = null;
   }
   function onKey(e) {
@@ -292,7 +293,7 @@ export function createGlueTool({ scene, domElement, editMode, logSystem, physics
       canConfirm: !!(s && s.phase === 'adjust' && !s.warning),
       canBegin: !s && !beginReason && editMode.isEnabled(), beginReason,
       selected: sel,
-      hint: s ? (s.phase === 'pick' ? '相手にする丸太をクリック(星のかけらが付いた丸太)' : '位置と角度を調整して「接着する」') : '',
+      hint: s ? t(s.phase === 'pick' ? 'glue.hint.pick' : 'glue.hint.adjust') : '',
     };
   }
 

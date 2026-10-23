@@ -11,6 +11,7 @@
 // 注意: 作業台・チェストに必要な木材の数は、ユーザー指定がまだ無いため暫定値(TENTATIVE)。
 
 import { isKnownItem } from './items.js';
+import { t } from './i18n.js';
 
 export const LOG_TO_WOOD = 10;        // 倒木(丸太)1個 → 木材10個(ユーザー指定)
 export const STAR_TO_SHARDS = 10;     // 星1個 → 星のかけら10個(ユーザー指定)
@@ -18,12 +19,14 @@ export const MOON_TO_SHARDS = 10;     // 月の石1個 → 月のかけら10個(
 export const TENTATIVE = { craftingTableWood: 4, chestWood: 8 }; // 暫定値
 
 export const RECIPES = [
-  { id: 'moon_to_shards',  name: '月の石を月のかけらにする', station: 'inventory', input: { id: 'moon_stone', count: 1 }, output: { id: 'moon_shard', count: MOON_TO_SHARDS }, tentative: true },
-  { id: 'log_to_wood',      name: '丸太を木材にする',     station: 'inventory', input: { id: 'log', count: 1 },   output: { id: 'wood', count: LOG_TO_WOOD } },
-  { id: 'star_to_shards',   name: '星を星のかけらにする', station: 'inventory', input: { id: 'star', count: 1 },  output: { id: 'star_shard', count: STAR_TO_SHARDS } },
-  { id: 'crafting_table',   name: '作業台を作る',         station: 'inventory', input: { id: 'wood', count: TENTATIVE.craftingTableWood }, output: { id: 'crafting_table', count: 1 }, tentative: true },
-  { id: 'chest',            name: 'チェストを作る',       station: 'inventory', input: { id: 'wood', count: TENTATIVE.chestWood },         output: { id: 'chest', count: 1 }, tentative: true },
+  { id: 'moon_to_shards',  station: 'inventory', input: { id: 'moon_stone', count: 1 }, output: { id: 'moon_shard', count: MOON_TO_SHARDS }, tentative: true },
+  { id: 'log_to_wood',      station: 'inventory', input: { id: 'log', count: 1 },   output: { id: 'wood', count: LOG_TO_WOOD } },
+  { id: 'star_to_shards',   station: 'inventory', input: { id: 'star', count: 1 },  output: { id: 'star_shard', count: STAR_TO_SHARDS } },
+  { id: 'crafting_table',   station: 'inventory', input: { id: 'wood', count: TENTATIVE.craftingTableWood }, output: { id: 'crafting_table', count: 1 }, tentative: true },
+  { id: 'chest',            station: 'inventory', input: { id: 'wood', count: TENTATIVE.chestWood },         output: { id: 'chest', count: 1 }, tentative: true },
 ];
+// v1.72: レシピ名は、言語に合わせて辞書(recipe.<id>)から引く
+for (const r of RECIPES) Object.defineProperty(r, 'name', { get: () => t(`recipe.${r.id}`), enumerable: true, configurable: true });
 
 export function getRecipe(id) { return RECIPES.find((r) => r.id === id) || null; }
 

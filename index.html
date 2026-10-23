@@ -416,75 +416,75 @@
   <!-- v1.46: 編集(観察)モードの案内。Tabで入る/出る。 -->
   <div id="editHint" role="status"></div>
   <!-- v1.69: 編集モードの「かけら」パネル。星→星のかけら、月の石→月のかけらを作り、つかんでいる丸太に貼る。数は、持ち物とチェストの合計。 -->
-  <div id="shardPanel" hidden role="group" aria-label="星と月のかけら">
-    <div class="sp-title">✦ かけら</div>
-    <div class="sp-row"><span>★ 星</span><b id="spStar">0</b><button type="button" id="spCraftStar">かけらにする</button></div>
-    <div class="sp-row"><span>✦ 星のかけら</span><b id="spStarShard">0</b></div>
-    <div class="sp-row"><span>🌙 月の石</span><b id="spMoon">0</b><button type="button" id="spCraftMoon">かけらにする</button></div>
-    <div class="sp-row"><span>☾ 月のかけら</span><b id="spMoonShard">0</b></div>
+  <div id="shardPanel" hidden role="group" aria-label="Star and moon shards" data-i18n-aria-label="sp.aria">
+    <div class="sp-title" data-i18n="sp.title">✦ Shards</div>
+    <div class="sp-row"><span data-i18n="sp.star">★ Star</span><b id="spStar">0</b><button type="button" id="spCraftStar" data-i18n="sp.craft">Make shards</button></div>
+    <div class="sp-row"><span data-i18n="sp.starShard">✦ Star Shard</span><b id="spStarShard">0</b></div>
+    <div class="sp-row"><span data-i18n="sp.moonStone">🌙 Moon Stone</span><b id="spMoon">0</b><button type="button" id="spCraftMoon" data-i18n="sp.craft">Make shards</button></div>
+    <div class="sp-row"><span data-i18n="sp.moonShard">☾ Moon Shard</span><b id="spMoonShard">0</b></div>
     <div class="sp-sep"></div>
-    <button type="button" id="spAttachStar">✦ 星のかけらを貼る <kbd>F</kbd></button>
-    <button type="button" id="spAttachMoon">☾ 月のかけらを貼る <kbd>M</kbd></button>
+    <button type="button" id="spAttachStar"><span data-i18n="sp.attachStar">✦ Attach Star Shard</span> <kbd>F</kbd></button>
+    <button type="button" id="spAttachMoon"><span data-i18n="sp.attachMoon">☾ Attach Moon Shard</span> <kbd>M</kbd></button>
     <div class="sp-row sp-detach">
-      <button type="button" id="spDetachStar" title="つかんでいる丸太から、星のかけらを外して、持ち物へ戻します。その丸太の接着は、すべてほどけます">✦ 外す</button>
-      <button type="button" id="spDetachMoon" title="つかんでいる丸太(や塊)から、月のかけらを外して、持ち物へ戻します。浮いていた物は降ります">☾ 外す</button>
+      <button type="button" id="spDetachStar" title="Removes the Star Shard from the log you’re holding and returns it to your belongings. All glue on that log comes undone." data-i18n-title="sp.detachStar.title" data-i18n="sp.detachStar">✦ Detach</button>
+      <button type="button" id="spDetachMoon" title="Removes the Moon Shard from the log (or group) you’re holding and returns it to your belongings. Anything that was floating comes down." data-i18n-title="sp.detachMoon.title" data-i18n="sp.detachMoon">☾ Detach</button>
     </div>
     <div class="sp-sep"></div>
     <!-- v1.71: 接着モード。位置と角度を決めて接着する(再編集・接着を外すもここ) -->
-    <button type="button" id="spGlueBegin">🔗 接着モード <kbd>C</kbd></button>
+    <button type="button" id="spGlueBegin"><span data-i18n="glue.begin">🔗 Glue Mode</span> <kbd>C</kbd></button>
     <div id="glueBox" hidden>
       <div id="glueHint" class="sp-note"></div>
       <div id="glueCtl">
-        <label class="gl-row"><span>相手の位置</span><input type="range" id="glTb" min="0" max="100" step="1"><b id="glTbV"></b></label>
-        <div class="gl-btns" data-param="tb"><button type="button" data-v="0">根元</button><button type="button" data-v="0.25">¼</button><button type="button" data-v="0.5">中央</button><button type="button" data-v="0.75">¾</button><button type="button" data-v="1">先端</button></div>
-        <label class="gl-row"><span>自分の位置</span><input type="range" id="glTa" min="0" max="100" step="1"><b id="glTaV"></b></label>
-        <div class="gl-btns" data-param="ta"><button type="button" data-v="0">根元</button><button type="button" data-v="0.5">中央</button><button type="button" data-v="1">先端</button></div>
-        <label class="gl-row"><span>交差角</span><input type="range" id="glPsi" min="-180" max="180" step="1"><b id="glPsiV"></b></label>
-        <div class="gl-btns" data-param="psi"><button type="button" data-v="0">平行</button><button type="button" data-v="45">45°</button><button type="button" data-v="90">直角</button></div>
-        <label class="gl-row"><span>起こし角</span><input type="range" id="glTheta" min="-90" max="90" step="1"><b id="glThetaV"></b></label>
-        <div class="gl-btns" data-param="theta"><button type="button" data-v="0">寝かせる</button><button type="button" data-v="45">45°</button><button type="button" data-v="90">立てる</button></div>
-        <label class="gl-row"><span>まわり込み</span><input type="range" id="glRoll" min="-180" max="180" step="1"><b id="glRollV"></b></label>
-        <div class="gl-btns" data-param="roll"><button type="button" data-v="0">上</button><button type="button" data-v="90">横</button><button type="button" data-v="180">下</button><button type="button" data-v="-90">逆の横</button></div>
-        <label class="gl-check"><input type="checkbox" id="glSnap"> 角度を15°きざみにする</label>
+        <label class="gl-row"><span data-i18n="glue.tb">Target position</span><input type="range" id="glTb" min="0" max="100" step="1"><b id="glTbV"></b></label>
+        <div class="gl-btns" data-param="tb"><button type="button" data-v="0" data-i18n="glue.root">Base</button><button type="button" data-v="0.25">¼</button><button type="button" data-v="0.5" data-i18n="glue.mid">Middle</button><button type="button" data-v="0.75">¾</button><button type="button" data-v="1" data-i18n="glue.tip">Tip</button></div>
+        <label class="gl-row"><span data-i18n="glue.ta">My position</span><input type="range" id="glTa" min="0" max="100" step="1"><b id="glTaV"></b></label>
+        <div class="gl-btns" data-param="ta"><button type="button" data-v="0" data-i18n="glue.root">Base</button><button type="button" data-v="0.5" data-i18n="glue.mid">Middle</button><button type="button" data-v="1" data-i18n="glue.tip">Tip</button></div>
+        <label class="gl-row"><span data-i18n="glue.psi">Crossing angle</span><input type="range" id="glPsi" min="-180" max="180" step="1"><b id="glPsiV"></b></label>
+        <div class="gl-btns" data-param="psi"><button type="button" data-v="0" data-i18n="glue.parallel">Parallel</button><button type="button" data-v="45">45°</button><button type="button" data-v="90" data-i18n="glue.right">Right angle</button></div>
+        <label class="gl-row"><span data-i18n="glue.theta">Tilt</span><input type="range" id="glTheta" min="-90" max="90" step="1"><b id="glThetaV"></b></label>
+        <div class="gl-btns" data-param="theta"><button type="button" data-v="0" data-i18n="glue.lay">Lay flat</button><button type="button" data-v="45">45°</button><button type="button" data-v="90" data-i18n="glue.stand">Stand up</button></div>
+        <label class="gl-row"><span data-i18n="glue.roll">Wrap-around</span><input type="range" id="glRoll" min="-180" max="180" step="1"><b id="glRollV"></b></label>
+        <div class="gl-btns" data-param="roll"><button type="button" data-v="0" data-i18n="glue.top">Top</button><button type="button" data-v="90" data-i18n="glue.side">Side</button><button type="button" data-v="180" data-i18n="glue.bottom">Bottom</button><button type="button" data-v="-90" data-i18n="glue.otherSide">Other side</button></div>
+        <label class="gl-check"><input type="checkbox" id="glSnap"> <span data-i18n="glue.snap">Snap angles to 15°</span></label>
       </div>
       <div id="glueWarn" class="sp-note gl-warn"></div>
-      <div class="gl-actions"><button type="button" id="glConfirm">✓ 接着する <kbd>Enter</kbd></button><button type="button" id="glCancel">やめる <kbd>Esc</kbd></button></div>
+      <div class="gl-actions"><button type="button" id="glConfirm"><span data-i18n="glue.confirm">✓ Glue</span> <kbd>Enter</kbd></button><button type="button" id="glCancel"><span data-i18n="glue.cancel">Cancel</span> <kbd>Esc</kbd></button></div>
     </div>
     <div id="jointBox" hidden>
-      <div class="sp-note">🔗 接着点を選んでいます(金色の輪)</div>
-      <div class="gl-actions"><button type="button" id="jtEdit">角度を直す</button><button type="button" id="jtDetach">接着を外す</button><button type="button" id="jtClose">閉じる</button></div>
+      <div class="sp-note" data-i18n="joint.title">🔗 Glue joint selected (golden ring)</div>
+      <div class="gl-actions"><button type="button" id="jtEdit" data-i18n="joint.edit">Adjust angle</button><button type="button" id="jtDetach" data-i18n="joint.detach">Unglue</button><button type="button" id="jtClose" data-i18n="common.close">Close</button></div>
     </div>
     <div id="spNote" class="sp-note"></div>
-    <button type="button" id="spLog" class="sp-log" title="動作確認用。かけら・接着・浮遊・月の石の記録を、JSONファイルで保存します">📋 ログを書き出す</button>
+    <button type="button" id="spLog" class="sp-log" title="For troubleshooting. Saves a record of shards, gluing, floating and moon stones as a JSON file." data-i18n-title="sp.log.title" data-i18n="sp.log">📋 Export log</button>
   </div>
   <!-- v1.58: 編集モード(スマホ)。つかんでいる間だけ出る。移動/回転の切り替えと、丸太を離すボタン -->
-  <div id="editTouchBar" role="toolbar" aria-label="編集の操作">
-    <button type="button" id="editBtnMove">移動</button>
-    <button type="button" id="editBtnRotate">回転</button>
-    <button type="button" id="editBtnRelease">離す</button>
+  <div id="editTouchBar" role="toolbar" aria-label="Edit controls" data-i18n-aria-label="edit.bar.aria">
+    <button type="button" id="editBtnMove" data-i18n="edit.move">Move</button>
+    <button type="button" id="editBtnRotate" data-i18n="edit.rotate">Rotate</button>
+    <button type="button" id="editBtnRelease" data-i18n="edit.release">Release</button>
   </div>
 
-  <div id="inventoryPanel" role="dialog" aria-label="インベントリ">
+  <div id="inventoryPanel" role="dialog" aria-label="Inventory" data-i18n-aria-label="inv.aria">
     <div class="inv-head">
-      <div class="inv-title">👝 インベントリ</div>
-      <button id="invCloseX" class="inv-x" type="button" aria-label="閉じる">✕</button>
+      <div class="inv-title" data-i18n="inv.title">👝 Inventory</div>
+      <button id="invCloseX" class="inv-x" type="button" aria-label="Close" data-i18n-aria-label="common.close">✕</button>
     </div>
     <div class="inv-scroll">
-      <div class="inv-label">装備(頭・胴・手・足)</div>
+      <div class="inv-label" data-i18n="inv.equipment">Equipment (head, body, hands, feet)</div>
       <div id="invEquip" class="inv-equip"></div>
       <div id="invChestWrap" style="display:none">
-        <div class="inv-label">🧰 チェスト(Shift+クリックで、持ち物と移し替え)</div>
+        <div class="inv-label" data-i18n="inv.chest">🧰 Chest (Shift+click to move items to or from your belongings)</div>
         <div id="invChestGrid" class="inv-grid"></div>
       </div>
-      <div class="inv-label">持ち物</div>
+      <div class="inv-label" data-i18n="inv.bag">Belongings</div>
       <div id="invMainGrid" class="inv-grid"></div>
-      <div class="inv-label">ホットバー</div>
+      <div class="inv-label" data-i18n="inv.hotbar">Hotbar</div>
       <div id="invHotbarGrid" class="inv-grid inv-hotbar"></div>
       <div id="invInfo" class="inv-info"></div>
     </div>
     <div class="inv-actions">
-      <button id="invSplitBtn" type="button">半分ずつ</button>
-      <button id="invCloseBtn" type="button">閉じる</button>
+      <button id="invSplitBtn" type="button" data-i18n="inv.split">Split in half</button>
+      <button id="invCloseBtn" type="button" data-i18n="common.close">Close</button>
     </div>
   </div>
   <div id="invCursor"></div>
@@ -498,10 +498,10 @@
       <div id="touchJoystickNub"></div>
     </div>
     <div id="touchButtons">
-      <div id="touchBtnA" class="touch-btn" title="ジャンプ">A</div>
-      <div id="touchBtnE" class="touch-btn" title="インベントリ">👝</div>
-      <div id="touchBtnAction" class="touch-btn" title="アクション">✦</div>
-      <div id="touchBtnView" class="touch-btn" title="視点を切り替える(一人称・三人称)">📷</div>
+      <div id="touchBtnA" class="touch-btn" title="Jump" data-i18n-title="touch.jump">A</div>
+      <div id="touchBtnE" class="touch-btn" title="Inventory" data-i18n-title="touch.inventory">👝</div>
+      <div id="touchBtnAction" class="touch-btn" title="Action" data-i18n-title="touch.action">✦</div>
+      <div id="touchBtnView" class="touch-btn" title="Switch view (first / third person)" data-i18n-title="touch.view">📷</div>
     </div>
   </div>
 
@@ -1132,7 +1132,9 @@
     editBtnMove.addEventListener('click', () => { if (sceneRefForTouch) sceneRefForTouch.setEditGizmoMode('move'); });
     editBtnRotate.addEventListener('click', () => { if (sceneRefForTouch) sceneRefForTouch.setEditGizmoMode('rotate'); });
     editBtnRelease.addEventListener('click', () => { if (sceneRefForTouch) sceneRefForTouch.releaseEditHeld(); });
+    let lastEditSt = null; // 言語を切り替えた時に、同じ状態で案内を作り直す
     function setEditHint(st) {
+      lastEditSt = st;
       const showBar = !!(st && st.editing && st.holding && isCoarsePointer);
       editTouchBar.style.display = showBar ? 'flex' : 'none';
       if (showBar) {
@@ -1141,33 +1143,28 @@
       }
       if (!st || !st.editing) { editHint.style.display = 'none'; return; }
       if (st.glue) { // v1.71: 接着モード中
-        editHint.textContent = isCoarsePointer
-          ? '接着モード: 相手の丸太をタップ → 左のパネルで位置と角度を調整 → 「接着する」'
-          : '接着モード: 相手の丸太をクリック → 左のパネルで位置と角度を調整 → Enterで接着 / Escでやめる';
+        editHint.textContent = tr(isCoarsePointer ? 'hint.glue.touch' : 'hint.glue.pc');
         editHint.style.display = 'block';
         return;
       }
       if (isCoarsePointer) {
         // スマホ向けの案内(キーボード・右クリックの説明は出さない)
         if (st.holding) {
-          editHint.textContent = st.mode === 'rotate'
-            ? '回転: 赤・緑・青の輪をドラッグ / 下のボタンで「移動」に戻る・「離す」で置く'
-            : '移動: 矢印か丸太をドラッグ / 下のボタンで「回転」・「離す」で置く';
+          editHint.textContent = tr(st.mode === 'rotate' ? 'hint.rotate.touch' : 'hint.move.touch');
         } else {
-          editHint.textContent = '編集モード: 倒木をタップでつかむ / 1本指ドラッグ:視点を回す / 2本指:拡大・移動';
+          editHint.textContent = tr('hint.idle.touch');
         }
         editHint.style.display = 'block';
         return;
       }
       if (st.holding) {
-        editHint.textContent = st.mode === 'rotate'
-          ? '回転: 赤・緑・青の輪をドラッグ(Shiftで15度刻み) / G:移動に戻る / 何もない所をクリックかSpaceで離す'
-          : '移動: 赤(X)・緑(高さ)・青(Z)の矢印をドラッグ / 丸太をドラッグで水平移動 / R:回転 / 何もない所をクリックかSpaceで離す';
+        editHint.textContent = tr(st.mode === 'rotate' ? 'hint.rotate.pc' : 'hint.move.pc');
       } else {
-        editHint.textContent = '編集モード: 倒木をクリックでつかむ / 金色の輪(接着点)をクリックで接着を直す・外す / 右ドラッグ:視点を回す / 中ドラッグかWASD:移動 / Tab:戻る';
+        editHint.textContent = tr('hint.idle.pc');
       }
       editHint.style.display = 'block';
     }
+    live.push(() => { if (lastEditSt && editHint.style.display !== 'none') setEditHint(lastEditSt); });
     function toggleEditMode() {
       if (!sceneRefForTouch) return false;
       const on = sceneRefForTouch.toggleEditMode();
@@ -1461,12 +1458,20 @@
     for (let i = 0; i < MAIN_SLOTS; i++) makeInvSlot('main', i, invMainGrid);
     for (let i = 0; i < HOTBAR_SLOTS; i++) makeInvSlot('hotbar', i, invHotbarGrid);
     for (let i = 0; i < 27; i++) makeInvSlot('chest', i, invChestGrid);
+    const equipLabEls = [];
     for (const sl of EQUIP_SLOTS) { // 装備スロット(頭・胴・手・足)
       const cell = document.createElement('div'); cell.className = 'inv-equip-cell';
       makeInvSlot(EQUIP_AREA(sl), 0, cell);
       const lab = document.createElement('div'); lab.textContent = EQUIP_LABEL[sl]; cell.appendChild(lab);
+      equipLabEls.push([sl, lab]);
       invEquipEl.appendChild(cell);
     }
+    // 言語を切り替えたら、装備の部位名・開いているインベントリ・ホットバーのアイテム名(ツールチップ)を、作り直す
+    live.push(() => {
+      for (const [sl, lab] of equipLabEls) lab.textContent = EQUIP_LABEL[sl];
+      if (isInventoryOpen()) renderInventory();
+      renderHotbar();
+    });
 
     /** スロット1つ分の表示(アイコン・個数・ツールチップ)。ホットバーのHUDと共通。 */
     function fillSlotEl(el, stack) {
@@ -1956,7 +1961,7 @@
             const gl = st.glue || { active: false };
             sp('spGlueBegin').hidden = gl.active || !!gl.selected;
             sp('spGlueBegin').disabled = !gl.canBegin;
-            sp('spGlueBegin').title = gl.beginReason === 'no-star' ? '星のかけらを貼った丸太をつかんでください' : (gl.beginReason === 'not-held' ? '接着する丸太をつかんでください' : '');
+            sp('spGlueBegin').title = gl.beginReason === 'no-star' ? tr('glue.beginReason.noStar') : (gl.beginReason === 'not-held' ? tr('glue.beginReason.notHeld') : '');
             sp('glueBox').hidden = !gl.active;
             sp('jointBox').hidden = !gl.selected || gl.active;
             if (gl.active) {
@@ -1973,12 +1978,12 @@
             } else if (gl.message) { sp('spNote').textContent = gl.message; }
             let note;
             if (gl.active) note = null;
-            else if (!st.held) note = '丸太をつかむと、かけらを貼れます。星のかけらを貼った丸太は、「接着モード」で、位置と角度を決めて、ほかの丸太に接着できます。接着した所の金色の輪をクリックすると、角度を直したり、外したりできます。';
+            else if (!st.held) note = tr('sp.note.idle');
             else {
               const parts = [];
-              parts.push(st.heldHasStar ? 'この丸太には星のかけらが付いています(1本に1つ)。' : '星のかけらを貼ると、この丸太が「くっつける力」を持ちます。');
-              if (st.heldGroupSize > 1) parts.push(`くっついた塊: ${st.heldGroupSize}本。`);
-              if (st.structureHasMoon) parts.push('この塊には月のかけらが付いています(1つだけ)。');
+              parts.push(tr(st.heldHasStar ? 'sp.note.hasStar' : 'sp.note.noStar'));
+              if (st.heldGroupSize > 1) parts.push(tr('sp.note.group', { n: st.heldGroupSize }));
+              if (st.structureHasMoon) parts.push(tr('sp.note.moon'));
               note = parts.join(' ');
             }
             if (note !== null) sp('spNote').textContent = note; else if (!gl.message) sp('spNote').textContent = '';
@@ -2155,7 +2160,7 @@
         }
         applyAdminGate(document, ADMIN); // 公開版: 管理者でなければ、デバッグ用の表示をDOMから取り除く(初期化が終わったあとに)
       } catch (err) {
-        showError('エラー: ', err);
+        showError(tr('err.prefix'), err);
       }
     }
 

@@ -7,6 +7,8 @@
 //   create … ワールドの名前を入れる → 「生成して見る」(地形が自動で作られ、ページが読み込み直される。気に入らなければ作り直せる)
 // 実際の遷移(ワールドを開く/プレビューを始める)は、呼び出し側(index.html)が onEnterWorld / onCreatePreview で行う。
 
+import { t, localeTag, onLangChange } from '../i18n.js';
+
 export function createWorldUi({ store, doc = document, onEnterWorld, onCreatePreview, onClose = () => {}, hasCurrentWorld = () => false }) {
   const state = { screen: 'users', userId: null, message: '', messageKind: 'info' };
   let root = null, card = null, open = false;
@@ -23,7 +25,7 @@ export function createWorldUi({ store, doc = document, onEnterWorld, onCreatePre
     return n;
   };
   const btn = (text, onclick, cls = '', extra = {}) => el('button', { type: 'button', class: `world-btn ${cls}`.trim(), text, onclick, ...extra });
-  const fmt = (t) => { try { return new Date(t).toLocaleDateString('ja-JP'); } catch (e) { return ''; } };
+  const fmt = (ms) => { try { return new Date(ms).toLocaleDateString(localeTag()); } catch (e) { return ''; } };
   const say = (text, kind = 'info') => { state.message = text; state.messageKind = kind; };
   const msgNode = () => (state.message ? el('div', { class: `world-msg ${state.messageKind}`, role: 'status', text: state.message }) : null);
   const go = (screen, extra = {}) => { Object.assign(state, { screen }, extra); render(); };
@@ -39,7 +41,7 @@ export function createWorldUi({ store, doc = document, onEnterWorld, onCreatePre
   // ---- ユーザーの画面 ----
   function renderUsers() {
     const users = store.listUsers();
-    const input = el('input', { type: 'text', maxlength: '20', placeholder: 'ユーザー名(20文字まで)', 'aria-label': 'ユーザー名', autocomplete: 'off' });
+    const input = el('input', { type: 'text', maxlength: '20', placeholder: t('wu.userPlaceholder'), 'aria-label': t('tf.userName'), autocomplete: 'off' });
     const make = () => {
       const r = store.createUser(input.value);
       if (!r.ok) { say(r.error, 'error'); render(); return; }
@@ -47,21 +49,21 @@ export function createWorldUi({ store, doc = document, onEnterWorld, onCreatePre
     };
     input.addEventListener('keydown', (e) => { if (e.key === 'Enter') make(); });
     card.append(
-      el('h2', { id: 'worldTitle', text: users.length ? 'ユーザーを選んでください' : 'はじめに、ユーザーを作ります' }),
-      el('p', { class: 'world-note', text: 'ユーザーごとに、ワールドを保存できます。ユーザーは何人でも(10人まで)登録できます。' }),
+      el('h2', { id: 'worldTitle', text: users.length ? t('tf.pickUser') : t('wu.firstUser') }),
+      el('p', { class: 'world-note', text: t('wu.userNote') }),
     );
     if (users.length) {
       card.appendChild(el('ul', { class: 'world-list' }, users.map((u) => el('li', {}, [
-        btn(`${u.name}`, () => go('worlds', { userId: u.id }), 'primary', { 'aria-label': `${u.name}を選ぶ` }),
-        el('span', { class: 'world-meta', text: `ワールド ${u.worldCount} 個` }),
-        btn('削除', () => {
-          if (!confirm(`ユーザー「${u.name}」と、そのワールドをすべて削除します。元に戻せません。よろしいですか?`)) return;
-          const r = store.deleteUser(u.id); say(r.ok ? `「${u.name}」を削除しました。` : r.error, r.ok ? 'info' : 'error'); render();
-        }, 'danger small', { 'aria-label': `${u.name}を削除` }),
+        btn(`${u.name}`, () => go('worlds', { userId: u.id }), 'primary', { 'aria-label': t('wu.selectAria', { name: u.name }) }),
+        el('span', { class: 'world-meta', text: t('tf.worldCount', { n: u.worldCount }) }),
+        btn(t('wu.delete'), () => {
+          if (!confirm(t('wu.confirmDeleteUser', { name: u.name }))) return;
+          const r = store.deleteUser(u.id); say(r.ok ? t('wu.deleted', { name: u.name }) : r.error, r.ok ? 'info' : 'error'); render();
+        }, 'danger small', { 'aria-label': t('wu.deleteAria', { name: u.name }) }),
       ]))));
     }
-    card.append(el('div', { class: 'world-row' }, [input, btn('ユーザーを作る', make, 'primary')]));
-    if (hasCurrentWorld()) card.appendChild(btn('閉じる', close, 'plain'));
+    card.append(el('div', { class: 'world-row' }, [input, btn(t('wu.makeUser'), make, 'primary')]));
+    if (hasCurrentWorld()) card.appendChild(btn(t('common.close'), close, 'plain'));
   }
 
   // ---- ワールドの画面 ----
@@ -73,45 +75,45 @@ export function createWorldUi({ store, doc = document, onEnterWorld, onCreatePre
     importInput.addEventListener('change', async () => {
       const f = importInput.files && importInput.files[0]; if (!f) return;
       const r = store.importWorld(user.id, await f.text());
-      say(r.ok ? `「${r.world.name}」を読み込みました。` : r.error, r.ok ? 'info' : 'error'); render();
+      say(r.ok ? t('wu.imported', { name: r.world.name }) : r.error, r.ok ? 'info' : 'error'); render();
     });
     card.append(
-      el('h2', { id: 'worldTitle', text: `${user.name} さんのワールド` }),
-      el('p', { class: 'world-note', text: worlds.length ? 'ワールドを選んで、続きから始められます。' : 'まだワールドがありません。新しく作りましょう。' }),
+      el('h2', { id: 'worldTitle', text: t('tf.worldsOf', { name: user.name }) }),
+      el('p', { class: 'world-note', text: worlds.length ? t('wu.pickWorld') : t('wu.noWorlds') }),
     );
     if (worlds.length) {
       card.appendChild(el('ul', { class: 'world-list' }, worlds.map((w) => el('li', {}, [
-        el('div', { class: 'world-name' }, [el('strong', { text: w.name }), el('span', { class: 'world-meta', text: `作成 ${fmt(w.createdAt)} ・ 最終 ${fmt(w.lastPlayedAt)}` })]),
+        el('div', { class: 'world-name' }, [el('strong', { text: w.name }), el('span', { class: 'world-meta', text: t('wu.dates', { created: fmt(w.createdAt), last: fmt(w.lastPlayedAt) }) })]),
         el('div', { class: 'world-actions' }, [
-          btn('はじめる', () => onEnterWorld(user.id, w.id), 'primary small', { 'aria-label': `${w.name}をはじめる` }),
-          btn('名前', () => {
-            const n = prompt('新しい名前', w.name); if (n == null) return;
-            const r = store.renameWorld(user.id, w.id, n); say(r.ok ? '名前を変えました。' : r.error, r.ok ? 'info' : 'error'); render();
-          }, 'small', { 'aria-label': `${w.name}の名前を変える` }),
-          btn('書き出し', () => {
+          btn(t('title.start'), () => onEnterWorld(user.id, w.id), 'primary small', { 'aria-label': t('wu.startAria', { name: w.name }) }),
+          btn(t('wu.rename'), () => {
+            const n = prompt(t('wu.renamePrompt'), w.name); if (n == null) return;
+            const r = store.renameWorld(user.id, w.id, n); say(r.ok ? t('wu.renamed') : r.error, r.ok ? 'info' : 'error'); render();
+          }, 'small', { 'aria-label': t('wu.renameAria', { name: w.name }) }),
+          btn(t('wu.export'), () => {
             const r = store.exportWorld(user.id, w.id); if (!r.ok) { say(r.error, 'error'); render(); return; }
             const a = el('a', { href: URL.createObjectURL(new Blob([r.text], { type: 'application/json' })), download: r.filename });
             doc.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
-          }, 'small', { 'aria-label': `${w.name}をファイルに書き出す` }),
-          btn('削除', () => {
-            if (!confirm(`ワールド「${w.name}」を削除します。元に戻せません。よろしいですか?`)) return;
-            const r = store.deleteWorld(user.id, w.id); say(r.ok ? `「${w.name}」を削除しました。` : r.error, r.ok ? 'info' : 'error'); render();
-          }, 'danger small', { 'aria-label': `${w.name}を削除` }),
+          }, 'small', { 'aria-label': t('wu.exportAria', { name: w.name }) }),
+          btn(t('wu.delete'), () => {
+            if (!confirm(t('wu.confirmDeleteWorld', { name: w.name }))) return;
+            const r = store.deleteWorld(user.id, w.id); say(r.ok ? t('wu.deleted', { name: w.name }) : r.error, r.ok ? 'info' : 'error'); render();
+          }, 'danger small', { 'aria-label': t('wu.deleteAria', { name: w.name }) }),
         ]),
       ]))));
     }
     card.append(
       el('div', { class: 'world-row' }, [
-        btn('＋ 新しいワールドを作る', () => { say('', 'info'); go('create'); }, 'primary'),
-        btn('📂 ファイルから読み込む', () => importInput.click(), ''), importInput,
+        btn(t('wu.newWorldBtn'), () => { say('', 'info'); go('create'); }, 'primary'),
+        btn(t('wu.importBtn'), () => importInput.click(), ''), importInput,
       ]),
       el('div', { class: 'world-row' }, [
-        btn('ユーザーを変える', () => go('users', { userId: null }), 'plain'),
-        btn('このユーザーを削除', () => {
-          if (!confirm(`ユーザー「${user.name}」と、そのワールドをすべて削除します。元に戻せません。よろしいですか?`)) return;
-          const r = store.deleteUser(user.id); say(r.ok ? `「${user.name}」を削除しました。` : r.error, r.ok ? 'info' : 'error'); go('users', { userId: null });
+        btn(t('wu.switchUser'), () => go('users', { userId: null }), 'plain'),
+        btn(t('wu.deleteThisUser'), () => {
+          if (!confirm(t('wu.confirmDeleteUser', { name: user.name }))) return;
+          const r = store.deleteUser(user.id); say(r.ok ? t('wu.deleted', { name: user.name }) : r.error, r.ok ? 'info' : 'error'); go('users', { userId: null });
         }, 'danger plain'),
-        hasCurrentWorld() ? btn('閉じる', close, 'plain') : null,
+        hasCurrentWorld() ? btn(t('common.close'), close, 'plain') : null,
       ]),
     );
   }
@@ -119,7 +121,7 @@ export function createWorldUi({ store, doc = document, onEnterWorld, onCreatePre
   // ---- ワールドを作る画面 ----
   function renderCreate() {
     const user = store.listUsers().find((u) => u.id === state.userId); if (!user) { go('users'); return; }
-    const input = el('input', { type: 'text', maxlength: '20', placeholder: '例: 大きな丘の草原', 'aria-label': 'ワールド名', autocomplete: 'off' });
+    const input = el('input', { type: 'text', maxlength: '20', placeholder: t('wu.worldPlaceholder'), 'aria-label': t('tf.worldName'), autocomplete: 'off' });
     const make = () => {
       const r = store.createWorld(user.id, input.value);
       if (!r.ok) { say(r.error, 'error'); render(); return; }
@@ -127,10 +129,10 @@ export function createWorldUi({ store, doc = document, onEnterWorld, onCreatePre
     };
     input.addEventListener('keydown', (e) => { if (e.key === 'Enter') make(); });
     card.append(
-      el('h2', { id: 'worldTitle', text: '新しいワールド' }),
-      el('p', { class: 'world-note', text: 'ワールドの名前を入れて「生成して見る」を押すと、地形(起伏と川)が自動で作られます。気に入らなければ、何度でも作り直せます(作り直した古い地形は残りません)。' }),
-      el('div', { class: 'world-row' }, [input, btn('生成して見る', make, 'primary')]),
-      btn('戻る', () => { say('', 'info'); go('worlds'); }, 'plain'),
+      el('h2', { id: 'worldTitle', text: t('wu.newWorldTitle') }),
+      el('p', { class: 'world-note', text: t('wu.createNote') }),
+      el('div', { class: 'world-row' }, [input, btn(t('wu.generate'), make, 'primary')]),
+      btn(t('wu.back'), () => { say('', 'info'); go('worlds'); }, 'plain'),
     );
     setTimeout(() => input.focus(), 0);
   }
@@ -156,5 +158,6 @@ export function createWorldUi({ store, doc = document, onEnterWorld, onCreatePre
     render();
   }
   function close() { if (!root) return; open = false; root.classList.remove('open'); onClose(); }
+  onLangChange(() => { if (open && root) render(); }); // 言語を切り替えたら、開いている画面を作り直す
   return { open: openUi, close, isOpen: () => open, _state: state };
 }

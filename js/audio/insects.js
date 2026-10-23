@@ -26,7 +26,6 @@
 
   const SPECIES = {
     cricket: {
-      label: 'コオロギ',
       seasons: ['summer', 'autumn'],
       times: ['evening', 'night'], // コオロギは夕方〜夜に鳴く
       play(ctx, output, density) {
@@ -68,7 +67,6 @@
     },
 
     katydid: {
-      label: 'キリギリス',
       seasons: ['summer'],
       times: ['day', 'evening'], // キリギリスは日中〜夕方に鳴くことが多い
       play(ctx, output, density) {
@@ -135,7 +133,6 @@
     },
 
     cicada: {
-      label: 'セミ',
       seasons: ['summer'],
       times: ['morning', 'day'], // セミは日中(種によっては早朝)に鳴く
       play(ctx, output, density) {
@@ -225,7 +222,6 @@
     },
 
     suzumushi: {
-      label: 'スズムシ',
       seasons: ['autumn'],
       times: ['evening', 'night'], // スズムシは夜(鈴虫)の代表格
       play(ctx, output, density) {
@@ -272,7 +268,6 @@
     },
 
     matsumushi: {
-      label: 'マツムシ',
       seasons: ['autumn'],
       times: ['evening', 'night'], // マツムシもスズムシ同様、夜の代表格
       play(ctx, output, density) {
@@ -305,6 +300,8 @@
       },
     },
   };
+  // v1.72: 種の名前は、言語に合わせて辞書(species.<key>)から引く(このファイルは module ではないので、i18n.js が window.snowmanT に置いた翻訳の関数を使う)
+  for (const [key, def] of Object.entries(SPECIES)) Object.defineProperty(def, 'label', { get: () => (window.snowmanT || ((k) => k))(`species.${key}`), enumerable: true, configurable: true });
 
   // 2026-09: 虫の音量が全体的に大きいという指摘を受けて引き下げ。
   // (以前は0.75倍。setDensity()側にはこの係数が抜けていたため、

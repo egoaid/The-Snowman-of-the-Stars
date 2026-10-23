@@ -7,36 +7,44 @@
 // hand: そのアイテムを手に持つ時の手。'right' は「ホットバーで選んだ物」の手、
 // 'left' は松明専用(左手は常に松明。カメラの視点によって手の割り当ては変えない)。
 
+import { t } from './i18n.js';
+
 export const ITEM_DEFS = {
   // 星: 流れ星が落ちたら拾える大きな星。木のてっぺんに飾ると、その木のどこにでもおもちゃを貼り付けられる。
-  star:    { id: 'star',    name: '星',     icon: '★',  maxStack: 64, category: 'collectible', hand: 'right', description: '流れ星が落とした、大きな星。木のてっぺんに飾る。' },
+  star:    { id: 'star',    icon: '★',  maxStack: 64, category: 'collectible', hand: 'right' },
   // 星のかけら: 星から作る(星1個 → 10個)。星より小さい。物と物を貼り付ける力があり、
   // おもちゃを木に飾る・木でおもちゃを作る・川に橋をかける時に使う。
-  star_shard: { id: 'star_shard', name: '星のかけら', icon: '✦', maxStack: 64, category: 'material', hand: 'right', description: '星から作った小さなかけら。物と物をくっつける力がある。' },
+  star_shard: { id: 'star_shard', icon: '✦', maxStack: 64, category: 'material', hand: 'right' },
   // v1.69: 月の石 / 月のかけら。月の石は、星のように時々空から降ってくる三日月の形の光る石で、地面に埋まっていることもある。
   //   (月面のクレーターができる時に生まれ、隕石として地球に落ちた物。今も降ってくるのは、この世界の謎の1つ。)
   //   星が「重力を与える」のに対し、月の石は「反重力」を持つ。月のかけらを丸太の組んだ物に貼ると、その物が少し宙に浮く。
-  moon_stone: { id: 'moon_stone', name: '月の石', icon: '🌙', maxStack: 64, category: 'collectible', hand: 'right', description: '三日月の形に光る石。反重力の力を持つ。' },
-  moon_shard: { id: 'moon_shard', name: '月のかけら', icon: '☾', maxStack: 64, category: 'material', hand: 'right', description: '月の石から作った小さなかけら。貼った物を、少し宙に浮かせる。' },
-  torch:   { id: 'torch',   name: '松明',   icon: '🔥', maxStack: 64, category: 'utility',     hand: 'left',  description: '夜道をほのかに照らす。' },
-  log:     { id: 'log',     name: '丸太',   icon: '🪵', maxStack: 64, category: 'resource',    hand: 'right', description: '倒木から拾った丸太。木材10個に分けられる。' },
-  wood:    { id: 'wood',    name: '木材',   icon: '🟫', maxStack: 64, category: 'resource',    hand: 'right', description: '丸太から取れる、使いやすい木材。' },
-  stone:   { id: 'stone',   name: '石',     icon: '🪨', maxStack: 64, category: 'resource',    hand: 'right', description: 'ごつごつした、ふつうの石。' },
-  coal:    { id: 'coal',    name: '石炭',   icon: '⚫', maxStack: 64, category: 'resource',    hand: 'right', description: '黒く光る、よく燃える石。' },
-  iron:    { id: 'iron',    name: '鉄',     icon: '⛓️', maxStack: 64, category: 'resource',    hand: 'right', description: '重くて、少し青みがかった鉄。' },
-  diamond: { id: 'diamond', name: 'ダイヤ', icon: '💎', maxStack: 64, category: 'resource',    hand: 'right', description: '岩の奥で眠っていた、透きとおった石。' },
+  moon_stone: { id: 'moon_stone', icon: '🌙', maxStack: 64, category: 'collectible', hand: 'right' },
+  moon_shard: { id: 'moon_shard', icon: '☾', maxStack: 64, category: 'material', hand: 'right' },
+  torch:   { id: 'torch',   icon: '🔥', maxStack: 64, category: 'utility',     hand: 'left' },
+  log:     { id: 'log',     icon: '🪵', maxStack: 64, category: 'resource',    hand: 'right' },
+  wood:    { id: 'wood',    icon: '🟫', maxStack: 64, category: 'resource',    hand: 'right' },
+  stone:   { id: 'stone',   icon: '🪨', maxStack: 64, category: 'resource',    hand: 'right' },
+  coal:    { id: 'coal',    icon: '⚫', maxStack: 64, category: 'resource',    hand: 'right' },
+  iron:    { id: 'iron',    icon: '⛓️', maxStack: 64, category: 'resource',    hand: 'right' },
+  diamond: { id: 'diamond', icon: '💎', maxStack: 64, category: 'resource',    hand: 'right' },
   // 置いて使う道具(まだ置く機能は無い。アイテムとしてだけ先に定義する)
-  crafting_table: { id: 'crafting_table', name: '作業台', icon: '🛠️', maxStack: 16, category: 'placeable', hand: 'right', description: '木材から作る作業台。おもちゃなど、手では作れないものを作る。' },
+  crafting_table: { id: 'crafting_table', icon: '🛠️', maxStack: 16, category: 'placeable', hand: 'right' },
   // v1.56: ハロウィンのジャック・オー・ランタン。手に持てて、置くと光り、頭の装備スロットに入れると雪だるまの頭になる。
-  jack_o_lantern:  { id: 'jack_o_lantern',  name: 'ジャック・オー・ランタン', icon: '🎃', maxStack: 16, category: 'wearable', equip: 'head', hand: 'right', description: '中で火が灯っているように光る、かぼちゃ。頭にかぶることも、地面に置くこともできる。' },
+  jack_o_lantern:  { id: 'jack_o_lantern',  icon: '🎃', maxStack: 16, category: 'wearable', equip: 'head', hand: 'right' },
   // v1.55 E5: 人の痕跡(説明はしない。拾えるが、何なのかは語らない)
-  cassette_tape:   { id: 'cassette_tape',   name: 'カセットテープ', icon: '📼', maxStack: 16, category: 'material', hand: 'right', description: '色あせたテープ。何が録音されているのかは、分からない。' },
-  empty_can:       { id: 'empty_can',       name: '空き缶',         icon: '🥫', maxStack: 32, category: 'material', hand: 'right', description: '錆びた空き缶。加工の材料になりそうだ。' },
-  colored_pencils: { id: 'colored_pencils', name: '色鉛筆',         icon: '✏️', maxStack: 16, category: 'material', hand: 'right', description: '短くなった色鉛筆の束。' },
-  small_toy:       { id: 'small_toy',       name: '小さなおもちゃ', icon: '🧸', maxStack: 16, category: 'material', hand: 'right', description: '誰かの、小さなおもちゃ。' },
-  twig:    { id: 'twig',    name: '小枝',   icon: '🌿', maxStack: 64, category: 'material', hand: 'right', description: '森の地面に落ちていた、細い枝。' },
-  chest:   { id: 'chest',   name: 'チェスト', icon: '🧰', maxStack: 16, category: 'placeable', hand: 'right', description: '木材から作る箱。拾い集めた物をしまっておける。' },
+  cassette_tape:   { id: 'cassette_tape',   icon: '📼', maxStack: 16, category: 'material', hand: 'right' },
+  empty_can:       { id: 'empty_can',       icon: '🥫', maxStack: 32, category: 'material', hand: 'right' },
+  colored_pencils: { id: 'colored_pencils', icon: '✏️', maxStack: 16, category: 'material', hand: 'right' },
+  small_toy:       { id: 'small_toy',       icon: '🧸', maxStack: 16, category: 'material', hand: 'right' },
+  twig:    { id: 'twig',    icon: '🌿', maxStack: 64, category: 'material', hand: 'right' },
+  chest:   { id: 'chest',   icon: '🧰', maxStack: 16, category: 'placeable', hand: 'right' },
 };
+
+// v1.72: 名前と説明は、言語に合わせて、読むたびに辞書(i18n/ja.js・en.js の item.<id>.name / .desc)から引く。
+for (const id of Object.keys(ITEM_DEFS)) {
+  Object.defineProperty(ITEM_DEFS[id], 'name', { get: () => t(`item.${id}.name`), enumerable: true, configurable: true });
+  Object.defineProperty(ITEM_DEFS[id], 'description', { get: () => t(`item.${id}.desc`), enumerable: true, configurable: true });
+}
 
 /** 丸太1個から取れる木材の数。レシピの定義は recipes.js(互換のためここからも参照できる)。 */
 export { LOG_TO_WOOD } from './recipes.js';

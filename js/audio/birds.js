@@ -48,7 +48,6 @@
 
   const SPECIES = {
     sparrow: {
-      label: 'スズメ',
       seasons: ['spring', 'summer', 'autumn', 'winter'],
       times: ['morning', 'day'], // スズメは日中(特に朝)に活発
       play(ctx, output) {
@@ -85,7 +84,6 @@
     },
 
     uguisu: {
-      label: 'ウグイス',
       seasons: ['spring'],
       times: ['morning', 'day'], // ウグイスは主に日中(早朝によく鳴く)
       play(ctx, output) {
@@ -116,7 +114,6 @@
     },
 
     swallow: {
-      label: 'ツバメ',
       seasons: ['spring', 'summer'],
       times: ['morning', 'day'], // ツバメは昼行性
       play(ctx, output) {
@@ -148,7 +145,6 @@
     },
 
     shrike: {
-      label: 'モズ',
       seasons: ['autumn'],
       times: ['day', 'evening'], // モズは日中〜夕方によく鳴く
       play(ctx, output) {
@@ -171,7 +167,6 @@
     },
 
     owl: {
-      label: 'フクロウ',
       seasons: ['winter', 'autumn'],
       times: ['night'], // フクロウは夜行性(夜にだけ鳴く)
       play(ctx, output) {
@@ -194,7 +189,6 @@
     },
 
     tit: {
-      label: 'シジュウカラ',
       seasons: ['winter', 'spring'],
       times: ['morning', 'day'], // シジュウカラは昼行性
       play(ctx, output) {
@@ -221,6 +215,8 @@
       },
     },
   };
+  // v1.72: 種の名前は、言語に合わせて辞書(species.<key>)から引く(このファイルは module ではないので、i18n.js が window.snowmanT に置いた翻訳の関数を使う)
+  for (const [key, def] of Object.entries(SPECIES)) Object.defineProperty(def, 'label', { get: () => (window.snowmanT || ((k) => k))(`species.${key}`), enumerable: true, configurable: true });
 
   // 2026-09: 鳥の音量が全体的に大きいという指摘を受けて引き下げ。
   // (以前は0.75倍。setDensity()側にはこの係数が抜けていたため、

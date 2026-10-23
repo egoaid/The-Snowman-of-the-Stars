@@ -4,10 +4,13 @@
 // 持ち物と同じクリック・ドラッグ・Shift転送で出し入れできる。どの物がどの部位か、は items.js の `equip` で決まる
 // (今は、頭: ジャック・オー・ランタンだけ。胴・手・足は空きスロット)。
 import { getItemDef } from './items.js';
+import { t } from './i18n.js';
 
 export const EQUIP_SLOTS = ['head', 'body', 'hands', 'feet'];
 export const EQUIP_AREA = (slot) => `equip_${slot}`;
-export const EQUIP_LABEL = { head: '頭', body: '胴', hands: '手', feet: '足' };
+// v1.72: 部位の名前は、言語に合わせて辞書(equip.<slot>)から引く
+export const EQUIP_LABEL = {};
+for (const slot of EQUIP_SLOTS) Object.defineProperty(EQUIP_LABEL, slot, { get: () => t(`equip.${slot}`), enumerable: true });
 
 export function createEquipment() {
   const arrs = {};

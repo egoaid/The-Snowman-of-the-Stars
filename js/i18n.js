@@ -18,6 +18,9 @@ let lang = DEFAULT_LANG;
 try { const v = localStorage.getItem(LANG_KEY); if (LANGS.includes(v)) lang = v; } catch (e) { /* 使えない環境では英語 */ }
 const listeners = new Set();
 
+// module ではない古いスクリプト(js/audio/*.js)が、翻訳を使えるように、窓口を1つ置く
+if (typeof window !== 'undefined') window.snowmanT = (key, params) => t(key, params);
+
 export const getLang = () => lang;
 export const localeTag = () => (lang === 'ja' ? 'ja-JP' : 'en-US');
 
