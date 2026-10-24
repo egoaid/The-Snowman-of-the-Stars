@@ -350,4 +350,7 @@ export default {
   "species.cicada": "セミ",
   "species.suzumushi": "スズムシ",
   "species.matsumushi": "マツムシ",
+
+  // ---- 段階4: メタ情報 ----
+  "meta.description": "雪だるまが暮らす3Dの自然を、歩いて、眺めて、物を動かして楽しむ、ブラウザで遊べる箱庭。川・雨・風・虫・鳥・焚き火の環境音はすべてその場で生成。無料・インストール不要・スマホ対応。",
 };

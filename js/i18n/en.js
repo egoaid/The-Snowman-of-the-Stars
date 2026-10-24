@@ -350,4 +350,7 @@ export default {
   "species.cicada": "Cicada",
   "species.suzumushi": "Bell cricket",
   "species.matsumushi": "Pine cricket",
+
+  // ---- 段階4: メタ情報 ----
+  "meta.description": "A calm 3D sandbox you can play in your browser. Walk, watch, or rearrange the natural world where a snowman lives. River, rain, wind, insects, birds and campfire sounds are all synthesized live. Free, no install, mobile-friendly.",
 };

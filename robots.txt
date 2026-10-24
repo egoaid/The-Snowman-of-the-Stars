@@ -1,9 +1,10 @@
-# 星の雪だるま — The Snowman of the Stars
+# The Snowman of the Stars — 星の雪だるま
+# Search engines and AI crawlers (generative AI / AI search) are welcome.
 # 検索エンジンと、AI(生成AI・AI検索)のクローラーを歓迎します。
 User-agent: *
 Allow: /
 
-# AI系のクローラー(明示的に許可)
+# AI crawlers (explicitly allowed) / AI系のクローラー(明示的に許可)
 User-agent: GPTBot
 Allow: /
 

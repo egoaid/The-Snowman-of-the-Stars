@@ -6,44 +6,42 @@
   <title>The Snowman of the Stars — 星の雪だるま</title>
   <!-- v1.72: 言語の設定。日本語を選んでいる時だけ、読み込みが終わるまで起動画面を隠す(英語の文字が一瞬見えないように)。3秒で必ず外す -->
   <script>(function(){try{if(localStorage.getItem('snowman.lang.v1')==='ja'){document.documentElement.lang='ja';document.documentElement.classList.add('i18n-pending');setTimeout(function(){document.documentElement.classList.remove('i18n-pending');},3000);}}catch(e){}})();</script>
-  <meta name="description" content="雪だるまが暮らす3Dの自然を、歩いて、眺めて、物を動かして楽しむ、ブラウザで遊べる箱庭。川・雨・風・虫・鳥・焚き火の環境音はすべてその場で生成。無料・インストール不要・スマホ対応。">
+  <meta name="description" content="A calm 3D sandbox you can play in your browser. Walk, watch, or rearrange the natural world where a snowman lives. River, rain, wind, insects, birds and campfire sounds are all synthesized live. Free, no install, mobile-friendly.">
   <meta name="robots" content="index,follow,max-image-preview:large">
   <meta name="theme-color" content="#0b1a2e">
   <meta name="color-scheme" content="dark">
-  <meta name="application-name" content="星の雪だるま">
+  <meta name="application-name" content="The Snowman of the Stars">
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-title" content="星の雪だるま">
+  <meta name="apple-mobile-web-app-title" content="Snowman Stars">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <link rel="canonical" href="https://egoaid.github.io/The-Snowman-of-the-Stars/">
-  <link rel="alternate" hreflang="ja" href="https://egoaid.github.io/The-Snowman-of-the-Stars/">
-  <link rel="alternate" hreflang="x-default" href="https://egoaid.github.io/The-Snowman-of-the-Stars/">
   <link rel="manifest" href="manifest.json">
   <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
   <link rel="icon" type="image/png" sizes="16x16" href="icons/favicon-16.png">
   <link rel="apple-touch-icon" sizes="180x180" href="icons/apple-touch-icon.png">
   <meta property="og:type" content="website">
-  <meta property="og:site_name" content="星の雪だるま — The Snowman of the Stars">
-  <meta property="og:title" content="星の雪だるま — 環境音が生まれる3D箱庭">
-  <meta property="og:description" content="雪だるまが暮らす3Dの自然を、歩いて、眺めて、物を動かして楽しむ、ブラウザで遊べる箱庭。環境音はすべてその場で生成。無料・インストール不要。">
+  <meta property="og:site_name" content="The Snowman of the Stars — 星の雪だるま">
+  <meta property="og:title" content="The Snowman of the Stars — a 3D sandbox where the ambient sounds are born">
+  <meta property="og:description" content="A calm 3D sandbox you can play in your browser. Walk, watch, or rearrange the natural world where a snowman lives. Every ambient sound is synthesized live. Free, no install.">
   <meta property="og:url" content="https://egoaid.github.io/The-Snowman-of-the-Stars/">
   <meta property="og:image" content="https://egoaid.github.io/The-Snowman-of-the-Stars/icons/og-image.png">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
-  <meta property="og:image:alt" content="星空の下、帽子とマフラーの雪だるまが立つ雪原のイラスト">
-  <meta property="og:locale" content="ja_JP">
-  <meta property="og:locale:alternate" content="en_US">
+  <meta property="og:image:alt" content="Illustration of a snowman in a hat and scarf standing on a snowfield under a starry sky">
+  <meta property="og:locale" content="en_US">
+  <meta property="og:locale:alternate" content="ja_JP">
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="星の雪だるま — The Snowman of the Stars">
+  <meta name="twitter:title" content="The Snowman of the Stars — 星の雪だるま">
   <meta name="twitter:description" content="A calm 3D browser sandbox where a snowman lives in a generated natural world. Walk, watch, and rearrange. Ambient sounds are synthesized live.">
   <meta name="twitter:image" content="https://egoaid.github.io/The-Snowman-of-the-Stars/icons/og-image.png">
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",
     "@type": "WebApplication",
-    "name": "星の雪だるま",
-    "alternateName": "The Snowman of the Stars",
+    "name": "The Snowman of the Stars",
+    "alternateName": "星の雪だるま",
     "url": "https://egoaid.github.io/The-Snowman-of-the-Stars/",
-    "description": "雪だるまが暮らす3Dの自然を、歩いたり、眺めたり、物を動かしたりして楽しむ、ブラウザで遊べる箱庭アプリ。川・雨・風・虫・鳥・焚き火などの環境音はすべてその場で生成され、サンプル音源は使っていない。ユーザーとワールドごとに、この端末のブラウザ内へ保存できる。",
+    "description": "A calm 3D sandbox you can play in your browser: walk, watch, or rearrange the natural world where a snowman lives. River, rain, wind, insect, bird and campfire sounds are all synthesized live (no audio samples). Worlds are saved per user in this device’s browser.",
     "inLanguage": ["ja", "en"],
     "applicationCategory": "MultimediaApplication",
     "operatingSystem": "Any (modern web browser, desktop and mobile)",
@@ -52,7 +50,7 @@
     "offers": { "@type": "Offer", "price": "0", "priceCurrency": "JPY" },
     "image": "https://egoaid.github.io/The-Snowman-of-the-Stars/icons/og-image.png",
     "author": { "@type": "Person", "name": "egoaid" },
-    "featureList": ["歩行・見守り・編集の3つのモード", "昼夜・季節・天候(雨・雷・雪)の変化", "その場で生成される環境音(サンプル音源なし)", "ユーザーとワールドごとの保存(端末内)", "オフライン対応(PWA)"]
+    "featureList": ["Three modes: Walk, Watch and Edit", "Day and night, seasons and weather (rain, thunder, snow)", "Ambient sounds synthesized live (no audio samples)", "Saves per user and world, on this device", "Works offline (PWA)", "English and Japanese (日本語)"]
   }
   </script>
   <link rel="stylesheet" href="css/layout.css">
@@ -60,9 +58,9 @@
 <body>
   <noscript>
     <main style="max-width:640px;margin:40px auto;padding:0 16px;color:#eaf3ff;font-family:system-ui,sans-serif;line-height:1.7">
-      <h1>星の雪だるま — The Snowman of the Stars</h1>
-      <p>雪だるまが暮らす3Dの自然を、歩いたり、眺めたり、物を動かしたりして楽しむ、ブラウザで遊べる箱庭アプリです。川・雨・風・虫・鳥・焚き火などの環境音は、すべてその場で生成されます。このアプリの利用にはJavaScriptが必要です。ブラウザの設定でJavaScriptを有効にしてください。</p>
-      <p>A calm 3D browser sandbox where a snowman lives in a generated natural world. Walk around, watch, and rearrange things. All ambient sounds (river, rain, wind, insects, birds, campfire) are synthesized live. JavaScript is required.</p>
+      <h1>The Snowman of the Stars — 星の雪だるま</h1>
+      <p>A calm 3D browser sandbox where a snowman lives in a generated natural world. Walk around, watch, and rearrange things. All ambient sounds (river, rain, wind, insects, birds, campfire) are synthesized live. JavaScript is required — please enable it in your browser settings.</p>
+      <p lang="ja">雪だるまが暮らす3Dの自然を、歩いたり、眺めたり、物を動かしたりして楽しむ、ブラウザで遊べる箱庭アプリです。川・雨・風・虫・鳥・焚き火などの環境音は、すべてその場で生成されます。このアプリの利用にはJavaScriptが必要です。ブラウザの設定でJavaScriptを有効にしてください。</p>
     </main>
   </noscript>
   <section class="sr-only" aria-label="About this app" data-i18n-aria-label="seo.aboutLabel">

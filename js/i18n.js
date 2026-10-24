@@ -47,6 +47,8 @@ export function applyI18n(root = document) {
   if (root === document) {
     document.documentElement.lang = lang;
     document.title = t('app.documentTitle');
+    const md = document.querySelector('meta[name="description"]'); // 検索結果・共有の説明文(JavaScriptを読むクローラー向け。静的な元の文は英語)
+    if (md) md.setAttribute('content', t('meta.description'));
     for (const sw of document.querySelectorAll('[data-lang-switch]')) {
       for (const b of sw.querySelectorAll('button[data-lang]')) b.setAttribute('aria-pressed', String(b.dataset.lang === lang));
     }
