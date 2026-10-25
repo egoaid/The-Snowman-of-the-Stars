@@ -23,8 +23,8 @@ export const EMOTE_CONFIG = {
   sitUpSec: 1.9,
   rollSec: 1.5,
   // 立っている時間(見守りの「勝手に座る」の間隔)。長めにして、動きの無い時間が続きすぎないようにする。
-  restIntervalDay: [130, 260], // v1.75: 寝る割合を増やすため、立っている時間を短く(以前: 200〜420 / 140〜320)
-  restIntervalNight: [90, 190],
+  restIntervalDay: [100, 200], // v1.76: さらに寝る割合を増やす(v1.75: 130〜260 / 90〜190、v1.73: 200〜420 / 140〜320)
+  restIntervalNight: [60, 130],
   firstRestInterval: [50, 130], // 見守りを始めてから最初に座るまで
   // 座ったあと、ぼーっとしている時間
   sitIdleSleepPlan: [9, 20], // このあと寝る時
@@ -33,13 +33,13 @@ export const EMOTE_CONFIG = {
   sitIdleManual: [25, 70], // Bキーなどで自分で座った時(放っておくと、あくび→寝ることもある)
   sitIdleManualSleep: [2.2, 3.6], // 「寝る」を選んだ時(座ってから、ちょっとだけぼーっとしてあくび)
   // 寝る確率(座った時に決める)
-  sleepProbDay: 0.6, // 昼寝(v1.75: 以前は0.35)
-  sleepProbNight: 0.85, // 夜は寝やすい(以前は0.6)
+  sleepProbDay: 0.75, // 昼寝(v1.76: 0.75 / v1.75: 0.6 / v1.73: 0.35)
+  sleepProbNight: 0.95, // 夜は、ほぼ必ず寝る(v1.76: 0.95 / v1.75: 0.85 / v1.73: 0.6)
   sleepProbManual: 0.5, // 自分で座ったまま放っておいた時
   yawnOnlyProb: 0.3, // 寝ない時も、あくびだけすることがある
   // 寝ている時間(秒)。長く寝すぎない(画に動きが無くなるので)
-  sleepDay: [30, 75], // v1.75: 以前は 22〜55 / 40〜110
-  sleepNight: [55, 140],
+  sleepDay: [35, 90], // v1.76(v1.75: 30〜75 / 55〜140、v1.73: 22〜55 / 40〜110)
+  sleepNight: [80, 200],
   rollInterval: [11, 30], // 寝返りの間隔
 };
 
@@ -268,6 +268,19 @@ export function createEmoteBrain({ rng = Math.random, config = {} } = {}) {
     /** 起き上がる・立ち上がる途中か(この間も歩けない) */
     isTransitioning: () => ['sitting-down', 'lying-down', 'roll', 'waking-roll', 'sitting-up', 'standing-up', 'yawn'].includes(s.state),
     isSleeping: () => s.state === 'sleep' || s.state === 'roll',
+    /**
+     * v1.76: 自動カメラのための「いま、眠りの流れのどこか」。
+     *   'sleepy' = 寝る予定で、座る→ぼーっと→あくび→仰向けになる、の間(ここから、寝るまで撮り続ける)
+     *   'asleep' = 寝ている(寝返りも含む)
+     *   'waking' = 起きて、上体を起こしている間
+     *   'none'   = それ以外(立っている・寝る予定の無い休憩)
+     */
+    cameraPhase() {
+      if (s.state === 'sleep' || s.state === 'roll') return 'asleep';
+      if (s.state === 'waking-roll' || s.state === 'sitting-up') return 'waking';
+      if (s.sleepPlan && (s.state === 'sitting-down' || s.state === 'sit' || s.state === 'yawn' || s.state === 'lying-down')) return 'sleepy';
+      return 'none';
+    },
     /** 仰向けになろうとしている/寝ている(後ろに場所が要る) */
     needsLieSpace: () => s.sleepPlan || ['lying-down', 'sleep', 'roll', 'waking-roll', 'sitting-up'].includes(s.state),
     getPose() {

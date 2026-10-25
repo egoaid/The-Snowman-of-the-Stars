@@ -3892,6 +3892,8 @@ export function initScene(mountEl, options = {}) {
         camp: { x: campX, y: terrainHeightAt(campX, campZ), z: campZ },
         fire: { x: fireX, y: terrainHeightAt(fireX, fireZ), z: fireZ },
         flower: flowerP ? { x: flowerP.x, y: terrainHeightAt(flowerP.x, flowerP.z), z: flowerP.z } : null,
+        // v1.76: 眠りの流れ(座る→あくび→寝る)を、自動カメラへ伝える
+        emote: { phase: emoteBrain.cameraPhase(), sit: emotePose.sit, lie: emotePose.lie, heading: snowHeading },
       }, camera);
     }
 

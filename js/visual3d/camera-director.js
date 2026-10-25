@@ -52,6 +52,13 @@
 //   間に入りやすくなるため)。十分に離れた位置が見つからない場合は、無理に
 //   近づけず、焚き火のカット自体を見送って別のカットにする。
 
+// 2026-10(改訂5, v1.76): 眠りのカット。「眠くなって座るところから撮影し、寝るまで撮り続けてほしい」への対応。
+// - 雪だるまが「寝る予定」で座り始めたら(ctx.emote.phase==='sleepy')、すぐ'sleepy_sit'のカット(斜め前・やや低い・
+//   あくびのころにゆっくり寄る)へ切り替え、寝るまで切り替えずに続ける(カットの長さを決めず、動作が終わるまで)。
+// - 寝たら('asleep')、横から体と頭の「Z」まで入る'sleep_side'のカットを10〜14秒。
+// - 寝ている間・起きる間は、雪だるまが映るカットだけを選ぶ(花畑・焚き火のカットは出さない)。
+// - 座る・寝転ぶと、注目点を低くし、仰向けの体は後ろに長いので、体の真ん中を狙う(focusOf)。
+
 import * as THREE from 'three';
 
 /** 焚き火専用カットを、前回から最低これだけ(秒)空ける。 */
@@ -65,6 +72,19 @@ export const FIRE_SHOT_PARAMS = {
   targetHeight: 0.55, // 見る点(焚き火の地面から。炎・薪の中心あたり)
   fovStart: 40, fovZoomEnd: 37, zoomProbability: 0.3,
 };
+
+/** 眠りのカットの値。 */
+export const SLEEP_SHOT_PARAMS = {
+  sitDistMin: 3.4, sitDistMax: 4.4, // 'sleepy_sit': 座っている雪だるまから、斜め前へ
+  sitSideMin: 0.4, sitSideMax: 0.85, // 雪だるまの正面から、左右どちらかへずらす角度(rad)
+  sitHeightMin: 0.7, sitHeightMax: 1.1,
+  sitFovStart: 42, sitFovEnd: 37, sitZoomSeconds: 22, // あくびのころまで、ゆっくり寄る
+  sideDistMin: 4.2, sideDistMax: 5.5, // 'sleep_side': 横から。体(約2.4m)と頭の上の「Z」が入る距離
+  sideHeightMin: 1.4, sideHeightMax: 2.2,
+  sideFov: 40, sideDurMin: 10, sideDurMax: 14,
+  holdMaxSeconds: 60, // 'sleepy_sit'を続ける上限(念のため)
+};
+const SNOWMAN_ONLY_PHASES = new Set(['sleepy', 'asleep', 'waking']);
 
 const UP = new THREE.Vector3(0, 1, 0);
 const _rel = new THREE.Vector3();
@@ -87,6 +107,8 @@ export function createCameraDirector(options = {}) {
   let lastShotType = null;
   let directorTime = 0; // 見守り開始からの経過秒(焚き火カットの間隔管理に使う)
   let lastFireCutAt = -FIRE_COOLDOWN_SECONDS * 0.5; // 開始直後に焚き火カットが出ないよう、半分ぶん経過したことにする
+  let lastPhase = 'none'; // v1.76: 眠りの流れ(none/sleepy/asleep/waking)
+  let heldFor = 0; // 'sleepy_sit'を続けた秒数
 
   /**
    * center を中心に angle(0〜2π) の位置を作る buildPosFn を何度か試し、
@@ -116,6 +138,15 @@ export function createCameraDirector(options = {}) {
    *   river: {x,y,z} | null, flower: {x,y,z} | null,
    * }
    */
+  /** 被写体の中心と、高さの縮み具合(hs: 立つ=1、座る≒0.55、仰向け≒0.28)。座る・寝転ぶと低く、寝ると体は後ろに長い。 */
+  function focusOf(ctx) {
+    const sp = ctx.snowman, e = ctx.emote;
+    if (!e) return { x: sp.x, y: sp.y, z: sp.z, hs: 1, heading: 0 };
+    const sit = e.sit || 0, lie = e.lie || 0, h = e.heading || 0;
+    const back = 0.5 * lie; // 仰向けの体は、原点から後ろ(頭のほう)へ約1mのびる。その真ん中あたり
+    return { x: sp.x - Math.sin(h) * back, y: sp.y, z: sp.z - Math.cos(h) * back, hs: (1 - 0.45 * sit) * (1 - 0.5 * lie), heading: h };
+  }
+
   function pickShot(ctx) {
     // 雪だるまが主人公なので、雪だるまが映るショットの重みを高くし、
     // 映らないカットワーク(花畑・焚き火だけ)は時々挟む程度にする。
@@ -126,8 +157,9 @@ export function createCameraDirector(options = {}) {
       { type: 'low_angle', w: 2.2 },
       { type: 'drone_pan', w: 2 },
     ];
-    if (ctx.flower) candidates.push({ type: 'flowers_only', w: 0.9 });
-    if (ctx.fire && directorTime - lastFireCutAt >= FIRE_COOLDOWN_SECONDS) {
+    const snowmanOnly = !!(ctx.emote && SNOWMAN_ONLY_PHASES.has(ctx.emote.phase)); // v1.76: 眠りの間は、雪だるまが映るカットだけ
+    if (ctx.flower && !snowmanOnly) candidates.push({ type: 'flowers_only', w: 0.9 });
+    if (ctx.fire && !snowmanOnly && directorTime - lastFireCutAt >= FIRE_COOLDOWN_SECONDS) {
       candidates.push({ type: 'campfire_only', w: FIRE_SHOT_WEIGHT });
     }
 
@@ -148,11 +180,12 @@ export function createCameraDirector(options = {}) {
    * panSpeed: 0以外なら、targetを中心にゆっくり周回する(ドローン風)。
    */
   function buildShot(type, ctx) {
-    const sp = ctx.snowman;
+    const sp = focusOf(ctx); // v1.76: 座る・寝転ぶと、中心と高さが変わる
+    const hs = sp.hs;
     const rand = (a, b) => a + Math.random() * (b - a);
     switch (type) {
       case 'overhead': {
-        const target = new THREE.Vector3(sp.x, sp.y + 0.5, sp.z);
+        const target = new THREE.Vector3(sp.x, sp.y + 0.5 * hs, sp.z);
         const pos = pickClearPosition((angle, k) =>
           new THREE.Vector3(sp.x + Math.cos(angle) * 3 * k, sp.y + rand(13, 17), sp.z + Math.sin(angle) * 3 * k), target);
         return {
@@ -165,7 +198,7 @@ export function createCameraDirector(options = {}) {
         // 「設置されたカメラ」らしく、基本は固定。ごくまれにだけ、
         // わずかに寄る(ゆっくりズームイン)。雪だるまが被写体なのでズームOK。
         const dist = rand(4.5, 6.5);
-        const target = new THREE.Vector3(sp.x, sp.y + 0.85, sp.z);
+        const target = new THREE.Vector3(sp.x, sp.y + 0.85 * hs, sp.z);
         const pos = pickClearPosition((angle, k) =>
           new THREE.Vector3(sp.x + Math.cos(angle) * dist * k, sp.y + rand(1.3, 1.9), sp.z + Math.sin(angle) * dist * k), target);
         const doZoom = Math.random() < 0.4;
@@ -177,7 +210,7 @@ export function createCameraDirector(options = {}) {
       }
       case 'wide_distant': {
         const dist = rand(13, 20);
-        const target = new THREE.Vector3(sp.x, sp.y + 0.6, sp.z);
+        const target = new THREE.Vector3(sp.x, sp.y + 0.6 * hs, sp.z);
         const pos = pickClearPosition((angle, k) =>
           new THREE.Vector3(sp.x + Math.cos(angle) * dist * k, sp.y + rand(3.5, 7), sp.z + Math.sin(angle) * dist * k), target);
         const doZoom = Math.random() < 0.4;
@@ -190,7 +223,7 @@ export function createCameraDirector(options = {}) {
       case 'low_angle': {
         // 見上げるような撮影(カメラを低く、注視点は少し高めに)。固定画角。
         const dist = rand(3, 4.5);
-        const target = new THREE.Vector3(sp.x, sp.y + 1.5, sp.z);
+        const target = new THREE.Vector3(sp.x, sp.y + 1.5 * hs, sp.z);
         const pos = pickClearPosition((angle, k) =>
           new THREE.Vector3(sp.x + Math.cos(angle) * dist * k, sp.y + rand(0.25, 0.45), sp.z + Math.sin(angle) * dist * k), target);
         return {
@@ -204,7 +237,7 @@ export function createCameraDirector(options = {}) {
         // (画角変化は雪だるま・焚き火・花畑のショットに限定するため、
         // ここではパンのみでズームはしない)。
         const dist = rand(9, 15);
-        const target = new THREE.Vector3(sp.x, sp.y + 0.5, sp.z);
+        const target = new THREE.Vector3(sp.x, sp.y + 0.5 * hs, sp.z);
         const pos = pickClearPosition((angle, k) =>
           new THREE.Vector3(sp.x + Math.cos(angle) * dist * k, sp.y + rand(6, 10), sp.z + Math.sin(angle) * dist * k), target);
         return {
@@ -213,6 +246,28 @@ export function createCameraDirector(options = {}) {
           duration: rand(16, 22), fovStart: 38, fovEnd: 38,
           panSpeed: rand(0.015, 0.028) * (Math.random() < 0.5 ? 1 : -1),
         };
+      }
+      case 'sleepy_sit': {
+        // v1.76: 眠くなって座るところ。顔が見える斜め前から、少し低い位置で。あくびのころまで、ゆっくり寄る。
+        const P = SLEEP_SHOT_PARAMS;
+        const dist = rand(P.sitDistMin, P.sitDistMax);
+        const target = new THREE.Vector3(sp.x, sp.y + 0.62 * Math.max(hs, 0.55), sp.z);
+        const pos = pickClearPosition((_angle, k) => {
+          const a = sp.heading + (Math.random() < 0.5 ? -1 : 1) * rand(P.sitSideMin, P.sitSideMax); // 正面から左右どちらかへ
+          return new THREE.Vector3(sp.x + Math.sin(a) * dist * k, sp.y + rand(P.sitHeightMin, P.sitHeightMax), sp.z + Math.cos(a) * dist * k);
+        }, target);
+        return { pos, target, duration: P.sitZoomSeconds, fovStart: P.sitFovStart, fovEnd: P.sitFovEnd, panSpeed: 0, hold: true };
+      }
+      case 'sleep_side': {
+        // v1.76: 寝たところ。横から、体(仰向け)と頭の上の「Z」が入る距離で。固定。
+        const P = SLEEP_SHOT_PARAMS;
+        const dist = rand(P.sideDistMin, P.sideDistMax);
+        const target = new THREE.Vector3(sp.x, sp.y + 0.45, sp.z);
+        const pos = pickClearPosition((_angle, k) => {
+          const a = sp.heading + (Math.random() < 0.5 ? -1 : 1) * (Math.PI / 2 + rand(-0.3, 0.3)); // 雪だるまの真横あたり
+          return new THREE.Vector3(sp.x + Math.sin(a) * dist * k, sp.y + rand(P.sideHeightMin, P.sideHeightMax), sp.z + Math.cos(a) * dist * k);
+        }, target);
+        return { pos, target, duration: rand(P.sideDurMin, P.sideDurMax), fovStart: P.sideFov, fovEnd: P.sideFov, panSpeed: 0 };
       }
       case 'flowers_only': {
         const fp = ctx.flower;
@@ -263,8 +318,20 @@ export function createCameraDirector(options = {}) {
 
     directorTime += delta;
     shotTimer -= delta;
-    if (!activeShot || shotTimer <= 0) {
-      let type = pickShot(ctx);
+
+    // v1.76: 眠りの流れ。寝る予定で座り始めたら、すぐ眠りのカットへ。寝るまで続け、寝たら横からのカットへ。
+    const phase = (ctx.emote && ctx.emote.phase) || 'none';
+    let forced = null;
+    if (phase === 'sleepy' && lastPhase !== 'sleepy') { forced = 'sleepy_sit'; heldFor = 0; }
+    else if (phase === 'asleep' && lastPhase !== 'asleep') forced = 'sleep_side';
+    lastPhase = phase;
+    if (activeShot && activeShot.hold && !forced) {
+      if (phase === 'sleepy' && heldFor < SLEEP_SHOT_PARAMS.holdMaxSeconds) { heldFor += delta; shotTimer = Math.max(shotTimer, 1); } // 寝るまで、切り替えない
+      else { activeShot.hold = false; shotTimer = Math.min(shotTimer, 1.5); } // 眠りの流れが終わった(寝た・寝ずに終わった): ほどなく通常のカットへ
+    }
+
+    if (forced || !activeShot || shotTimer <= 0) {
+      let type = forced || pickShot(ctx);
       let shot = buildShot(type, ctx);
       if (!shot) { // 焚き火の適切な位置が見つからなかった: 別のカットにする(間隔は消費しない)
         type = 'full_body';
@@ -272,6 +339,7 @@ export function createCameraDirector(options = {}) {
       }
       if (type === 'campfire_only') lastFireCutAt = directorTime;
       lastShotType = type;
+      shot.type = type;
       activeShot = shot;
       shotTimer = activeShot.duration;
       shotElapsed = 0;
@@ -308,6 +376,8 @@ export function createCameraDirector(options = {}) {
 
   function reset() {
     activeShot = null;
+    lastPhase = 'none';
+    heldFor = 0;
   }
 
   /** 検証用: 状態(間隔・直前のカット)を変えずに、指定の種類のカットを1つ組み立てる。 */
@@ -315,5 +385,8 @@ export function createCameraDirector(options = {}) {
     return buildShot(type, ctx);
   }
 
-  return { update, reset, previewShot };
+  /** 検証用: いま映しているカットの種類。 */
+  const getShotType = () => (activeShot ? activeShot.type : null);
+
+  return { update, reset, previewShot, getShotType };
 }
