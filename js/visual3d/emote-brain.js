@@ -9,7 +9,10 @@
 //
 // 呼ぶ側は毎フレーム update(dt, ctx) を呼び、getPose() の値を雪だるまの見た目へ渡す。
 //   ctx.autoAllowed : 見守りモードの時 true(勝手に座る・寝るのを許す)
-//   ctx.calm        : 拾い物・チェスト・ジャンプなど、別の動作の最中でない(座り始めてよい)
+//   ctx.calm        : 拾い物・チェスト・ジャンプなど、別の動作の最中でない(いま座り始めてよい瞬間)
+//   ctx.spotOk      : 前に足を投げ出せる場所か(水・木・岩などが無い)。座り始める時だけ見る
+//   (v1.77: 休憩までの待ち時間は、calm かどうかに関わらず進む。calm・spotOk は「座り始める瞬間」の条件だけ。
+//    以前は calm の間しか待ち時間が進まず、歩いている間は進まなかったので、設定の数倍の間隔になっていた)
 //   ctx.isNight     : 夜か(夜は寝やすく、少し長く寝る)
 //   ctx.canLie      : 仰向けになれる場所か(後ろに水・木・岩などが無い)
 //   ctx.interrupt   : 別の用事ができた(星に気づいた等)。座っていたり寝ていたら、起きる
@@ -154,9 +157,9 @@ export function createEmoteBrain({ rng = Math.random, config = {} } = {}) {
       case 'stand': {
         pose.sit = lerp(pose.sit, 0, Math.min(1, dt * 8)); pose.lie = 0; pose.roll = 0; pose.breath = lerp(pose.breath, 0, Math.min(1, dt * 4));
         pose.yawn = 0; pose.eyesClosed = lerp(pose.eyesClosed, 0, Math.min(1, dt * 8)); pose.drowsy = lerp(pose.drowsy, 0, Math.min(1, dt * 6));
-        if (ctx.autoAllowed && ctx.calm !== false && !ctx.interrupt) {
-          s.nextRestIn -= dt;
-          if (s.nextRestIn <= 0) {
+        if (ctx.autoAllowed && !ctx.interrupt) {
+          s.nextRestIn -= dt; // 歩いている間も、時間は進む(座れるのは、落ち着いた場所・瞬間になってから)
+          if (s.nextRestIn <= 0 && ctx.calm !== false && ctx.spotOk !== false) {
             const p = night ? C.sleepProbNight : C.sleepProbDay;
             startSitDown('auto', { sleep: rng() < p });
           }

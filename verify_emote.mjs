@@ -87,5 +87,35 @@ let fails = 0; const ok = (c, m) => { if (!c) { fails++; console.log('NG', m); }
   for (let i = 0; i < 60 * 300; i++) { b.update(1 / 60, { canLie: true, isNight: true }); const p = b.getPose(); for (const k of ['sit','lie','yawn','eyesClosed','drowsy','breath']) if (p[k] < -0.001 || p[k] > 1.001 || !Number.isFinite(p[k])) bad = true; if (Math.abs(p.roll) > 1.001) bad = true; }
   ok(!bad, 'pose の値が範囲内(NaN なし)');
 }
+// 7) (v1.77) 歩いている間も、休憩までの時間は進む。落ち着いた瞬間(calm)は短くても、間隔は設定どおり
+{
+  const sessionsFor = (calmFn) => {
+    let seed = 99; const rng = () => (seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296;
+    const b = createEmoteBrain({ rng }); let n = 0, prev = 'stand';
+    for (let i = 0; i < 60 * 3600 * 2; i++) {
+      const sec = i / 60;
+      b.update(1 / 60, { autoAllowed: true, calm: calmFn(sec), spotOk: true, isNight: Math.floor(sec / 600) % 2 === 1, canLie: true });
+      if (prev === 'stand' && b.state !== 'stand') n++; prev = b.state;
+    }
+    return n;
+  };
+  const always = sessionsFor(() => true);
+  const rare = sessionsFor((sec) => (sec % 27) < 4); // 27秒のうち、落ち着いているのは4秒(約15%)
+  console.log(`2時間の休憩の回数: いつも落ち着いている ${always}回 / 15%だけ落ち着いている ${rare}回`);
+  ok(rare >= always * 0.6, '落ち着いている瞬間が短くても、休憩の回数は、いつも落ち着いている時の6割以上(以前は、数分の1に減っていた)');
+}
+// 8) (v1.77) 座れない場所(spotOk=false)の間は座らず、座れる場所になったら、すぐ座る
+{
+  const b = createEmoteBrain({ rng, config: { firstRestInterval: [1, 1] } });
+  for (let i = 0; i < 60 * 5; i++) b.update(1 / 60, { autoAllowed: true, calm: true, spotOk: false });
+  ok(b.state === 'stand' && b.wantsAutoRest(), '座りたくても、場所がだめな間は立ったまま(座りたい状態は保つ)');
+  b.update(1 / 60, { autoAllowed: true, calm: true, spotOk: true });
+  ok(b.state === 'sitting-down', '場所が空いたら、すぐ座り始める');
+  const c = createEmoteBrain({ rng, config: { firstRestInterval: [1, 1] } });
+  for (let i = 0; i < 60 * 5; i++) c.update(1 / 60, { autoAllowed: true, calm: false, spotOk: true });
+  ok(c.state === 'stand' && c.wantsAutoRest(), '歩いている最中(calm=false)は座らず、座りたい状態は保つ');
+  c.update(1 / 60, { autoAllowed: true, calm: true, spotOk: true });
+  ok(c.state === 'sitting-down', '落ち着いた瞬間に、座り始める');
+}
 console.log(fails ? `\n失敗 ${fails}` : '\nすべて成功');
 process.exit(fails ? 1 : 0);

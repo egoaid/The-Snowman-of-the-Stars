@@ -3707,7 +3707,7 @@ export function initScene(mountEl, options = {}) {
   //   歩行モード: Bキーのホイールから「座る/寝る/立つ」。座っている間は歩けず、歩こうとすると(寝ていたら座ってから)立つ。
   //   状態の流れは emote-brain.js、見た目は snowman.js の setEmote()。ここは、場所の確認・移動の止め方・カメラの高さをつなぐ。
   // ================================================================
-  const emoteState = { wheelOpen: false, spotT: 99, spotOk: true, canLie: true };
+  const emoteState = { wheelOpen: false, spotT: 99, spotOk: true, canLie: true, spotLive: false };
   /** 座る/仰向けになるための場所が空いているか。前(足を投げ出す)と、寝る時は後ろ(体と頭)に、水・木・岩・倒木・急な段差が無いこと。 */
   function emoteSpotFree(px, pz, heading, needBack) {
     const fx = Math.sin(heading), fz = Math.cos(heading);
@@ -3728,17 +3728,21 @@ export function initScene(mountEl, options = {}) {
     const g = playerSnowman.group;
     const px = g.position.x, pz = g.position.z, hd = g.rotation.y;
     const autoAllowed = wanderActive && !editMode.isEnabled();
-    // 場所の確認: 座っている間と、座りたくなった時だけ、0.4秒ごとに
-    emoteState.spotT += delta;
-    if (emoteState.spotT > 0.4 && (emoteBrain.isBusy() || (autoAllowed && emoteBrain.wantsAutoRest()))) {
-      emoteState.spotT = 0;
-      emoteState.spotOk = emoteSpotFree(px, pz, hd, false);
-      emoteState.canLie = emoteSpotFree(px, pz, hd, true);
-    }
+    // 場所の確認: 座っている間と、座りたくなって落ち着いて待っている間だけ、0.4秒ごとに。
+    // v1.77: 確認を始める時は、すぐ確かめる(前の場所の古い結果を使わない。以前は、一度「だめ」になると、その結果が残って、二度と座らなかった)
     const calm = autoAllowed && wander.waiting && !wander.collectTask && !wander.baseTask && !wander.hop && !wander.hurdle
-      && !aiClimb.active && nonWalkVertical.grounded && emoteState.spotOk && !wander.turningAway;
+      && !aiClimb.active && nonWalkVertical.grounded && !wander.turningAway;
+    emoteState.spotT += delta;
+    const needSpot = emoteBrain.isBusy() || (calm && emoteBrain.wantsAutoRest());
+    if (needSpot) {
+      if (!emoteState.spotLive || emoteState.spotT > 0.4) {
+        emoteState.spotT = 0; emoteState.spotLive = true;
+        emoteState.spotOk = emoteSpotFree(px, pz, hd, false);
+        emoteState.canLie = emoteSpotFree(px, pz, hd, true);
+      }
+    } else emoteState.spotLive = false;
     emoteBrain.update(delta, {
-      autoAllowed, calm,
+      autoAllowed, calm, spotOk: emoteState.spotOk,
       isNight: getTimeOfDay(gameHour) === 'night',
       canLie: emoteState.canLie,
       interrupt: autoAllowed && starInterest.active, // 星に向かうと決めたら、起きて出かける
