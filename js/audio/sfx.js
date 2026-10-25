@@ -186,7 +186,7 @@
     // ================================================================
     _material(itemId) {
       switch (itemId) {
-        case 'star': case 'star_shard': return 'star';
+        case 'star': case 'star_shard': case 'star_torch': return 'star';
         case 'empty_can': return 'tin';
         case 'jack_o_lantern': return 'pumpkin';
         case 'twig': case 'log': case 'wood': case 'colored_pencils': case 'chest': case 'crafting_table': return 'wood';

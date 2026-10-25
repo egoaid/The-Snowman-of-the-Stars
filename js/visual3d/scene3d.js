@@ -45,7 +45,8 @@ import { createLogObstacleManager, isWalkOver } from './log-obstacles.js';
 import { createTraversal, createVerticalState, createClimbController, createTraversalFailureMemory, ACTION, climbDurationFor } from './traversal.js';
 import { createStagnationWatchdog, createRepeatDetector, blockerSignature, findRescueSpot, hopPoint } from './wander-watchdog.js';
 import { createFallingStarSystem, pickStarLandingSpot } from './falling-star.js';
-import { getRecipe } from '../recipes.js'; // v1.69
+import { getRecipe, recipeInputs } from '../recipes.js'; // v1.69 / v1.74(recipeInputs)
+import { createStarTorchMesh, tickStarTorch, STAR_TORCH } from './star-torch.js'; // v1.74: 星の松明
 import { createDebugLog } from './debug-log.js'; // v1.69: 動作確認用のログ(JSONで書き出せる)
 import { createGlueTool } from './glue-tool.js'; // v1.71: 接着モード(位置と角度を決めて接着・再編集)
 import { createShardSystem } from './shard-system.js'; // v1.69: 星のかけら・月のかけら(倒木を接着する・浮かせる)
@@ -3278,6 +3279,25 @@ export function initScene(mountEl, options = {}) {
     debugLog.log('craft', { kind, ok: true, pool: { star: poolCount('star'), starShard: poolCount('star_shard'), moonStone: poolCount('moon_stone'), moonShard: poolCount('moon_shard') } });
     return true;
   }
+  /** v1.74: 星の松明を作る(枝1+星のかけら1。持ち物→チェストの順に取る)。できなければ、何も変えずに false。 */
+  function craftStarTorchFromPool() {
+    const recipe = getRecipe('star_torch');
+    const inputs = recipe ? recipeInputs(recipe) : [];
+    if (!recipe || !inputs.every((i) => poolCount(i.id) >= i.count)) { debugLog.log('craft', { kind: 'star_torch', ok: false, reason: 'no-material' }); return false; }
+    for (const i of inputs) poolTake(i.id, i.count);
+    const giveBack = () => { for (const i of inputs) for (let n = 0; n < i.count; n++) poolGive(i.id); };
+    let made = 0;
+    for (let n = 0; n < recipe.output.count; n++) { if (poolGive(recipe.output.id)) made++; else break; }
+    if (made < recipe.output.count) { // 入りきらない: できたぶんを戻して、材料も戻す
+      if (made > 0) poolTake(recipe.output.id, made);
+      giveBack();
+      debugLog.log('craft', { kind: 'star_torch', ok: false, reason: 'storage-full' });
+      return false;
+    }
+    shardPanelDirty = true;
+    debugLog.log('craft', { kind: 'star_torch', ok: true, pool: { twig: poolCount('twig'), starShard: poolCount('star_shard'), starTorch: poolCount('star_torch') } });
+    return true;
+  }
   const heldLog = () => { const h = editMode._internals && editMode._internals.getHeld ? editMode._internals.getHeld() : null; return h || null; };
   function attachShardToHeld(kind) {
     const res = attachShardToHeldInner(kind);
@@ -3319,6 +3339,7 @@ export function initScene(mountEl, options = {}) {
       canDetachMoon: !!log && !!(info && info.structureHasMoon) && !glueState.active,
       editing: editMode.isEnabled(),
       star: poolCount('star'), starShard: poolCount('star_shard'), moonStone: poolCount('moon_stone'), moonShard: poolCount('moon_shard'),
+      twig: poolCount('twig'), starTorch: poolCount('star_torch'), canCraftStarTorch: poolCount('twig') >= 1 && poolCount('star_shard') >= 1, // v1.74
       held: !!log, heldHasStar: !!(info && info.hasStar), heldGroupSize: info ? info.groupSize : 0,
       structureHasMoon: !!(info && info.structureHasMoon),
       canAttachStar: !!log && shardSystem.canAttachStar(log) && poolCount('star_shard') > 0,
@@ -3463,9 +3484,9 @@ export function initScene(mountEl, options = {}) {
   // ================================================================
   const equipment = createEquipment();
   equipment.attachTo(inventory); // 持ち物の画面の左上に出る。持ち物と同じ操作で出し入れできる
-  const lanternLights = createLanternLightPool(scene, 3); // PointLightは最大3つ(カメラに近い順)
-  const LANTERN_PLACED = { intensity: 5.4, distance: 15 }; // 焚き火(強さ3.4・範囲10)より明るい
-  const LANTERN_WORN = { intensity: 4.4, distance: 12 };
+  const lanternLights = createLanternLightPool(scene, 4); // PointLightは最大4つ(カメラに近い順。v1.74: 星の松明のために3→4)
+  const LANTERN_PLACED = { intensity: 5.4, distance: 15, color: 0xffa640 }; // 焚き火(強さ3.4・範囲10)より明るい
+  const LANTERN_WORN = { intensity: 4.4, distance: 12, color: 0xffa640 }; // v1.74: 光の枠は色を持ち越すので、どの光にも色を指定する
   const placedItems = []; // 地面に置かれた物 {id,itemId,x,z,mesh,iid}。見守りの雪だるまは拾わない(登録簿の提供元に入れない)
   let placedSeq = 0;
   /** 置いた物の高さ: 雪が無ければ地面の上、積もっていれば雪面の上(少し埋まる)。雪が増減すれば、雪面に追従する。 */
@@ -3484,7 +3505,7 @@ export function initScene(mountEl, options = {}) {
   const LANTERN_GROUND_RADIUS = 0.36;
   const LANTERN_REST_LIFT = LANTERN_GROUND_RADIUS * 0.86;   // 中心の高さ(平たい形なので半径の0.86倍。底が地面に着く)
   const LANTERN_SNOW_SINK = LANTERN_REST_LIFT - 0.09;        // 雪面に置いた時は、中心が雪面の+0.09m(底の約7割が雪に埋まる)
-  const placeRadiusOf = (itemId) => (itemId === 'jack_o_lantern' ? LANTERN_GROUND_RADIUS + 0.06 : ITEM_PLACE_RADIUS); // 重なり判定の円の大きさ
+  const placeRadiusOf = (itemId) => (itemId === 'jack_o_lantern' ? LANTERN_GROUND_RADIUS + 0.06 : itemId === 'star_torch' ? STAR_TORCH.footprint : ITEM_PLACE_RADIUS); // 重なり判定の円の大きさ
   function placementObstacles() { return collisionObstacles.concat([{ x: chestX, z: chestZ, radius: chest.radius }]); }
   function placedFootprints() {
     const out = placedItems.map((it) => ({ x: it.x, z: it.z, radius: placeRadiusOf(it.itemId) }));
@@ -3505,6 +3526,7 @@ export function initScene(mountEl, options = {}) {
     const isLantern = itemId === 'jack_o_lantern';
     const restLift = isLantern ? LANTERN_REST_LIFT : 0.01, snowSink = isLantern ? LANTERN_SNOW_SINK : 0.07;
     if (isLantern) { mesh = createJackOLanternMesh(LANTERN_GROUND_RADIUS); mesh.position.set(x, terrainHeightAt(x, z) + LANTERN_REST_LIFT, z); mesh.rotation.y = yaw; }
+    else if (itemId === 'star_torch') { mesh = createStarTorchMesh(); mesh.position.set(x, terrainHeightAt(x, z) + 0.01, z); mesh.rotation.y = yaw; } // v1.74: 地面に真っすぐ立てる
     else {
       const held = buildHeldItem(itemId); if (!held) return null;
       mesh = new THREE.Group(); held.scale.setScalar(1.6); mesh.add(held); mesh.position.set(x, terrainHeightAt(x, z) + 0.01, z); mesh.rotation.y = yaw;
@@ -3514,7 +3536,7 @@ export function initScene(mountEl, options = {}) {
     mesh.position.y = placedItemY(it);
     it.iid = interaction.register({
       kind: 'placed',
-      getPosition: () => ({ x: it.x, y: it.mesh.position.y + 0.2, z: it.z }),
+      getPosition: () => ({ x: it.x, y: it.mesh.position.y + (it.itemId === 'star_torch' ? 0.6 : 0.2), z: it.z }), // v1.74: 松明は背が高いので、少し上を狙える
       radius: 0.45,
       canInteract: () => inventory.canAdd(it.itemId, 1),
       onInteract: () => {
@@ -3569,6 +3591,12 @@ export function initScene(mountEl, options = {}) {
     lanternEmitters.length = 0;
     for (const it of remnantField.items) if (!it.collected && it.kind === 'jack_o_lantern') lanternEmitters.push({ x: it.x, y: it.root.position.y + it.height * 0.75, z: it.z, ...LANTERN_PLACED });
     for (const it of placedItems) if (it.itemId === 'jack_o_lantern') lanternEmitters.push({ x: it.x, y: it.mesh.position.y + LANTERN_GROUND_RADIUS * 1.15, z: it.z, ...LANTERN_PLACED });
+    // v1.74: 星の松明(焚き火と同じくらいの光)。置いた数が多い時は、カメラに近い順に光の枠(4つ)を使う。光の玉・星くずの見た目は、全部に出る
+    for (const it of placedItems) {
+      if (it.itemId !== 'star_torch') continue;
+      tickStarTorch(it.mesh, clock.elapsedTime);
+      lanternEmitters.push({ x: it.x, y: it.mesh.position.y + STAR_TORCH.height + 0.1, z: it.z, intensity: STAR_TORCH.intensity, distance: STAR_TORCH.distance, color: STAR_TORCH.color });
+    }
     if (head === 'jack_o_lantern') { playerSnowman.headGroup.getWorldPosition(_lanternHeadPos); lanternEmitters.push({ x: _lanternHeadPos.x, y: _lanternHeadPos.y, z: _lanternHeadPos.z, ...LANTERN_WORN }); }
     lanternLights.update(lanternEmitters, camera.position.x, camera.position.y, camera.position.z, clock.elapsedTime);
   }
@@ -4390,6 +4418,9 @@ export function initScene(mountEl, options = {}) {
     downloadDebugLog: () => debugLog.download(),     // v1.69: JSONファイルとして書き出す(ファイル名を返す)
     debugLogEvent: (kind, data) => debugLog.log(kind, data),
     craftShards: (kind) => craftShardsFromPool(kind),
+    // v1.74: 星の松明を作る。持ち物の画面(歩行)・かけらパネル(編集)から。数は、持ち物とチェストの合計。
+    craftStarTorch: () => craftStarTorchFromPool(),
+    getInventoryCraft: () => ({ twig: poolCount('twig'), starShard: poolCount('star_shard'), starTorch: poolCount('star_torch'), canCraftStarTorch: poolCount('twig') >= 1 && poolCount('star_shard') >= 1 }),
     attachShard: (kind) => attachShardToHeld(kind),
     detachShard: (kind) => detachShardFromHeld(kind), // v1.71
     // v1.71: 接着モード

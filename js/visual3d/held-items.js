@@ -11,6 +11,7 @@ import { FALLING_STAR } from '../config.js';
 import { getItemDef } from '../items.js';
 import { REMNANT_BUILDERS } from './remnants-visual.js';
 import { createJackOLanternMesh } from './lantern.js';
+import { createHeldStarTorch } from './star-torch.js'; // v1.74
 
 const toon = (color, extra = {}) => new THREE.MeshStandardMaterial({ color, roughness: 0.85, metalness: 0, ...extra });
 const STAR_HOLD_MATERIAL = new THREE.MeshBasicMaterial({ color: 0xffd700, fog: false });
@@ -53,6 +54,7 @@ const HELD_ITEM_BUILDERS = {
   colored_pencils: () => heldFromRemnant('colored_pencils', 1.3, 0.0, 0.3),
   small_toy: () => heldFromRemnant('small_toy', 1.1, 0.0, 0.15),
   jack_o_lantern: () => { const holder = new THREE.Group(); const j = createJackOLanternMesh(0.11); j.position.y = 0.11; holder.add(j); return holder; },
+  star_torch: () => createHeldStarTorch(), // v1.74: 星の松明(手に持つと小さな松明が見える。周りは照らさない)
   star: () => new THREE.Mesh(createStarGeometry(FALLING_STAR.hatRadius * 1.3), STAR_HOLD_MATERIAL),
   // 星のかけら: 星より小さい(約55%)
   star_shard: () => new THREE.Mesh(createStarGeometry(FALLING_STAR.hatRadius * 0.7), STAR_HOLD_MATERIAL),

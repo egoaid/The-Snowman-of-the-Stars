@@ -140,6 +140,16 @@ export function createInventory({ mainSlots = MAIN_SLOTS, hotbarSlots = HOTBAR_S
     return true;
   }
 
+  /** v1.74: 材料が複数のレシピ。「inputs すべてを、出力m個に変える」を全か無かで行う。 */
+  function convertMany(inputs, outId, outCount) {
+    for (const i of inputs) if (count(i.id) < i.count) return false;
+    const backup = snapshot();
+    for (const i of inputs) remove(i.id, i.count, { silent: true });
+    if (addItem(outId, outCount, { silent: true }) > 0) { restore(backup); return false; }
+    emit();
+    return true;
+  }
+
   // ---- ホットバーの選択 ----
 
   function select(i) {
@@ -289,7 +299,7 @@ export function createInventory({ mainSlots = MAIN_SLOTS, hotbarSlots = HOTBAR_S
 
   return {
     mainSlots, hotbarSlots,
-    add, addItem, canAdd, count, remove, convert,
+    add, addItem, canAdd, count, remove, convert, convertMany,
     select, next, prev, getSelected,
     getSelectedIndex: () => selected,
     getSlot: (area, i) => (validArea(area, i) ? copyStack(getArr(area)[i]) : null),

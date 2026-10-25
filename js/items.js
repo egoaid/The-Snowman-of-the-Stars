@@ -21,6 +21,8 @@ export const ITEM_DEFS = {
   moon_stone: { id: 'moon_stone', icon: '🌙', maxStack: 64, category: 'collectible', hand: 'right' },
   moon_shard: { id: 'moon_shard', icon: '☾', maxStack: 64, category: 'material', hand: 'right' },
   torch:   { id: 'torch',   icon: '🔥', maxStack: 64, category: 'utility',     hand: 'left' },
+  // v1.74: 星の松明。細い棒の先に星のかけらがついた松明(枝1+星のかけら1で作る)。Qキーで地面に立てて置ける。焚き火と同じくらい周りを照らす。
+  star_torch: { id: 'star_torch', icon: '🌟', maxStack: 16, category: 'utility', hand: 'right' },
   log:     { id: 'log',     icon: '🪵', maxStack: 64, category: 'resource',    hand: 'right' },
   wood:    { id: 'wood',    icon: '🟫', maxStack: 64, category: 'resource',    hand: 'right' },
   stone:   { id: 'stone',   icon: '🪨', maxStack: 64, category: 'resource',    hand: 'right' },

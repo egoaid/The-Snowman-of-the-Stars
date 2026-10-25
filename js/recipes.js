@@ -24,7 +24,11 @@ export const RECIPES = [
   { id: 'star_to_shards',   station: 'inventory', input: { id: 'star', count: 1 },  output: { id: 'star_shard', count: STAR_TO_SHARDS } },
   { id: 'crafting_table',   station: 'inventory', input: { id: 'wood', count: TENTATIVE.craftingTableWood }, output: { id: 'crafting_table', count: 1 }, tentative: true },
   { id: 'chest',            station: 'inventory', input: { id: 'wood', count: TENTATIVE.chestWood },         output: { id: 'chest', count: 1 }, tentative: true },
+  // v1.74: 星の松明(材料が2種類のレシピ。inputs)。端材(カット機能は保留中)ができたら、枝の代わりに使えるようにする。
+  { id: 'star_torch',       station: 'inventory', inputs: [{ id: 'twig', count: 1 }, { id: 'star_shard', count: 1 }], output: { id: 'star_torch', count: 1 } },
 ];
+/** レシピの材料の一覧(1種類のレシピは input、複数は inputs)。 */
+export function recipeInputs(r) { return r.inputs || [r.input]; }
 // v1.72: レシピ名は、言語に合わせて辞書(recipe.<id>)から引く
 for (const r of RECIPES) Object.defineProperty(r, 'name', { get: () => t(`recipe.${r.id}`), enumerable: true, configurable: true });
 
@@ -34,12 +38,13 @@ export function getRecipe(id) { return RECIPES.find((r) => r.id === id) || null;
 export function canCraft(inventory, recipeId) {
   const r = getRecipe(recipeId);
   if (!r) return false;
-  return inventory.count(r.input.id) >= r.input.count;
+  return recipeInputs(r).every((i) => inventory.count(i.id) >= i.count);
 }
 
 /** レシピを実行する。全か無か(材料が足りない/出力が入らなければ何も変えずfalse)。 */
 export function craft(inventory, recipeId) {
   const r = getRecipe(recipeId);
-  if (!r || !isKnownItem(r.input.id) || !isKnownItem(r.output.id)) return false;
+  if (!r || !isKnownItem(r.output.id) || !recipeInputs(r).every((i) => isKnownItem(i.id))) return false;
+  if (r.inputs) return inventory.convertMany(r.inputs, r.output.id, r.output.count);
   return inventory.convert(r.input.id, r.input.count, r.output.id, r.output.count);
 }
