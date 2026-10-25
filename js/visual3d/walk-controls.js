@@ -410,6 +410,11 @@ export function createWalkControls(domElement, onExit, playableRadius = Infinity
     releasePointerForUi,
     endUiRelease,
     isUiReleased: () => uiRelease,
+    // v1.73: 移動・ジャンプの入力が「いま」あるか(凍結中でも見る)。座っている雪だるまが、歩こうとした時に立つのに使う。
+    hasMoveInput: () => (controls.isLocked || virtualActive) && (
+      keys.forward || keys.back || keys.left || keys.right || keys.jumpHeld ||
+      Math.abs(virtualMoveX) > 0.001 || Math.abs(virtualMoveZ) > 0.001
+    ),
     isMoving: () => !frozen && (controls.isLocked || virtualActive) && (
       keys.forward || keys.back || keys.left || keys.right ||
       Math.abs(virtualMoveX) > 0.001 || Math.abs(virtualMoveZ) > 0.001

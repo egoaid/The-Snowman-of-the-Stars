@@ -160,6 +160,15 @@ export function createSnowmanCharacter(scale = 1) {
   const bodyY = footY + footRadius * footScaleY * 0.5 + bodyRadius * 0.82;
   const headY = bodyY + bodyRadius * 0.85 + headRadius * 0.72;
 
+  // v1.73: 座る・寝るエモート用の入れ物。
+  //   group(向き・寝転ぶ傾き) → upperRoot(座ると下がる) → rollPivot(寝返りで体の長い軸まわりに回る) → 胴体・頭・腕・マフラー・ポーチ
+  //   足(feetGroup)は、座る・寝る時も地面に残す(寝転んでも、足は地面に置いたまま)ので、groupの直下に置く。
+  group.rotation.order = 'YXZ'; // 向き(Y)を外側にして、寝転ぶ傾き(X)をその内側にする
+  const upperRoot = new THREE.Group();
+  const rollPivot = new THREE.Group();
+  upperRoot.add(rollPivot);
+  group.add(upperRoot);
+
   // --- 足(丸い雪玉。2D版には無い、3D歩行のための新規パーツ。
   //     少し上下に潰れた球体にして、雪玉らしい柔らかさを出している) ---
   const feetGroup = new THREE.Group();
@@ -181,20 +190,20 @@ export function createSnowmanCharacter(scale = 1) {
   body.position.y = bodyY;
   body.castShadow = true;
   body.receiveShadow = true;
-  group.add(body);
+  rollPivot.add(body);
 
   // ボタン(胴体の縦3つ)
   const buttonGeo = new THREE.SphereGeometry(bodyRadius * 0.07, 6, 5);
   for (let i = 0; i < 3; i++) {
     const button = new THREE.Mesh(buttonGeo, COAL_MATERIAL);
     button.position.set(0, bodyY + bodyRadius * (0.42 - i * 0.34), bodyRadius * 0.9);
-    group.add(button);
+    rollPivot.add(button);
   }
 
   // --- 頭(全体を1つのGroupにまとめ、頭のゆらぎ(headBob)をまとめて適用する) ---
   const headGroup = new THREE.Group();
   headGroup.position.y = headY;
-  group.add(headGroup);
+  rollPivot.add(headGroup);
 
   const headGeo = new THREE.SphereGeometry(headRadius, 14, 11);
   const head = new THREE.Mesh(headGeo, SNOW_HEAD_MATERIAL);
@@ -349,7 +358,7 @@ export function createSnowmanCharacter(scale = 1) {
   knot.scale.set(1.15, 0.85, 0.9);
   knot.castShadow = true;
   scarfGroup.add(knot);
-  group.add(scarfGroup);
+  rollPivot.add(scarfGroup);
 
   // --- シルクハット(Brim + Crown + RedBand + Star。まとめてhatGroupで揺らす) ---
   const hatGroup = new THREE.Group();
@@ -381,11 +390,11 @@ export function createSnowmanCharacter(scale = 1) {
   // --- 枝の腕 ---
   const rightArm = createBranchLimb(scale, -1);
   rightArm.position.set(-bodyRadius * 0.92, bodyY + bodyRadius * 0.3, 0);
-  group.add(rightArm);
+  rollPivot.add(rightArm);
 
   const leftArm = createBranchLimb(scale, 1);
   leftArm.position.set(bodyRadius * 0.92, bodyY + bodyRadius * 0.42, 0);
-  group.add(leftArm);
+  rollPivot.add(leftArm);
 
   // よろけ演出でrotation.zを揺らす際、createBranchLimbが最初に設定した
   // 傾き(外側への基準角度)を毎フレーム上書きしてしまわないよう、
@@ -434,7 +443,7 @@ export function createSnowmanCharacter(scale = 1) {
   starShard.position.set(0, -pouchR * 0.85, pouchR * 0.72 * 0.95 + pouchR * 0.06);
   starShard.userData.starShard = true;
   pouchSway.add(pouchBody, pouchFlap, starShard);
-  group.add(pouchPivot);
+  rollPivot.add(pouchPivot);
 
   // 左腕の先端(松明の取り付け位置)。
   // 2026-09: 一人称視点で右手に松明があると不自然という指摘を受け、
@@ -503,6 +512,67 @@ export function createSnowmanCharacter(scale = 1) {
     joyHopTimer: 0,
     nextJoyHopIn: 0.8 + Math.random() * 1.2,
   };
+
+  // --- v1.73: 座る・寝るエモートの見た目の値(emote-brain.js が決めて、setEmote()で渡す) ---
+  //   sit: 座っている度合い / lie: 仰向けに倒れている度合い / roll: 寝返り(-1〜1。0=仰向け、±1=横向き)
+  //   yawn: あくび / eyesClosed: 目を閉じる / drowsy: とろん / breath: 息の大きさ
+  const emote = { sit: 0, lie: 0, roll: 0, yawn: 0, eyesClosed: 0, drowsy: 0, breath: 0, breathPhase: 0, sleeping: false };
+  const EMOTE_ROLL_ANGLE = Math.PI * 0.42; // 横向きの傾き(約75度)
+  const EMOTE_SIT_FOOT_FWD = bodyRadius * 1.02; // 座った時、足を前へ投げ出す距離
+  const EMOTE_ARM_REST = 1.85; // 座った時、腕を下ろす回転(rad)
+  const EMOTE_ARM_LIE = 0.9; // 寝転んだ時、腕を地面のほうへ下げる回転(rad)
+  const EMOTE_LIE_HEAD_DROP = 0.12; // 寝転んだ時、頭を地面へ寄せる量(m)
+  const EMOTE_LIE_HAT_TILT = 0.5; // 寝転んだ時、帽子が地面のほうへ傾く(rad)
+  const EMOTE_SIT_DROP = bodyY - bodyRadius * 0.92; // 座った時に上半身が下がる量(体の下が地面に着くまで)
+  // 倒れる角度θで、楕円体(縦の半径a・横の半径b)の下が地面に着くための持ち上げ量。θ=0で0、θ=90度でb。
+  function emoteLieLift(theta) {
+    const a = bodyRadius * 0.92, b = bodyRadius;
+    return Math.sqrt((a * Math.cos(theta)) ** 2 + (b * Math.sin(theta)) ** 2) - a * Math.cos(theta);
+  }
+
+  // --- v1.73: 寝息の「Z」。眠っている間だけ、頭のあたりから3つの小さな「Z」が順にふわっと昇る ---
+  // 世界の座標で動かすため、シーンへは、最初の更新の時に雪だるまと同じ親へ足す(寝転んでいても上へ昇る)。
+  const zzz = (() => {
+    const cv = document.createElement('canvas');
+    cv.width = 32; cv.height = 32;
+    const c2 = cv.getContext('2d');
+    c2.font = 'bold 26px sans-serif'; c2.textAlign = 'center'; c2.textBaseline = 'middle';
+    c2.lineWidth = 4; c2.strokeStyle = 'rgba(40,60,110,0.9)'; c2.strokeText('Z', 16, 17);
+    c2.fillStyle = '#ffffff'; c2.fillText('Z', 16, 17);
+    const tex = new THREE.CanvasTexture(cv);
+    tex.magFilter = THREE.NearestFilter; tex.minFilter = THREE.NearestFilter; // 低解像度の画面に合わせて、にじませない
+    const root = new THREE.Group();
+    const items = [];
+    for (let i = 0; i < 3; i++) {
+      const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, opacity: 0, depthWrite: false, fog: false });
+      const sp = new THREE.Sprite(mat);
+      sp.visible = false;
+      root.add(sp);
+      items.push({ sp, mat, age: -0.001 - i * 1.15, life: 3.4 }); // ずらして出す(負=出番待ち)
+    }
+    return { root, items, tmp: new THREE.Vector3() };
+  })();
+  function updateZzz(delta) {
+    if (!zzz.root.parent && group.parent) group.parent.add(zzz.root); // 雪だるまと同じ親(シーン)へ
+    const on = emote.sleeping && emote.eyesClosed > 0.8;
+    if (!on && !zzz.items.some((it) => it.age >= 0)) return; // 眠っていなくて、昇っているものも無い
+    headGroup.getWorldPosition(zzz.tmp);
+    zzz.items.forEach((it, idx) => {
+      if (it.age < 0) { // 出番待ち(眠っている間だけ数える)
+        if (on) it.age += delta;
+        it.sp.visible = false;
+        return;
+      }
+      it.age += delta; // 昇っているものは、眠りが終わっても最後まで昇って消える
+      if (it.age >= it.life) { it.sp.visible = false; it.age = -0.05; return; }
+      const k = it.age / it.life;
+      it.sp.visible = true;
+      it.sp.position.set(zzz.tmp.x + 0.18 + k * 0.38 + Math.sin(k * 5 + idx) * 0.05, zzz.tmp.y + 0.45 + k * 0.85, zzz.tmp.z - 0.05);
+      const sc = 0.2 + k * 0.2;
+      it.sp.scale.set(sc, sc, 1);
+      it.mat.opacity = Math.min(1, k * 5) * (1 - Math.max(0, (k - 0.6) / 0.4));
+    });
+  }
 
   /**
    * 歩行中の「ぴょこん」ホップと、時々よろける演出のタイマー処理。
@@ -614,8 +684,11 @@ export function createSnowmanCharacter(scale = 1) {
     if (state.blinkState === 1) blinkScale = 1 - state.blinkProgress;
     else if (state.blinkState === 2) blinkScale = 0.04;
     else if (state.blinkState === 3) blinkScale = state.blinkProgress;
-    eyeLeft.scale.y = blinkScale;
-    eyeRight.scale.y = blinkScale;
+    // v1.73: とろん(半目)・あくび(細める)・眠る(閉じる)を、瞬きに重ねる
+    const lid = Math.max(0, 1 - 0.55 * emote.drowsy) * (1 - 0.6 * emote.yawn);
+    const eyeScaleY = Math.max(0.05, blinkScale * lid * (1 - emote.eyesClosed));
+    eyeLeft.scale.y = eyeScaleY;
+    eyeRight.scale.y = eyeScaleY;
   }
 
   function updateMouth(delta) {
@@ -642,6 +715,9 @@ export function createSnowmanCharacter(scale = 1) {
         }
       }
     }
+    // v1.73: あくびは大きく開ける。眠っている間は、息に合わせてほんの少し開ける
+    if (emote.yawn > 0.01) openAmount = Math.max(openAmount, emote.yawn);
+    else if (emote.eyesClosed > 0.8) openAmount = 0.07 + 0.06 * (0.5 + 0.5 * Math.sin(emote.breathPhase * 1.6));
     openAmount = Math.max(0, Math.min(1, openAmount));
     if (openAmount < 0.04) {
       closedMouthGroup.visible = true;
@@ -773,10 +849,14 @@ export function createSnowmanCharacter(scale = 1) {
       ? Math.sin(Math.min(1, state.actionSwingTimer / ACTION_SWING_DURATION) * Math.PI)
       : 0;
     // 右腕(アクションで前へ伸びる腕。モデルのx<0側 = +z向きの雪だるまの右手)と左腕(松明)
-    rightArm.rotation.x = -armSwingBase - armSwingWalk + actionCurve * ACTION_SWING_ANGLE;
-    leftArm.rotation.x = armSwingBase * 1.2 + armSwingWalk;
-    rightArm.rotation.z = leftArmBaseZ - stumbleFlail * state.stumbleDir;
-    leftArm.rotation.z = rightArmBaseZ + stumbleFlail * state.stumbleDir;
+    // v1.73: 座っている・寝ている間は、腕の振りを抑えて、地面のほうへ下ろす(あくびの時は、ぐっと上へのびる)
+    const armCalm = 1 - 0.85 * emote.sit;
+    const armRest = emote.sit * EMOTE_ARM_REST * (1 - 0.6 * emote.yawn);
+    const armLie = emote.lie * EMOTE_ARM_LIE;
+    rightArm.rotation.x = (-armSwingBase - armSwingWalk) * armCalm + actionCurve * ACTION_SWING_ANGLE + armLie;
+    leftArm.rotation.x = (armSwingBase * 1.2 + armSwingWalk) * armCalm + armLie;
+    rightArm.rotation.z = leftArmBaseZ + armRest - stumbleFlail * state.stumbleDir;
+    leftArm.rotation.z = rightArmBaseZ - armRest + stumbleFlail * state.stumbleDir;
 
     // 足の交互運動(2つの丸い雪玉を前後に振り子運動させる、可愛らしい歩き方)
     state.walkPhase += delta * (4.2 * Math.max(state.walkBlend, 0.15));
@@ -789,7 +869,9 @@ export function createSnowmanCharacter(scale = 1) {
     // 歩行に合わせて胴体全体を少しだけ上下させる(通常の細かい上下動)
     body.position.y = bodyY + Math.abs(Math.sin(state.walkPhase * 2)) * bodyRadius * 0.03 * state.walkBlend + bodyHalfY * sq;
     // 体の伸縮(下端=接地は固定)。縦に伸びたら横は少し細く(体積を保つ見た目)。
-    body.scale.set(bodyBaseScale.x * (1 - 0.4 * sq), bodyBaseScale.y * (1 + sq), bodyBaseScale.z * (1 - 0.4 * sq));
+    // v1.73: 息(座っている時は小さく、寝ている時はゆっくり大きく)
+    const breathK = 1 + 0.02 * emote.breath * Math.sin(emote.breathPhase * 1.9);
+    body.scale.set(bodyBaseScale.x * (1 - 0.4 * sq) * breathK, bodyBaseScale.y * (1 + sq) * (1 + (breathK - 1) * 0.5), bodyBaseScale.z * (1 - 0.4 * sq) * breathK);
     // 首のマフラーと左肩のポーチは、体が伸びた分だけ上下して体に付いていく(+ごく短い遅れの持ち上がり)
     scarfGroup.position.y = bodyY + (bodyRadius * 0.8 + bodyHalfY) * sq + scarfLift * bodyRadius * 0.03;
     pouchPivot.position.y = pouchBaseY + (pouchRelY + bodyHalfY) * sq + pouchLift * bodyRadius * 0.02;
@@ -797,12 +879,34 @@ export function createSnowmanCharacter(scale = 1) {
     // ポーチは、歩くと少し揺れる(胴体の面に沿った軸まわりに、小さな振り子運動)
     pouchSway.rotation.x = Math.sin(state.walkPhase * 1.0 + 0.6) * 0.16 * state.walkBlend - pouchLift * 0.28;
 
+    // --- v1.73: 座る・寝る姿勢 ---
+    // 座る: 上半身が下がって、足は前へ投げ出す。寝る: 座った姿勢のまま、お尻(原点)を支点に後ろへ倒れて仰向けになる。
+    // 足は地面に残す(feetGroupを、倒れる回転と逆に回して、持ち上がった分を戻す)。寝返り: 体の長い軸まわりに、上半身だけ回る。
+    const sitK = emote.sit, lieK = emote.lie;
+    const lieAngle = lieK * Math.PI * 0.5;
+    upperRoot.position.set(0, -EMOTE_SIT_DROP * sitK, -bodyRadius * 0.06 * sitK);
+    upperRoot.rotation.x = 0.07 * sitK * (1 - lieK) - 0.1 * emote.yawn * (1 - lieK); // 座ると、ほんの少し前かがみ。あくびでは、のけぞる
+    rollPivot.rotation.y = emote.roll * EMOTE_ROLL_ANGLE;
+    const lieLift = lieK > 0.001 ? emoteLieLift(lieAngle) : 0; // 倒れても、体の下が地面に着くように持ち上げる
+    rightFoot.position.x = -bodyRadius * (0.42 + 0.2 * sitK);
+    leftFoot.position.x = bodyRadius * (0.42 + 0.2 * sitK);
+    rightFoot.position.z += EMOTE_SIT_FOOT_FWD * sitK;
+    leftFoot.position.z += EMOTE_SIT_FOOT_FWD * sitK;
+    rightFoot.rotation.y = -0.32 * sitK;
+    leftFoot.rotation.y = 0.32 * sitK;
+    feetGroup.rotation.x = lieAngle;
+    feetGroup.position.set(0, -lieLift * Math.cos(lieAngle), -lieLift * Math.sin(lieAngle));
+    // 頭: あくびで上を向き、とろんとするとゆっくりうなずく。寝転ぶと少し下げて、地面にめり込まず浮かないようにする。
+    headGroup.rotation.x = -0.36 * emote.yawn + Math.sin(emote.breathPhase * 0.7) * 0.1 * emote.drowsy * (1 - lieK) + 0.05 * sitK * (1 - lieK);
+    headGroup.position.z = -EMOTE_LIE_HEAD_DROP * lieK;
+    hatGroup.rotation.x = -EMOTE_LIE_HAT_TILT * lieK;
+
     // ホップ(ぴょこん)は、呼び出し側が設定した接地位置(position.y)に
     // 対して加算する(呼び出し側は毎フレーム地形の高さでposition.yを
     // 設定し直す前提なので、ここでは単純に+=でよい)。
-    group.position.y += hopHeight;
-    group.rotation.z = stumbleTilt;
-    group.rotation.x = stumbleLean;
+    group.position.y += hopHeight + lieLift;
+    group.rotation.z = stumbleTilt * (1 - lieK);
+    group.rotation.x = stumbleLean * (1 - lieK) - lieAngle;
 
     updateBlink(delta);
     updateMouth(delta);
@@ -810,12 +914,21 @@ export function createSnowmanCharacter(scale = 1) {
 
     blushLeft.material.opacity = effIntensity * 0.35;
     blushRight.material.opacity = effIntensity * 0.35;
+    updateZzz(delta);
   }
 
   return {
     group,
     update,
     setWalking(walking) { state.walking = !!walking; },
+    /** v1.73: 座る・寝るエモートの見た目の値を渡す(emote-brain.js の getPose())。 */
+    setEmote(p) {
+      if (!p) return;
+      emote.sit = +p.sit || 0; emote.lie = +p.lie || 0; emote.roll = +p.roll || 0; emote.yawn = +p.yawn || 0;
+      emote.eyesClosed = +p.eyesClosed || 0; emote.drowsy = +p.drowsy || 0; emote.breath = +p.breath || 0;
+      emote.breathPhase = +p.breathPhase || 0; emote.sleeping = !!p.sleeping;
+    },
+    getEmote: () => ({ ...emote }),
     /** v1.56: 頭の装備を見た目に反映する('jack_o_lantern' か null)。 */
     setHeadCover,
     headGroup,

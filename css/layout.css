@@ -912,3 +912,42 @@ html.i18n-pending #titleScreen, html.i18n-pending #settingsPanel { visibility: h
 .lang-switch button + button { border-left: 1px solid rgba(255, 233, 168, 0.3); }
 .lang-switch button[aria-pressed="true"], #settingsPanel .lang-switch button[aria-pressed="true"], #titleScreen .lang-switch button[aria-pressed="true"] { background: rgba(255, 233, 168, 0.22); opacity: 1; font-weight: 700; }
 .lang-switch-title { display: flex; width: max-content; margin: 0 auto 16px; }
+
+/* ============================================================
+   v1.73: エモートのホイール(Bキー/スマホは🪑)。座る・寝る・立つ。
+   円の上に3つの丸いボタンを置く。歩行モードの間だけ開ける。
+   ============================================================ */
+#emoteWheel {
+  position: fixed; inset: 0; z-index: 30; display: none;
+  align-items: center; justify-content: center;
+  background: rgba(10, 14, 24, 0.38);
+}
+#emoteWheel.open { display: flex; }
+#emoteWheel .emote-ring { position: relative; width: 300px; height: 300px; }
+#emoteWheel .emote-center {
+  position: absolute; left: 50%; top: 50%; width: 120px; transform: translate(-50%, -50%);
+  text-align: center; color: #f6e6c8; pointer-events: none;
+  text-shadow: 1px 1px 0 #000, -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000;
+}
+#emoteWheel .emote-title { font: bold 17px/1.2 system-ui, sans-serif; margin-bottom: 6px; }
+#emoteWheel .emote-hint { font: 11px/1.35 system-ui, sans-serif; opacity: 0.85; }
+#emoteWheel .emote-slot {
+  position: absolute; left: 50%; top: 50%; width: 96px; height: 96px; margin: -48px 0 0 -48px;
+  transform: rotate(var(--ang)) translate(112px) rotate(calc(-1 * var(--ang)));
+  border-radius: 50%; border: 3px solid #b88a52; background: rgba(58, 38, 22, 0.94); color: #f6e6c8;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+  cursor: pointer; touch-action: manipulation; font-family: system-ui, sans-serif;
+  transition: background 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease;
+}
+#emoteWheel .emote-slot:hover, #emoteWheel .emote-slot:focus-visible {
+  background: #7a5230; border-color: #ffe9a8; box-shadow: 0 0 0 2px #ffe9a8, 0 0 14px rgba(255, 233, 168, 0.4); outline: none;
+}
+#emoteWheel .emote-slot.current { border-color: #ffe9a8; }
+#emoteWheel .emote-slot.dim { opacity: 0.45; }
+#emoteWheel .emote-ico { font-size: 30px; line-height: 1; }
+#emoteWheel .emote-lbl { font-size: 14px; font-weight: bold; }
+/* スマホ: エモートのボタンは、👝の上(2段目) */
+#touchBtnEmote { right: 40px; top: -154px; font-size: 24px; display: none; }
+@media (max-height: 420px) {
+  #emoteWheel .emote-ring { transform: scale(0.72); }
+}

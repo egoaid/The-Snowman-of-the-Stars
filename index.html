@@ -462,6 +462,15 @@
     <button type="button" id="editBtnRelease" data-i18n="edit.release">Release</button>
   </div>
 
+  <!-- v1.73: エモートのホイール(Bキー/スマホは🪑)。座る・寝る・立つ。歩行モードの間だけ開ける -->
+  <div id="emoteWheel" role="dialog" aria-label="Emotes" data-i18n-aria-label="emote.aria" aria-hidden="true">
+    <div class="emote-ring">
+      <button type="button" class="emote-slot" data-emote="sit" style="--ang: -90deg"><span class="emote-ico">🪑</span><span class="emote-lbl" data-i18n="emote.sit">Sit</span></button>
+      <button type="button" class="emote-slot" data-emote="sleep" style="--ang: 30deg"><span class="emote-ico">💤</span><span class="emote-lbl" data-i18n="emote.sleep">Sleep</span></button>
+      <button type="button" class="emote-slot" data-emote="stand" style="--ang: 150deg"><span class="emote-ico">⛄</span><span class="emote-lbl" data-i18n="emote.stand">Stand</span></button>
+      <div class="emote-center"><div class="emote-title" data-i18n="emote.title">Emotes</div><div class="emote-hint" data-i18n="emote.hint">Click to choose · B / Esc: close</div></div>
+    </div>
+  </div>
   <div id="inventoryPanel" role="dialog" aria-label="Inventory" data-i18n-aria-label="inv.aria">
     <div class="inv-head">
       <div class="inv-title" data-i18n="inv.title">👝 Inventory</div>
@@ -500,6 +509,7 @@
       <div id="touchBtnE" class="touch-btn" title="Inventory" data-i18n-title="touch.inventory">👝</div>
       <div id="touchBtnAction" class="touch-btn" title="Action" data-i18n-title="touch.action">✦</div>
       <div id="touchBtnView" class="touch-btn" title="Switch view (first / third person)" data-i18n-title="touch.view">📷</div>
+      <div id="touchBtnEmote" class="touch-btn" title="Emotes (sit / sleep)" data-i18n-title="touch.emote">🪑</div>
     </div>
   </div>
 
@@ -1582,18 +1592,70 @@
     invSplitBtn.addEventListener('click', () => { invSplitMode = !invSplitMode; invSplitBtn.classList.toggle('on', invSplitMode); });
     touchBtnE.addEventListener('touchstart', (e) => { e.preventDefault(); toggleInventory(); }, { passive: false });
 
+    // --- v1.73: エモートのホイール(Bキー。スマホは🪑)。座る・寝る・立つ。マイクラ統合版のエモートホイールと同じように、Bで開いてえらぶ ---
+    const emoteWheel = document.getElementById('emoteWheel');
+    const touchBtnEmote = document.getElementById('touchBtnEmote');
+    function isEmoteWheelOpen() { return emoteWheel.classList.contains('open'); }
+    function syncEmoteWheel() {
+      const st = sceneRefForTouch ? sceneRefForTouch.getEmoteState() : 'stand';
+      const down = st !== 'stand';
+      for (const b of emoteWheel.querySelectorAll('.emote-slot')) {
+        const k = b.dataset.emote;
+        b.classList.toggle('dim', k === 'stand' && !down); // 立っている時は、「立つ」は薄く
+        b.classList.toggle('current', (k === 'sit' && (st === 'sit' || st === 'sitting-down' || st === 'yawn')) || (k === 'sleep' && (st === 'sleep' || st === 'roll' || st === 'lying-down')));
+      }
+    }
+    function openEmoteWheel() {
+      if (!sceneRefForTouch || sceneRefForTouch.getMode() !== 'walk' || isInventoryOpen() || isEmoteWheelOpen()) return;
+      if (!sceneRefForTouch.setEmoteWheelOpen(true)) return;
+      emoteWheel.classList.add('open');
+      emoteWheel.setAttribute('aria-hidden', 'false');
+      syncEmoteWheel();
+    }
+    function closeEmoteWheel() {
+      if (!isEmoteWheelOpen()) return;
+      emoteWheel.classList.remove('open');
+      emoteWheel.setAttribute('aria-hidden', 'true');
+      if (sceneRefForTouch) sceneRefForTouch.setEmoteWheelOpen(false);
+    }
+    function toggleEmoteWheel() { if (isEmoteWheelOpen()) closeEmoteWheel(); else openEmoteWheel(); }
+    function chooseEmote(kind) {
+      if (sceneRefForTouch) sceneRefForTouch.emote(kind);
+      closeEmoteWheel();
+    }
+    for (const b of emoteWheel.querySelectorAll('.emote-slot')) {
+      b.addEventListener('click', (e) => { e.preventDefault(); chooseEmote(b.dataset.emote); });
+    }
+    emoteWheel.addEventListener('click', (e) => { if (e.target === emoteWheel) closeEmoteWheel(); }); // ホイールの外を押したら閉じる
+    touchBtnEmote.addEventListener('touchstart', (e) => { e.preventDefault(); toggleEmoteWheel(); }, { passive: false });
+    document.addEventListener('keydown', (e) => {
+      const tag = (document.activeElement && document.activeElement.tagName) || '';
+      if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
+      if (e.code === 'KeyB') {
+        if (e.repeat) return;
+        if (!sceneRefForTouch || sceneRefForTouch.getMode() !== 'walk') return;
+        e.preventDefault();
+        toggleEmoteWheel();
+        return;
+      }
+      if (!isEmoteWheelOpen()) return;
+      if (e.code === 'Escape') { e.preventDefault(); closeEmoteWheel(); return; }
+      const kinds = { Digit1: 'sit', Digit2: 'sleep', Digit3: 'stand', Numpad1: 'sit', Numpad2: 'sleep', Numpad3: 'stand' };
+      if (kinds[e.code]) { e.preventDefault(); chooseEmote(kinds[e.code]); }
+    });
+
     document.addEventListener('keydown', (e) => {
       const tag = (document.activeElement && document.activeElement.tagName) || '';
       if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
       if (e.code === 'KeyQ') { // v1.56: 手に持っている物を1個、前に置く
         if (e.repeat) return;
-        if (!sceneRefForTouch || sceneRefForTouch.getMode() !== 'walk' || isInventoryOpen()) return;
+        if (!sceneRefForTouch || sceneRefForTouch.getMode() !== 'walk' || isInventoryOpen() || isEmoteWheelOpen()) return;
         sceneRefForTouch.placeHeldItem();
         return;
       }
       if (e.code === 'KeyE') {
         if (e.repeat) return;
-        if (!sceneRefForTouch || sceneRefForTouch.getMode() !== 'walk') return;
+        if (!sceneRefForTouch || sceneRefForTouch.getMode() !== 'walk' || isEmoteWheelOpen()) return; // v1.73: ホイールを開いている間は、インベントリを開かない
         toggleInventory();
         return;
       }
@@ -1627,7 +1689,7 @@
     }
     function selectHotbarByNumberKey(e) {
       if (!sceneRefForTouch || sceneRefForTouch.getMode() !== 'walk') return;
-      if (isInventoryOpen()) return; // 開いている間は、スロットとの入れ替えとして上で処理する
+      if (isInventoryOpen() || isEmoteWheelOpen()) return; // 開いている間は、スロットとの入れ替え(インベントリ)・エモートの選択(ホイール)として別に処理する
       const n = Number(e.code.replace('Digit', ''));
       if (!Number.isInteger(n) || n < 1 || n > HOTBAR_SLOTS) return;
       sceneRefForTouch.selectHotbar(n - 1);
@@ -1639,13 +1701,13 @@
     });
     // マウスホイールでホットバーを送る(歩行モード中のみ。ページの拡大縮小等は妨げない)
     document.addEventListener('wheel', (e) => {
-      if (!sceneRefForTouch || sceneRefForTouch.getMode() !== 'walk' || isInventoryOpen()) return;
+      if (!sceneRefForTouch || sceneRefForTouch.getMode() !== 'walk' || isInventoryOpen() || isEmoteWheelOpen()) return;
       if (e.deltaY > 0) sceneRefForTouch.hotbarNext(); else if (e.deltaY < 0) sceneRefForTouch.hotbarPrev();
     }, { passive: true });
     // 左クリックでアクション(PC版。歩行モード中のみ。UIボタン類のクリックと衝突しないよう
     // #stage(canvas)自体への直接クリックだけを見る。インベントリを開いている間は何もしない)。
     document.getElementById('stage').addEventListener('mousedown', (e) => {
-      if (isInventoryOpen()) return;
+      if (isInventoryOpen() || isEmoteWheelOpen()) return;
       if (!sceneRefForTouch || sceneRefForTouch.getMode() !== 'walk') return;
       if (e.button === 0) sceneRefForTouch.triggerInteract();
       else if (e.button === 2) sceneRefForTouch.placeHeldItem(true); // v1.56: 右クリックで、手に持った物を狙った地面に置く(マイクラと同じ)
@@ -1662,10 +1724,12 @@
         settingsPanel.style.display = 'none'; // 歩行中は設定パネルも閉じておく
       } else {
         closeInventory(); // 歩行を抜けたらインベントリも閉じる
+        closeEmoteWheel(); // v1.73: エモートのホイールも閉じる
         noteUiActivity(); // Escで歩行を抜けたら、設定UIをすぐ再表示する
       }
       walkExitBtn.style.display = isTouchDevice && uiWalking ? 'flex' : 'none';
       touchBtnAction.style.display = isTouchDevice && uiWalking ? 'flex' : 'none';
+      touchBtnEmote.style.display = isTouchDevice && uiWalking ? 'flex' : 'none'; // v1.73
       hotbarBar.style.display = uiWalking ? 'flex' : 'none';
       if (uiWalking) renderHotbar();
       applyUiVisibility();

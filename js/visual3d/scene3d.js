@@ -38,6 +38,7 @@ import { getToonGradientMap } from './shading.js';
 import { createCameraDirector } from './camera-director.js';
 import { createWalkControls, EYE_HEIGHT } from './walk-controls.js';
 import { createSnowmanCharacter, createFirstPersonHands, createTorch } from './snowman.js';
+import { createEmoteBrain } from './emote-brain.js'; // v1.73: 座る・寝るエモートの状態機械
 import { makeRng, randRange, deriveSeed } from './rng.js';
 import { createFallenWood, placeFallenWood, WOOD_PLAN_EXTRA, woodPhysicalProperties, woodMaterial, collisionDims } from './fallen-wood.js';
 import { createLogObstacleManager, isWalkOver } from './log-obstacles.js';
@@ -588,6 +589,7 @@ export function initScene(mountEl, options = {}) {
   // 実際のCollision判定(木・岩との衝突)はまだ実装していない
   // (Snowman 3D Character.md 21〜22節の通り、将来のフェーズで対応)。
   const playerSnowman = createSnowmanCharacter(1);
+  const emoteBrain = createEmoteBrain(); // v1.73: 座る・寝る(見守りでは、ときどき勝手に。歩行ではBキーのホイールから)
   const snowmanHomeX = campX + 4.0, snowmanHomeZ = campZ + 3.0; // 川・大木・テント・焚き火から十分離れた安全な位置(検証済み)
   placeOnTerrain(playerSnowman.group, snowmanHomeX, snowmanHomeZ, terrainHeightAt);
   scene.add(playerSnowman.group);
@@ -2185,6 +2187,7 @@ export function initScene(mountEl, options = {}) {
     if (mode !== 'walk') return; // 二重に呼ばれても一度だけ処理する
     mode = 'orbit';
     inventoryOpen = false; // 歩行を抜けたらインベントリも閉じる
+    emoteState.wheelOpen = false; // v1.73: エモートのホイールも閉じる
     walk.setFrozen(false);
     walk.endUiRelease(false);
     interaction.hide(); // v1.39: 歩行を抜けたら、狙いのハイライトも消す
@@ -2256,6 +2259,7 @@ export function initScene(mountEl, options = {}) {
       exitWalkMode(); // v1.38: タッチ操作(ポインターロック無し)でも確実にorbitへ戻す
     }
     wanderActive = !!active;
+    if (wanderActive) emoteBrain.adoptAuto(); // v1.73
     wander.collectTask = null; wander.baseTask = null; // v1.54: モードの切り替えで、途中の動作は終える
     if (!wanderActive) { cinemaMode = false; chest.close(); } // 見守りモードを切ったら自動カメラも切る
     if (wanderActive && fallingStars.isLanded()) rollSnowmanStarReaction(); // すでに落ちている星にも気づくことがある
@@ -3544,6 +3548,7 @@ export function initScene(mountEl, options = {}) {
   }
   /** aim=true(右クリック)なら、狙った地面に置く(マイクラのように)。狙えなければ、足元の前に置く。 */
   function placeHeldItem(aim = false) {
+    if (emoteBrain.isBusy() || emoteState.wheelOpen) return null; // v1.73
     const id = inventory.getSelected();
     const def = id && getItemDef(id);
     if (!def || def.category === 'placeable' || !buildHeldItem(id)) return null;
@@ -3664,6 +3669,63 @@ export function initScene(mountEl, options = {}) {
   let debugFrameMs = 0;
   const DEBUG_UPDATE_INTERVAL = 0.25; // 秒
 
+  // ================================================================
+  // v1.73: 座る・寝る(エモート)
+  //   見守りモード: 立っている時間が長く続いたあと、ときどき勝手に座る → ぼーっと → あくび → 仰向けで寝る(寝返り) → 起きて座る → 立つ。
+  //   歩行モード: Bキーのホイールから「座る/寝る/立つ」。座っている間は歩けず、歩こうとすると(寝ていたら座ってから)立つ。
+  //   状態の流れは emote-brain.js、見た目は snowman.js の setEmote()。ここは、場所の確認・移動の止め方・カメラの高さをつなぐ。
+  // ================================================================
+  const emoteState = { wheelOpen: false, spotT: 99, spotOk: true, canLie: true };
+  /** 座る/仰向けになるための場所が空いているか。前(足を投げ出す)と、寝る時は後ろ(体と頭)に、水・木・岩・倒木・急な段差が無いこと。 */
+  function emoteSpotFree(px, pz, heading, needBack) {
+    const fx = Math.sin(heading), fz = Math.cos(heading);
+    const probes = needBack ? [[0.95, 0.4], [-0.9, 0.45], [-1.55, 0.45], [-2.2, 0.45]] : [[0.95, 0.4]];
+    const h0 = terrainHeightAt(px, pz);
+    for (const [d, r] of probes) {
+      const x = px + fx * d, z = pz + fz * d;
+      if (Math.hypot(x, z) > PLAYABLE_RADIUS + 2) return false;
+      if (traversal.isWaterBlocked(x, z, null)) return false;
+      const rc = resolveCollisions(x, z, r);
+      if (Math.hypot(rc.x - x, rc.z - z) > 0.04) return false;
+      if (Math.abs(terrainHeightAt(x, z) - h0) > 0.7) return false;
+      if (getClimbBump(x, z) > 0.12) return false;
+    }
+    return true;
+  }
+  function updateEmote(delta) {
+    const g = playerSnowman.group;
+    const px = g.position.x, pz = g.position.z, hd = g.rotation.y;
+    const autoAllowed = wanderActive && !editMode.isEnabled();
+    // 場所の確認: 座っている間と、座りたくなった時だけ、0.4秒ごとに
+    emoteState.spotT += delta;
+    if (emoteState.spotT > 0.4 && (emoteBrain.isBusy() || (autoAllowed && emoteBrain.wantsAutoRest()))) {
+      emoteState.spotT = 0;
+      emoteState.spotOk = emoteSpotFree(px, pz, hd, false);
+      emoteState.canLie = emoteSpotFree(px, pz, hd, true);
+    }
+    const calm = autoAllowed && wander.waiting && !wander.collectTask && !wander.baseTask && !wander.hop && !wander.hurdle
+      && !aiClimb.active && nonWalkVertical.grounded && emoteState.spotOk && !wander.turningAway;
+    emoteBrain.update(delta, {
+      autoAllowed, calm,
+      isNight: getTimeOfDay(gameHour) === 'night',
+      canLie: emoteState.canLie,
+      interrupt: autoAllowed && starInterest.active, // 星に向かうと決めたら、起きて出かける
+    });
+    if (mode === 'walk') {
+      // 歩行モード: 座っている間・ホイールを開いている間は、歩けない。歩こうとしたら立つ(寝ていたら、起きて座ってから)
+      walk.setFrozen(inventoryOpen || emoteState.wheelOpen || emoteBrain.isBusy());
+      if (emoteBrain.isBusy() && !emoteState.wheelOpen && !inventoryOpen && walk.hasMoveInput()) emoteBrain.request('stand');
+    }
+  }
+  function setEmoteWheelOpen(open) {
+    const want = !!open && mode === 'walk' && !inventoryOpen;
+    if (want === emoteState.wheelOpen) return emoteState.wheelOpen;
+    emoteState.wheelOpen = want;
+    if (want) walk.releasePointerForUi(); // マウスでえらべるように(歩行モードは抜けない)
+    else walk.endUiRelease(mode === 'walk'); // 閉じる時、視点操作を取り戻す
+    return want;
+  }
+
   function renderFrame() {
     const delta = clock.getDelta();
     const t = clock.getElapsedTime();
@@ -3671,11 +3733,13 @@ export function initScene(mountEl, options = {}) {
     // --- プレイヤー/雪だるまの移動とカメラ配置 ---
     // (river音・天候・影の追従などcamera.positionに依存する処理より前に
     //  済ませておく必要があるため、renderFrame()の最初に行う)
+    updateEmote(delta); // v1.73: 座る・寝る(歩行・見守りの移動の前に、いまの状態を決める)
     if (mode === 'walk') {
       walk.update(delta);
     }
     if (wanderActive) {
-      updateWanderAI(delta);
+      if (emoteBrain.isBusy()) wander.walking = false; // v1.73: 座っている・寝ている間は、見守りの移動を止める(動作・目的地はそのまま残す)
+      else updateWanderAI(delta);
     }
 
     let snowX, snowZ, snowHeading, snowWalking;
@@ -3748,7 +3812,16 @@ export function initScene(mountEl, options = {}) {
     const snowGroundY = vState ? vState.y : (Number.isFinite(walkFeet) ? walkFeet : baseHere);
     playerSnowman.group.position.set(snowX, snowGroundY, snowZ);
     playerSnowman.group.rotation.y = snowHeading;
-    playerSnowman.setWalking(snowWalking);
+    const emotePose = emoteBrain.getPose(); // v1.73
+    playerSnowman.setEmote(emotePose);
+    if (emotePose.lie > 0.02) {
+      // 寝転ぶと、頭のほう(後ろ)へ体が伸びる。後ろの地面のほうが高ければ(斜面)、その分だけ持ち上げて、めり込まないようにする
+      let top = snowGroundY;
+      const snowTop = weather.getSnowDepth();
+      for (const d of [0.6, 1.2, 1.8, 2.2]) top = Math.max(top, terrainHeightAt(snowX - Math.sin(snowHeading) * d, snowZ - Math.cos(snowHeading) * d) + snowTop);
+      playerSnowman.group.position.y += (top - snowGroundY) * emotePose.lie;
+    }
+    playerSnowman.setWalking(snowWalking && !emoteBrain.isBusy());
     playerSnowman.setJumpHeight(vState ? Math.max(vState.airHeight(), aiClimb.pose) : Math.max(walk.getAirHeight(), walk.getClimbPose())); // 引き上げ中も、伸び縮みで「うんしょ」と見せる // v1.44: ジャンプの伸び縮み・帽子等の慣性の入力
     playerSnowman.update(delta, t);
 
@@ -3791,19 +3864,26 @@ export function initScene(mountEl, options = {}) {
     }
 
     if (mode === 'walk') {
-      const eyeX = snowX, eyeY = snowGroundY + EYE_HEIGHT, eyeZ = snowZ;
+      // v1.73: 座ると目線が下がり、寝転ぶと、頭のあたり(体の後ろ側)の低い位置になる
+      const emPose = emoteBrain.getPose();
+      const eyeH = EYE_HEIGHT * (1 - 0.5 * emPose.sit) * (1 - 0.45 * emPose.lie);
+      const eyeBack = 1.0 * emPose.lie;
+      const eyeX = snowX - Math.sin(snowHeading) * eyeBack, eyeY = snowGroundY + eyeH, eyeZ = snowZ - Math.cos(snowHeading) * eyeBack;
       walk.lookRig.getWorldDirection(walkLookDirScratch);
       if (cameraView === 'first') {
         camera.position.set(eyeX, eyeY, eyeZ);
         camera.quaternion.copy(walk.lookRig.quaternion);
         playerSnowman.group.visible = false;
-        firstPersonHands.group.visible = true;
+        firstPersonHands.group.visible = emPose.sit < 0.15; // v1.73: 座ったら、手は見えない
       } else {
         // 三人称(前方・後方共通): マウスの向き(ヨー・ピッチ)にそのまま
         // 追従してカメラを軌道上に配置し、常にアンカー点(胴体よりやや上)
         // をlookAt()で見る。ピッチも含めて追従させることで、マウスの
         // 上下移動がそのまま「見上げる/見下ろす」になる。
-        const orbitAnchor = bodyCenterScratch.set(snowX, snowGroundY + THIRD_PERSON_ANCHOR_HEIGHT, snowZ);
+        // v1.73: 座ると注目点が下がり、寝転ぶと、体の真ん中あたり(原点より少し後ろ)を見る
+        const anchorH = THIRD_PERSON_ANCHOR_HEIGHT * (1 - 0.5 * emPose.sit) * (1 - 0.25 * emPose.lie);
+        const anchorBack = 0.35 * emPose.lie;
+        const orbitAnchor = bodyCenterScratch.set(snowX - Math.sin(snowHeading) * anchorBack, snowGroundY + anchorH, snowZ - Math.cos(snowHeading) * anchorBack);
         const camSign = cameraView === 'third-back' ? -1 : 1;
         const desiredDistance = cameraView === 'third-back' ? THIRD_PERSON_BACK_DISTANCE : THIRD_PERSON_FRONT_DISTANCE;
         // フェーズD: 木・岩・テント・焚き火へのめり込み回避。水平方向の
@@ -4104,6 +4184,16 @@ export function initScene(mountEl, options = {}) {
     setCinemaMode,
     isCinemaMode: () => cinemaMode,
     getMode: () => mode,
+    // v1.73: 座る・寝るエモート。kind は 'sit' | 'sleep' | 'stand'。歩行モードの時だけ受ける(見守りは、自分で決める)。
+    emote: (kind) => { if (mode !== 'walk' && !(kind === 'stand')) return false; emoteBrain.request(kind); return true; },
+    getEmoteState: () => emoteBrain.state,
+    /** 検証用(管理者): 状態の確認と、モードに関わらずエモートを要求する・休憩の待ち時間を飛ばす。 */
+    debugEmote: () => ({ state: emoteBrain.state, pose: emoteBrain.getPose(), nextRestIn: emoteBrain._s.nextRestIn, spotOk: emoteState.spotOk, canLie: emoteState.canLie, wheelOpen: emoteState.wheelOpen }),
+    debugEmoteRequest: (kind) => emoteBrain.request(kind),
+    debugEmoteDue: () => { emoteBrain._s.nextRestIn = 0; },
+    debugEmoteConfig: (patch) => Object.assign(emoteBrain.config, patch || {}), // 検証用: 待ち時間などを短くする
+    setEmoteWheelOpen,
+    isEmoteWheelOpen: () => emoteState.wheelOpen,
     // v1.46: 編集(観察)モード。歩行モード中は入れない。
     toggleEditMode: () => { if (mode === 'walk') return false; return editMode.toggle(); },
     isEditMode: () => editMode.isEnabled(),
@@ -4234,7 +4324,7 @@ export function initScene(mountEl, options = {}) {
      * v1.41: 対象の有無やアクションの成否に関わらず、右腕を伸ばす動作を再生する
      * (「押せば手が動く」という身体的な手応えを、当たり外れより先に返すため)。 */
     triggerInteract: () => {
-      if (mode !== 'walk') return false;
+      if (mode !== 'walk' || emoteBrain.isBusy() || emoteState.wheelOpen) return false; // v1.73: 座っている間・ホイールを開いている間は、何もしない
       playerSnowman.triggerActionSwing();
       firstPersonHands.triggerActionSwing();
       return interaction.trigger();
