@@ -195,12 +195,13 @@ export function createLanternLightPool(scene, n = 3) {
     lights,
     update(emitters, camX, camY, camZ, t = 0) {
       order.length = 0;
-      for (const e of emitters) order.push({ e, d: Math.hypot(e.x - camX, e.y - camY, e.z - camZ) });
+      for (const e of emitters) { e.lit = false; order.push({ e, d: Math.hypot(e.x - camX, e.y - camY, e.z - camZ) }); }
       order.sort((a, b) => a.d - b.d);
       for (let i = 0; i < lights.length; i++) {
         const l = lights[i], o = order[i];
         if (!o) { l.intensity = 0; continue; }
         const flick = 1 + 0.07 * Math.sin(t * 7 + i * 2.1) + 0.04 * Math.sin(t * 13.3 + i);
+        o.e.lit = true; // v1.75: 光の枠をもらえた(枠から外れた発光体は、呼び出し側が、見た目だけの光で補う)
         l.position.set(o.e.x, o.e.y, o.e.z);
         l.intensity = o.e.intensity * flick; l.distance = o.e.distance;
         if (o.e.color) l.color.setHex(o.e.color);

@@ -26,6 +26,8 @@ export const RECIPES = [
   { id: 'chest',            station: 'inventory', input: { id: 'wood', count: TENTATIVE.chestWood },         output: { id: 'chest', count: 1 }, tentative: true },
   // v1.74: 星の松明(材料が2種類のレシピ。inputs)。端材(カット機能は保留中)ができたら、枝の代わりに使えるようにする。
   { id: 'star_torch',       station: 'inventory', inputs: [{ id: 'twig', count: 1 }, { id: 'star_shard', count: 1 }], output: { id: 'star_torch', count: 1 } },
+  // v1.75: 丸太からも作れる。丸太は小枝より大きいので、1個から4本できる。
+  { id: 'log_to_star_torch', station: 'inventory', inputs: [{ id: 'log', count: 1 }, { id: 'star_shard', count: 1 }], output: { id: 'star_torch', count: 4 } },
 ];
 /** レシピの材料の一覧(1種類のレシピは input、複数は inputs)。 */
 export function recipeInputs(r) { return r.inputs || [r.input]; }

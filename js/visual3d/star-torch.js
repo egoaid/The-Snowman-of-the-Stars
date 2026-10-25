@@ -33,6 +33,13 @@ function getGlowTexture() {
   return glowTex;
 }
 
+const FAR_GLOW_SCALE = 4.2; // 遠い松明の光のにじみの大きさ(m)。地面の近くまで広がって、「このあたりが明るい」と見える
+
+/** その松明が、本物の光(光の枠)をもらえていない時は on=true。見た目だけの大きな光のにじみを出す。 */
+export function setStarTorchFar(mesh, on) {
+  const ud = mesh && mesh.userData && mesh.userData.starTorch; if (ud) ud.farTarget = on ? 1 : 0;
+}
+
 /** 棒+十字に重ねた星(どの向きから見ても星に見える)。 */
 function buildBody(height, starRadius) {
   const g = new THREE.Group();
@@ -52,10 +59,15 @@ function buildBody(height, starRadius) {
 export function createStarTorchMesh({ glow = true, sparkles = true } = {}) {
   const { g, stars } = buildBody(STAR_TORCH.height, STAR_TORCH.starRadius);
   const topY = STAR_TORCH.height + STAR_TORCH.starRadius * 0.85;
-  const ud = { stars, glow: null, sparkles: [], topY, seed: Math.random() * 100 };
+  const ud = { stars, glow: null, far: null, farTarget: 0, sparkles: [], topY, seed: Math.random() * 100 };
   if (glow && getGlowTexture()) {
     const m = new THREE.SpriteMaterial({ map: getGlowTexture(), color: 0xffffff, transparent: true, opacity: 0.85, depthWrite: false, blending: THREE.AdditiveBlending, fog: false });
     const sp = new THREE.Sprite(m); sp.position.y = topY; sp.scale.setScalar(1.0); g.add(sp); ud.glow = sp;
+  }
+  if (glow && getGlowTexture()) {
+    // v1.75: 光の枠から外れた(遠い)松明に出す、大きなやわらかい光のにじみ。見た目だけ(周りは照らさない)。普段は消えている。
+    const m = new THREE.SpriteMaterial({ map: getGlowTexture(), color: 0xffe6a8, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending, fog: false });
+    const sp = new THREE.Sprite(m); sp.position.y = topY - 0.25; sp.scale.setScalar(FAR_GLOW_SCALE); sp.visible = false; g.add(sp); ud.far = sp;
   }
   if (sparkles && getGlowTexture()) {
     for (let i = 0; i < 3; i++) {
@@ -74,6 +86,13 @@ export function tickStarTorch(mesh, t) {
   const s = t + ud.seed;
   const pulse = 1 + 0.07 * Math.sin(s * 1.7) + 0.035 * Math.sin(s * 3.1 + 1);
   if (ud.glow) { ud.glow.scale.setScalar(1.0 * pulse); ud.glow.material.opacity = 0.72 + 0.13 * Math.sin(s * 1.7 + 0.5); }
+  if (ud.far) { // 遠い松明の光のにじみ: ふわっと出て、ふわっと消える。ゆっくり脈打つ
+    const cur = ud.far.userData.k || 0, k = cur + (ud.farTarget - cur) * 0.06;
+    ud.far.userData.k = k;
+    ud.far.visible = k > 0.01;
+    ud.far.material.opacity = k * (0.5 + 0.08 * Math.sin(s * 1.3));
+    ud.far.scale.setScalar(FAR_GLOW_SCALE * (1 + 0.04 * Math.sin(s * 1.7)));
+  }
   for (const p of ud.sparkles) {
     const k = ((s * 0.42 + p.phase) % 1 + 1) % 1; // 0〜1で1周(約2.4秒)
     p.sp.visible = k > 0.02;

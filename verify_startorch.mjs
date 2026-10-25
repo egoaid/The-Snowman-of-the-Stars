@@ -28,4 +28,10 @@ ok(r && recipeInputs(r).length === 2 && r.output.id === 'star_torch', 'レシピ
   ok(!craft(inv3, 'star_torch') ? true : inv3.count('star_torch') === 1, '満杯なら、全か無か(失敗なら、材料は元のまま)');
   if (inv3.count('star_torch') === 0) ok(inv3.count('twig') === 2 && inv3.count('star_shard') === 1, '失敗時、材料は元のまま');
 }
+{
+  const inv = createInventory();
+  inv.add('log', 1); inv.add('star_shard', 1);
+  ok(canCraft(inv, 'log_to_star_torch'), '丸太1+星のかけら1で作れる');
+  ok(craft(inv, 'log_to_star_torch') && inv.count('star_torch') === 4 && inv.count('log') === 0 && inv.count('star_shard') === 0, '丸太から作ると、星の松明が4本できる');
+}
 console.log(fails ? `\n失敗 ${fails}` : '\nすべて成功'); process.exit(fails ? 1 : 0);

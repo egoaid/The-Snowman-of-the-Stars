@@ -61,10 +61,10 @@ let fails = 0; const ok = (c, m) => { if (!c) { fails++; console.log('NG', m); }
   }
   const mins = (n) => (n / 60 / 60).toFixed(1);
   console.log(`2時間: 立つ${mins(standT)}分 / 座る・寝る${mins(downT)}分 / うち睡眠${mins(sleepT)}分 / 休憩${sessions}回 / 睡眠${sleeps}回`);
-  ok(sessions >= 8 && sessions <= 40, '2時間に、休憩が適度な回数(8〜40回)');
+  ok(sessions >= 12 && sessions <= 60, '2時間に、休憩が適度な回数(12〜60回)');
   ok(sleeps >= 2, '睡眠が起きる');
-  ok(sleepT / total < 0.2, '寝ている時間は2割未満(寝すぎない)');
-  ok(downT / total < 0.4, '座る・寝る時間は4割未満');
+  ok(sleepT / total >= 0.15 && sleepT / total < 0.35, '寝ている時間は約2割強(15〜35%)。以前より増えたが、寝すぎない');
+  ok(downT / total >= 0.25 && downT / total < 0.5, '座る・寝る時間は3割強(25〜50%)');
 }
 // 5) 見守りでなくなったら(自動の休憩は)起きる。手動の休憩は勝手に起こさない
 {

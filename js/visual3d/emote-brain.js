@@ -23,8 +23,8 @@ export const EMOTE_CONFIG = {
   sitUpSec: 1.9,
   rollSec: 1.5,
   // 立っている時間(見守りの「勝手に座る」の間隔)。長めにして、動きの無い時間が続きすぎないようにする。
-  restIntervalDay: [200, 420],
-  restIntervalNight: [140, 320],
+  restIntervalDay: [130, 260], // v1.75: 寝る割合を増やすため、立っている時間を短く(以前: 200〜420 / 140〜320)
+  restIntervalNight: [90, 190],
   firstRestInterval: [50, 130], // 見守りを始めてから最初に座るまで
   // 座ったあと、ぼーっとしている時間
   sitIdleSleepPlan: [9, 20], // このあと寝る時
@@ -33,13 +33,13 @@ export const EMOTE_CONFIG = {
   sitIdleManual: [25, 70], // Bキーなどで自分で座った時(放っておくと、あくび→寝ることもある)
   sitIdleManualSleep: [2.2, 3.6], // 「寝る」を選んだ時(座ってから、ちょっとだけぼーっとしてあくび)
   // 寝る確率(座った時に決める)
-  sleepProbDay: 0.35, // 昼寝
-  sleepProbNight: 0.6, // 夜は少し寝やすい
+  sleepProbDay: 0.6, // 昼寝(v1.75: 以前は0.35)
+  sleepProbNight: 0.85, // 夜は寝やすい(以前は0.6)
   sleepProbManual: 0.5, // 自分で座ったまま放っておいた時
   yawnOnlyProb: 0.3, // 寝ない時も、あくびだけすることがある
   // 寝ている時間(秒)。長く寝すぎない(画に動きが無くなるので)
-  sleepDay: [22, 55],
-  sleepNight: [40, 110],
+  sleepDay: [30, 75], // v1.75: 以前は 22〜55 / 40〜110
+  sleepNight: [55, 140],
   rollInterval: [11, 30], // 寝返りの間隔
 };
 

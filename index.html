@@ -421,6 +421,7 @@
     <div class="sp-row"><span data-i18n="sp.moonStone">🌙 Moon Stone</span><b id="spMoon">0</b><button type="button" id="spCraftMoon" data-i18n="sp.craft">Make shards</button></div>
     <div class="sp-row"><span data-i18n="sp.moonShard">☾ Moon Shard</span><b id="spMoonShard">0</b></div>
     <div class="sp-row"><span data-i18n="sp.torch">🌟 Star Torch</span><b id="spTorch">0</b><button type="button" id="spCraftTorch" title="Twig ×1 + Star Shard ×1" data-i18n-title="sp.craftTorch.title" data-i18n="sp.craftTorch">Make</button></div>
+    <div class="sp-row"><span data-i18n="sp.torchLog">🌟 Star Torch (log)</span><span></span><button type="button" id="spCraftTorchLog" title="Log ×1 + Star Shard ×1 → 4 torches" data-i18n-title="sp.craftTorchLog.title" data-i18n="sp.craftTorchLog">Make ×4</button></div>
     <div class="sp-sep"></div>
     <button type="button" id="spAttachStar"><span data-i18n="sp.attachStar">✦ Attach Star Shard</span> <kbd>F</kbd></button>
     <button type="button" id="spAttachMoon"><span data-i18n="sp.attachMoon">☾ Attach Moon Shard</span> <kbd>M</kbd></button>
@@ -491,6 +492,7 @@
       <!-- v1.74: 星の松明を作る(枝1+星のかけら1。数は、持ち物とチェストの合計) -->
       <div class="inv-label" data-i18n="inv.craft">Crafting</div>
       <button type="button" id="invCraftTorch" class="inv-craft-btn" data-i18n="inv.craft.starTorch">🌟 Make a Star Torch (Twig ×1 + Star Shard ×1)</button>
+      <button type="button" id="invCraftTorchLog" class="inv-craft-btn" data-i18n="inv.craft.starTorchLog">🌟 Make 4 Star Torches (Log ×1 + Star Shard ×1)</button>
       <div id="invInfo" class="inv-info"></div>
     </div>
     <div class="inv-actions">
@@ -1539,8 +1541,11 @@
     function updateInvCraft() {
       const c = sceneRefForTouch && sceneRefForTouch.getInventoryCraft ? sceneRefForTouch.getInventoryCraft() : null;
       invCraftTorch.disabled = !c || !c.canCraftStarTorch;
+      invCraftTorchLog.disabled = !c || !c.canCraftStarTorchLog;
     }
+    const invCraftTorchLog = document.getElementById('invCraftTorchLog'); // v1.75: 丸太から4本
     invCraftTorch.addEventListener('click', () => { if (sceneRefForTouch && sceneRefForTouch.craftStarTorch()) renderInventory(); updateInvCraft(); });
+    invCraftTorchLog.addEventListener('click', () => { if (sceneRefForTouch && sceneRefForTouch.craftStarTorch('log')) renderInventory(); updateInvCraft(); });
     function moveInvCursor(e) { invCursor.style.left = e.clientX + 'px'; invCursor.style.top = e.clientY + 'px'; }
     function slotFromEvent(e) {
       const t = document.elementFromPoint(e.clientX, e.clientY);
@@ -1998,6 +2003,7 @@
           sp('spCraftStar').addEventListener('click', () => { scene.craftShards('star'); });
           sp('spCraftMoon').addEventListener('click', () => { scene.craftShards('moon'); });
           sp('spCraftTorch').addEventListener('click', () => { scene.craftStarTorch(); }); // v1.74
+          sp('spCraftTorchLog').addEventListener('click', () => { scene.craftStarTorch('log'); }); // v1.75
           sp('spAttachStar').addEventListener('click', () => { scene.attachShard('star'); });
           sp('spAttachMoon').addEventListener('click', () => { scene.attachShard('moon'); });
           sp('spDetachStar').addEventListener('click', () => { scene.detachShard('star'); });
@@ -2029,6 +2035,7 @@
             sp('spCraftStar').disabled = st.star < 1;
             sp('spCraftMoon').disabled = st.moonStone < 1;
             sp('spTorch').textContent = st.starTorch; sp('spCraftTorch').disabled = !st.canCraftStarTorch; // v1.74
+            sp('spCraftTorchLog').disabled = !st.canCraftStarTorchLog; // v1.75
             sp('spAttachStar').disabled = !st.canAttachStar;
             sp('spAttachMoon').disabled = !st.canAttachMoon;
             sp('spDetachStar').disabled = !st.canDetachStar;
