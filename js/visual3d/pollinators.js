@@ -255,7 +255,7 @@ function attachCuteFace(headGroup, headRadius) {
  * 絵本調の3Dの蝶(小さな丸い頭+胴体+ヒンジで開閉する羽根4枚)を作る。
  * ローカル+Z方向を「進行方向(頭が向く先)」とする。
  */
-function createButterflyMesh() {
+export function createButterflyMesh() { // v1.78: 雪だるまの鼻に止まる蝶(butterfly-visit.js)でも使うため公開
   const group = new THREE.Group();
 
   // 2026-09(改訂4): 「羽の構造・飛行方法が間違っている。正しく表現して
@@ -404,6 +404,16 @@ export function beeFloorAt(terrainHeightFn, x, z, dirX, dirZ) {
   let ground = terrainHeightFn(x, z);
   for (const d of BEE_LOOKAHEAD) ground = Math.max(ground, terrainHeightFn(x + dirX * d, z + dirZ * d));
   return ground + BEE_CLEARANCE;
+}
+
+/** v1.78: 蝶の羽ばたき(butterfly-visit.js 用)。angle = 開き具合(0〜flapAngle)。前翅・後翅をわずかにずらす。 */
+export function flapButterfly(b, t, phase, speed, flapAngle) {
+  const f = (wings, off, amp) => {
+    const a = (Math.sin(t * speed + phase + off) * 0.5 + 0.5) * flapAngle * amp;
+    for (const w of wings) w.rotation.z = a * (w.userData.wingMirrorSign || 1);
+  };
+  f(b.foreWings, 0, 1);
+  f(b.hindWings, 0.1, 0.9);
 }
 
 export function createPollinatorField(terrainHeightFn, opts = {}) {

@@ -75,6 +75,11 @@ export function createEmoteBrain({ rng = Math.random, config = {} } = {}) {
   // 見た目の値(なめらかに動く)
   const pose = { sit: 0, lie: 0, roll: 0, yawn: 0, eyesClosed: 0, drowsy: 0, breath: 0 };
   let seg = null; // 今の動きの 始点→終点
+  let plannedSleep = null; // v1.78: 次の休憩で寝るか(null=未決定)。平らな場所を探すため、座る前に決めておく
+  const decideSleep = (night) => {
+    if (plannedSleep === null) plannedSleep = rng() < (night ? C.sleepProbNight : C.sleepProbDay);
+    return plannedSleep;
+  };
 
   function enter(state, dur = 0, to = null) {
     s.state = state; s.t = 0; s.dur = dur;
@@ -160,8 +165,8 @@ export function createEmoteBrain({ rng = Math.random, config = {} } = {}) {
         if (ctx.autoAllowed && !ctx.interrupt) {
           s.nextRestIn -= dt; // 歩いている間も、時間は進む(座れるのは、落ち着いた場所・瞬間になってから)
           if (s.nextRestIn <= 0 && ctx.calm !== false && ctx.spotOk !== false) {
-            const p = night ? C.sleepProbNight : C.sleepProbDay;
-            startSitDown('auto', { sleep: rng() < p });
+            startSitDown('auto', { sleep: decideSleep(night) });
+            plannedSleep = null;
           }
         }
         break;
@@ -260,6 +265,14 @@ export function createEmoteBrain({ rng = Math.random, config = {} } = {}) {
     isBusy: () => s.state !== 'stand',
     /** 見守りで、そろそろ座りたい(立っていて、休憩の時間が来ている)。場所を確かめる合図に使う。 */
     wantsAutoRest: () => s.state === 'stand' && s.nextRestIn <= 0,
+    /** v1.78: 次の休憩で寝る予定か(座る前に、平らな場所を探すために使う)。 */
+    plansSleep: (night) => decideSleep(!!night),
+    /** v1.78: 蝶が鼻に止まる間、寝返りと目覚めを遅らせる(止まってから最低 minStay 秒)。 */
+    holdSleepFor(sec) {
+      if (s.state !== 'sleep') return;
+      s.rollLeft = Math.max(s.rollLeft, sec);
+      s.sleepLeft = Math.max(s.sleepLeft, sec + 6);
+    },
     /** 見守りモードに入った時: 自分で座っていた場合も、見守りの休憩として、ほどなく終えて立つようにする。 */
     adoptAuto() {
       if (s.state === 'stand') return;

@@ -117,5 +117,34 @@ let fails = 0; const ok = (c, m) => { if (!c) { fails++; console.log('NG', m); }
   c.update(1 / 60, { autoAllowed: true, calm: true, spotOk: true });
   ok(c.state === 'sitting-down', '落ち着いた瞬間に、座り始める');
 }
+// 9) (v1.78) 寝る予定は座る前に決まる(平らな場所を探すため)。決めたとおりに、寝る/寝ない
+{
+  let seed = 4242; const rng = () => (seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296;
+  const b = createEmoteBrain({ rng, config: { firstRestInterval: [1, 1] } });
+  const first = b.plansSleep(false);
+  ok(b.plansSleep(false) === first && b.plansSleep(true) === first, '寝る予定は、一度決めたら、座るまで変わらない');
+  for (let i = 0; i < 60 * 3; i++) b.update(1 / 60, { autoAllowed: true, calm: true, spotOk: true, isNight: false, canLie: true });
+  let yawned = false, lied = false;
+  for (let i = 0; i < 60 * 80; i++) { b.update(1 / 60, { autoAllowed: true, calm: true, spotOk: true, isNight: false, canLie: true }); if (b.state === 'yawn') yawned = true; if (b.state === 'lying-down') lied = true; if (b.state === 'stand' && yawned) break; }
+  ok(first ? lied : !lied, '寝る予定(' + first + ')のとおりに、' + (first ? '寝た' : '寝なかった'));
+  let yes = 0; const N = 2000;
+  for (let i = 0; i < N; i++) { const x = createEmoteBrain({ rng }); if (x.plansSleep(false)) yes++; }
+  ok(Math.abs(yes / N - 0.75) < 0.05, '昼に寝る予定になる割合が、約75%: ' + (yes / N).toFixed(2));
+  yes = 0;
+  for (let i = 0; i < N; i++) { const x = createEmoteBrain({ rng }); if (x.plansSleep(true)) yes++; }
+  ok(Math.abs(yes / N - 0.95) < 0.04, '夜に寝る予定になる割合が、約95%: ' + (yes / N).toFixed(2));
+}
+// 10) (v1.78) 蝶のために、寝ている間の寝返りを遅らせる
+{
+  const b = createEmoteBrain({ rng, config: { rollInterval: [3, 3], sleepDay: [20, 20], sleepNight: [20, 20] } });
+  b.request('sleep');
+  for (let i = 0; i < 60 * 60 && b.state !== 'sleep'; i++) b.update(1 / 60, { canLie: true });
+  b.holdSleepFor(14);
+  let t = 0; while (b.state === 'sleep' && t < 40) { b.update(1 / 60, { canLie: true }); t += 1 / 60; }
+  ok(b.state === 'roll' && t >= 13.5 && t <= 14.6, '寝返りが、約14秒後まで遅れる(止まっている蝶が、すぐ飛び立たない): ' + t.toFixed(1) + '秒');
+  const c = createEmoteBrain({ rng });
+  c.holdSleepFor(50);
+  ok(c.state === 'stand', '寝ていない時は、何も起きない');
+}
 console.log(fails ? `\n失敗 ${fails}` : '\nすべて成功');
 process.exit(fails ? 1 : 0);

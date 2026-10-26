@@ -46,7 +46,8 @@ import { createTraversal, createVerticalState, createClimbController, createTrav
 import { createStagnationWatchdog, createRepeatDetector, blockerSignature, findRescueSpot, hopPoint } from './wander-watchdog.js';
 import { createFallingStarSystem, pickStarLandingSpot } from './falling-star.js';
 import { getRecipe, recipeInputs } from '../recipes.js'; // v1.69 / v1.74(recipeInputs)
-import { createStarTorchMesh, tickStarTorch, setStarTorchFar, STAR_TORCH } from './star-torch.js'; // v1.74: 星の松明
+import { createStarTorchMesh, tickStarTorch, setStarTorchFar, STAR_TORCH } from './star-torch.js';
+import { createButterflyVisit } from './butterfly-visit.js'; // v1.78: 寝ている雪だるまの鼻に蝶がとまる // v1.74: 星の松明
 import { createDebugLog } from './debug-log.js'; // v1.69: 動作確認用のログ(JSONで書き出せる)
 import { createGlueTool } from './glue-tool.js'; // v1.71: 接着モード(位置と角度を決めて接着・再編集)
 import { createShardSystem } from './shard-system.js'; // v1.69: 星のかけら・月のかけら(倒木を接着する・浮かせる)
@@ -640,6 +641,7 @@ export function initScene(mountEl, options = {}) {
     legs: [], // 現在の目的地までの残り経由点(曲がりながら歩くための経路)
     heading: 0,
     baseHeading: 0, // 待機中に見回す動きの基準となる向き
+    holdHeading: null, // v1.78: 寝る場所で向きを固定する(null=見回す)
     waiting: true,
     waitTimer: 1.5,
     waitElapsed: 0,
@@ -715,7 +717,7 @@ export function initScene(mountEl, options = {}) {
     const near = nearestRiverPoint(wander.pos.x, wander.pos.y, riverSamplesForAvoid);
     const dx = wander.pos.x - near.x, dz = wander.pos.y - near.z;
     const d = Math.hypot(dx, dz) || 1;
-    const bank = getWaterEdgeDistance(near.width) + 1.6 + Math.random() * 1.2; // 水際より手前(今いる側)
+    const bank = getWaterEdgeDistance(near.width) + 2.6 + Math.random() * 1.4; // 水際より手前(今いる側)。v1.78: ギリギリまで寄らない(以前は+1.6〜2.8)
     return { x: near.x + (dx / d) * bank, z: near.z + (dz / d) * bank };
   }
 
@@ -737,13 +739,16 @@ export function initScene(mountEl, options = {}) {
    */
   // 川に丸太がかかった時の「渡ってみたい」気持ち(初めての丸太は強く、渡ったことのある丸太は習性として時々)
   const CROSS_CURIOSITY_NOVEL = 0.9;
-  const CROSS_HABIT = 0.4;
+  const CROSS_HABIT = 0.15; // v1.78: 渡った橋を、また渡りに行く確率(以前は0.4。川辺に来すぎるため減らした)
   const CROSS_COOLDOWN_SEC = 25; // 渡ったあと、しばらくは別の行動をする
   const crossedLogs = new Set();
   let lastCrossSec = -1e9;
   const logIdOfRouteKey = (key) => key.replace(/:[01]$/, '');
   let debugForceCrossing = false; // 開発・検証用: 次の行動を「川を渡る」に固定する
+  // v1.78: 寝る前に、平らな場所へ歩いて行く。updateEmote が目的地を決めて、ここへ入れる(次の行動として最優先)。
+  let forcedRestActivity = null;
   function pickNextWanderActivity() {
+    if (forcedRestActivity) { const a = forcedRestActivity; forcedRestActivity = null; return a; }
     // v1.38: 落ちてきた星が気になっている時は、そちらへ向かう(星が先に消えていたら忘れる)
     // v1.54: ポーチが満杯なら、探索をやめてテントのチェストへ帰る(チェストが満杯なら、そのまま持ち歩く)
     if (pouch.isFull() && !pouch.isEmpty() && !chest.storage.isFull()) {
@@ -782,10 +787,11 @@ export function initScene(mountEl, options = {}) {
       return { target: pickIglooRelaxTarget(), restMin: 12, restMax: 22, activity: 'igloo' };
     }
     const rOffset = iglooActiveState ? 0.14 : 0; // 上のかまくら行動が選ばれなかった分、他の確率帯はそのまま維持する
-    if (r < 0.16 + rOffset) return { target: pickRelaxSpotNear(fireX, fireZ, 1.7), restMin: 8, restMax: 16, activity: 'idle' };
-    if (r < 0.32 + rOffset) return { target: pickRiverCrossingTarget(), restMin: 4, restMax: 10, activity: 'idle', crossing: true };
-    if (r < 0.44 + rOffset) return { target: pickRelaxSpotNear(campX, campZ, 3.2), restMin: 5, restMax: 11, activity: 'idle' };
-    const flowerTarget = r < 0.60 + rOffset ? pickFlowerPatchTarget() : null;
+    // v1.78: 川辺へ行く(旧16%)を約6%に減らし、減った分を焚き火・テント・花畑・散歩へ回した
+    if (r < 0.20 + rOffset) return { target: pickRelaxSpotNear(fireX, fireZ, 1.7), restMin: 8, restMax: 16, activity: 'idle' };
+    if (r < 0.26 + rOffset) return { target: pickRiverCrossingTarget(), restMin: 4, restMax: 10, activity: 'idle', crossing: true };
+    if (r < 0.40 + rOffset) return { target: pickRelaxSpotNear(campX, campZ, 3.2), restMin: 5, restMax: 11, activity: 'idle' };
+    const flowerTarget = r < 0.64 + rOffset ? pickFlowerPatchTarget() : null;
     if (flowerTarget) return { target: flowerTarget, restMin: 6, restMax: 12, activity: 'flower' };
     return { target: pickWanderTarget(), restMin: 2, restMax: 7, activity: 'idle' };
   }
@@ -906,6 +912,7 @@ export function initScene(mountEl, options = {}) {
   //   続けて起きたら: 距離を伸ばし、その行き先は一定時間えらばない(同じ場所へ向かい直さない)
   //   どの向きにも通れない(完全に囲まれている): 無理に動かず休み、あとでまた調べる
   const ESCAPE_WINDOW_SEC = 12;       // この秒数の間、同じ狭い範囲にいたら閉じ込められていると判定
+  const ESCAPE_WINDOW_BANK_SEC = 4;   // v1.78: 川辺の袋小路(川3.5m以内+岩2m以内)では、この秒数で判定
   const ESCAPE_MAX_SPAN = 2.0;        // その間に居た範囲(外接する四角の対角線)がこれ未満なら
   const ESCAPE_DISTANCES = [9, 13, 17]; // 脱出で歩く距離(連続して起きるたびに長くなる)
   const ESCAPE_ESCALATE_WITHIN_SEC = 90; // 前回の脱出からこの時間内にまた起きたら、段階を上げる
@@ -937,10 +944,27 @@ export function initScene(mountEl, options = {}) {
     }
     return false;
   }
-  /** いまの位置から、通れる向きを探す。{x,z,clear}(clear=その向きに歩ける距離)か、無ければnull。 */
+  /** v1.78: 川のすぐそば(水際から3.5m以内)で、岩などが2m以内にある「川辺の袋小路」にいるか。 */
+  function isBankPocket(x, z) {
+    const { distance, width } = distanceToRiver(x, z, riverSamplesForAvoid);
+    if (distance - getWaterEdgeDistance(width) > 3.5) return false;
+    for (const o of aiObstacles()) if (Math.hypot(x - o.x, z - o.z) < o.radius + 2.0) return true;
+    return false;
+  }
+  /** いまの位置から、通れる向きを探す。{x,z,clear}(clear=その向きに歩ける距離)か、無ければnull。
+   *  v1.78: 川の近く(6m以内)では、川から遠ざかり、高いほう(上り)へ向かう向きを優先する(川辺の袋小路から、上へ上がって抜ける)。 */
   function findEscapeDirection(maxDist) {
     const sx = wander.pos.x, sz = wander.pos.y;
     const obs = aiObstacles();
+    const rv = distanceToRiver(sx, sz, riverSamplesForAvoid);
+    const nearRiver = rv.distance - getWaterEdgeDistance(rv.width) < 6;
+    let riverAwayX = 0, riverAwayZ = 0;
+    if (nearRiver) {
+      const np = nearestRiverPoint(sx, sz, riverSamplesForAvoid);
+      const rdx = sx - np.x, rdz = sz - np.z, rl = Math.hypot(rdx, rdz) || 1;
+      riverAwayX = rdx / rl; riverAwayZ = rdz / rl;
+    }
+    const h0 = terrainHeightAt(sx, sz);
     // 近くの障害物の中心から離れる向きを、少し優先する(壁から離れる)
     let awayX = 0, awayZ = 0;
     for (const o of obs) {
@@ -958,7 +982,15 @@ export function initScene(mountEl, options = {}) {
         if (escapeBlockedAt(sx + dx * d, sz + dz * d, sx, sz, obs)) break;
         clear = d;
       }
-      if (clear >= 4) cands.push({ dx, dz, clear, score: Math.min(clear, maxDist) + (dx * awayX + dz * awayZ) * 3 + Math.random() * 2 });
+      if (clear >= (nearRiver ? 2.5 : 4)) {
+        let score = Math.min(clear, maxDist) + (dx * awayX + dz * awayZ) * 3 + Math.random() * 2;
+        if (nearRiver) { // 川から遠ざかる向き+上り坂を優先
+          const len = Math.min(clear, maxDist);
+          const up = (terrainHeightAt(sx + dx * len, sz + dz * len) - h0) / Math.max(len, 1);
+          score += (dx * riverAwayX + dz * riverAwayZ) * 6 + Math.max(-0.5, Math.min(0.8, up)) * 8;
+        }
+        cands.push({ dx, dz, clear, score });
+      }
     }
     if (!cands.length) return null;
     cands.sort((p, q) => q.score - p.score);
@@ -979,7 +1011,8 @@ export function initScene(mountEl, options = {}) {
     if (wander.routePlan) { markRouteFailed(wander.routePlan); wander.routePlan = null; }
     aiClimb.cancel(); nonWalkVertical.climbing = false;
     wander.detouring = 0; wander.turningAway = 0; wander.jumpAssist = false;
-    const dir = findEscapeDirection(ESCAPE_DISTANCES[escapeState.level - 1]);
+    const escBase = ESCAPE_DISTANCES[escapeState.level - 1];
+    const dir = findEscapeDirection(isBankPocket(wander.pos.x, wander.pos.y) ? Math.max(12, escBase) : escBase); // v1.78: 川辺の袋小路では、最初から遠く(12m以上)へ
     if (!dir) {
       // どの向きにも通れない(完全に囲まれている): 無理に動かず、しばらく休んでからまた調べる
       wander.legs = []; wander.waiting = true; wander.waitTimer = 15 + Math.random() * 10; wander.waitElapsed = 0;
@@ -1000,7 +1033,7 @@ export function initScene(mountEl, options = {}) {
     if (escapeState.timer < 1.0) return false;
     escapeState.timer = 0;
     escapeState.samples.push(wander.pos.x, wander.pos.y);
-    const maxN = ESCAPE_WINDOW_SEC;
+    const maxN = isBankPocket(wander.pos.x, wander.pos.y) ? ESCAPE_WINDOW_BANK_SEC : ESCAPE_WINDOW_SEC; // v1.78: 川辺の袋小路では、4秒で脱出を始める
     while (escapeState.samples.length > maxN * 2) escapeState.samples.splice(0, 2);
     if (escapeState.samples.length < maxN * 2) return false;
     let minX = 1e9, maxX = -1e9, minZ = 1e9, maxZ = -1e9;
@@ -1318,8 +1351,9 @@ export function initScene(mountEl, options = {}) {
       wander.waitElapsed += delta;
       wander.walking = false;
       // 完全に静止させず、ゆっくり首を振って周囲を見回しているように見せる
-      wander.heading = wander.baseHeading + Math.sin(wander.waitElapsed * 0.45) * 0.5;
-      if (wander.waitTimer <= 0) {
+      if (wander.holdHeading != null) wander.heading = stepHeading(wander.heading, wander.holdHeading, 2.2, delta); // v1.78: 寝る場所では、決めた向き(体を伸ばせる向き)へ向く
+      else wander.heading = wander.baseHeading + Math.sin(wander.waitElapsed * 0.45) * 0.5;
+      if (wander.waitTimer <= 0 && wander.holdHeading == null) {
         wander.waiting = false;
         const next = pickActivityAvoidingBlocked();
         wander.legs = computeWanderLegs(next);
@@ -3724,14 +3758,144 @@ export function initScene(mountEl, options = {}) {
     }
     return true;
   }
+  // ----------------------------------------------------------------
+  // v1.78: 寝る前に、平らな場所を探して歩いて行く(寝る予定の時だけ。座るだけの休憩は、その場で)
+  //   平らさ = 体を伸ばす向き(約3.1m×1m)の地面の高さの差。水際から4m以上離れ、前後に水・木・岩などが無い場所。
+  //   昼の昼寝は、4割の確率で、花畑の近く(蝶が来られる場所)の平らな場所を選ぶ。
+  // ----------------------------------------------------------------
+  const REST_SPOT = { flatRange: 0.10, acceptRange: 0.20, searchMin: 2, searchMax: 18, flowerSearchMax: 30, samples: 64, waterMargin: 4, flowerProb: 0.4, giveUpSec: 90, headings: 8 };
+  const restSpot = { phase: 'none', x: 0, z: 0, heading: 0, startedAt: 0 }; // phase: none | going | arrived | fallback
+  /** (x,z)から向きhへ体を伸ばした時の、地面の高さの差(小さいほど平ら)。 */
+  function footprintRange(x, z, h) {
+    const fx = Math.sin(h), fz = Math.cos(h), lx = Math.cos(h), lz = -Math.sin(h);
+    let lo = 1e9, hi = -1e9;
+    for (const d of [-2.2, -1.65, -1.1, -0.55, 0, 0.5, 0.95]) for (const l of [-0.5, 0, 0.5]) {
+      const y = terrainHeightAt(x + fx * d + lx * l, z + fz * d + lz * l);
+      if (y < lo) lo = y; if (y > hi) hi = y;
+    }
+    return hi - lo;
+  }
+  /** (x,z)で、体を伸ばせる向き(8方向)のうち、一番平らな向き。{heading, range}か、無ければnull。 */
+  function bestRestHeading(x, z) {
+    let best = null;
+    for (let i = 0; i < REST_SPOT.headings; i++) {
+      const h = (i / REST_SPOT.headings) * Math.PI * 2;
+      if (!emoteSpotFree(x, z, h, true)) continue;
+      const r = footprintRange(x, z, h);
+      if (!best || r < best.range) best = { heading: h, range: r };
+    }
+    return best;
+  }
+  const nearestFlowerPatch = (x, z) => {
+    if (!poppyField || !poppyField.patchCenters || !poppyField.patchCenters.length) return null;
+    let best = null, bd = 1e9;
+    for (const c of poppyField.patchCenters) { const d = Math.hypot(c.x - x, c.z - z); if (d < bd) { bd = d; best = c; } }
+    return best ? { x: best.x, z: best.z, dist: bd } : null;
+  };
+  /** 寝る場所を決める。{mode:'stay'|'go'|'none', x, z, heading}。 */
+  function planRestSpot(px, pz, preferFlowers) {
+    const cur = bestRestHeading(px, pz);
+    if (cur && cur.range <= REST_SPOT.flatRange && !preferFlowers) return { mode: 'stay', x: px, z: pz, heading: cur.heading };
+    const patch = preferFlowers ? nearestFlowerPatch(px, pz) : null;
+    const maxFromHere = patch ? REST_SPOT.flowerSearchMax : REST_SPOT.searchMax;
+    let best = null;
+    for (let i = 0; i < REST_SPOT.samples; i++) {
+      const ang = Math.random() * Math.PI * 2;
+      let tx, tz;
+      if (patch) { const d = 3 + Math.random() * 6; tx = patch.x + Math.cos(ang) * d; tz = patch.z + Math.sin(ang) * d; }
+      else { const d = REST_SPOT.searchMin + Math.sqrt(Math.random()) * (REST_SPOT.searchMax - REST_SPOT.searchMin); tx = px + Math.cos(ang) * d; tz = pz + Math.sin(ang) * d; }
+      const dist = Math.hypot(tx - px, tz - pz);
+      if (dist > maxFromHere + 1 || dist < 1) continue;
+      if (Math.hypot(tx - snowmanHomeX, tz - snowmanHomeZ) > WANDER_RADIUS || Math.hypot(tx, tz) > PLAYABLE_RADIUS - 6) continue;
+      const rv = distanceToRiver(tx, tz, riverSamplesForAvoid);
+      if (rv.distance < getWaterEdgeDistance(rv.width) + REST_SPOT.waterMargin) continue;
+      // まず、まわり(半径1.4m)が平らかを、安く確かめる
+      const y0 = terrainHeightAt(tx, tz); let lo = y0, hi = y0;
+      for (let k = 0; k < 8; k++) { const y = terrainHeightAt(tx + Math.cos(k * 0.785) * 1.4, tz + Math.sin(k * 0.785) * 1.4); if (y < lo) lo = y; if (y > hi) hi = y; }
+      if (hi - lo > 0.14) continue;
+      const bh = bestRestHeading(tx, tz);
+      if (!bh || bh.range > REST_SPOT.acceptRange) continue;
+      const score = bh.range * 10 + dist * 0.02;
+      if (!best || score < best.score) best = { x: tx, z: tz, heading: bh.heading, range: bh.range, score };
+    }
+    // いまの場所より、はっきり平らな場所が見つかれば、そこへ。無ければ、いまの場所(体を伸ばせる向きで)
+    if (best && (!cur || best.range < cur.range - 0.02 || preferFlowers)) return { mode: 'go', x: best.x, z: best.z, heading: best.heading };
+    if (cur) return { mode: 'stay', x: px, z: pz, heading: cur.heading };
+    return { mode: 'none' };
+  }
+  const angleDiff = (a, b) => Math.abs(Math.atan2(Math.sin(a - b), Math.cos(a - b)));
+  function clearRestSpot() { restSpot.phase = 'none'; wander.holdHeading = null; forcedRestActivity = null; }
+
+  // ----------------------------------------------------------------
+  // v1.78: 蝶のイベント。晴れた昼(8〜16時)、花畑の中心から10m以内で、仰向けに寝た時、70%で蝶が飛んできて鼻先にとまる。
+  //        寝返りを打つ(または起きる)と飛び立って、花畑へ飛んで消える。とまっている間は、寝返りを最低10秒遅らせる。
+  // ----------------------------------------------------------------
+  const BUTTERFLY_EVENT = { prob: 0.7, hourFrom: 8, hourTo: 16, maxPatchDist: 10, minStaySec: 10 };
+  const butterflyVisit = createButterflyVisit(scene);
+  const butterflyState = { prev: 'stand', patch: null };
+  const noseScratch = new THREE.Vector3();
+  function updateButterfly(delta, t) {
+    const st = emoteBrain.state;
+    if (st === 'sleep' && butterflyState.prev === 'lying-down' && !butterflyVisit.isActive()) { // 寝はじめ(仰向け)
+      const g = playerSnowman.group;
+      const patch = nearestFlowerPatch(g.position.x, g.position.z);
+      const sunny = shouldPollinatorsBeActive({ hour: gameHour, rainIntensity: weather.getRainIntensity(), fogAmount: weather.getSkyModifier().fogAmount, buriedUnderSnow: pollinatorsBuriedUnderSnow });
+      if (patch && patch.dist <= BUTTERFLY_EVENT.maxPatchDist && sunny && gameHour >= BUTTERFLY_EVENT.hourFrom && gameHour < BUTTERFLY_EVENT.hourTo && Math.random() < BUTTERFLY_EVENT.prob) {
+        playerSnowman.getNoseTipWorld(noseScratch);
+        const from = { x: patch.x, y: terrainHeightAt(patch.x, patch.z) + 0.9, z: patch.z };
+        const T = butterflyVisit.approachSeconds(from, noseScratch);
+        butterflyState.patch = from;
+        butterflyVisit.start(from, noseScratch);
+        emoteBrain.holdSleepFor(T + BUTTERFLY_EVENT.minStaySec); // 飛んでくる時間+とまっている時間ぶん、寝返り・目覚めを遅らせる
+      }
+    }
+    butterflyState.prev = st;
+    if (butterflyVisit.isActive()) {
+      if (st !== 'sleep' && (butterflyVisit.phase === 'approach' || butterflyVisit.phase === 'landed')) {
+        const f = butterflyState.patch || { x: 0, y: 1, z: 0 };
+        butterflyVisit.leave({ x: f.x, y: f.y, z: f.z }); // 寝返り・目覚め: 飛び立って、花畑のほうへ
+      }
+      playerSnowman.getNoseTipWorld(noseScratch);
+      butterflyVisit.update(delta, t, noseScratch);
+    }
+  }
+
   function updateEmote(delta) {
     const g = playerSnowman.group;
     const px = g.position.x, pz = g.position.z, hd = g.rotation.y;
     const autoAllowed = wanderActive && !editMode.isEnabled();
+    const night = getTimeOfDay(gameHour) === 'night';
     // 場所の確認: 座っている間と、座りたくなって落ち着いて待っている間だけ、0.4秒ごとに。
     // v1.77: 確認を始める時は、すぐ確かめる(前の場所の古い結果を使わない。以前は、一度「だめ」になると、その結果が残って、二度と座らなかった)
-    const calm = autoAllowed && wander.waiting && !wander.collectTask && !wander.baseTask && !wander.hop && !wander.hurdle
+    const calmBase = autoAllowed && wander.waiting && !wander.collectTask && !wander.baseTask && !wander.hop && !wander.hurdle
       && !aiClimb.active && nonWalkVertical.grounded && !wander.turningAway;
+
+    // --- v1.78: 寝る予定なら、平らな場所を探して、そこへ歩いて行ってから座る ---
+    if (!autoAllowed || emoteBrain.isBusy()) {
+      if (restSpot.phase !== 'none') clearRestSpot(); // 見守りでなくなった / 座り始めた: 寝る場所探しは終わり(向きの固定も外す)
+    } else if (restSpot.phase === 'none' && calmBase && emoteBrain.wantsAutoRest() && emoteBrain.plansSleep(night)) {
+      const flowersOk = !night && !!nearestFlowerPatch(px, pz) && shouldPollinatorsBeActive({ hour: gameHour, rainIntensity: weather.getRainIntensity(), fogAmount: weather.getSkyModifier().fogAmount, buriedUnderSnow: pollinatorsBuriedUnderSnow });
+      const plan = planRestSpot(px, pz, flowersOk && Math.random() < REST_SPOT.flowerProb);
+      restSpot.startedAt = clock.elapsedTime;
+      if (plan.mode === 'go') {
+        Object.assign(restSpot, { phase: 'going', x: plan.x, z: plan.z, heading: plan.heading });
+        forcedRestActivity = { target: { x: plan.x, z: plan.z }, restMin: 2, restMax: 3, activity: 'idle', restSpot: true };
+        wander.holdHeading = null; wander.waitTimer = 0; // 待つのをやめて、平らな場所へ出発
+      } else if (plan.mode === 'stay') {
+        Object.assign(restSpot, { phase: 'arrived', x: px, z: pz, heading: plan.heading, arrivedAt: clock.elapsedTime });
+        wander.holdHeading = plan.heading; // いまの場所で、体を伸ばせる向きへ向く
+      } else restSpot.phase = 'fallback'; // 見つからない: いまの場所で(従来どおり)
+    } else if (restSpot.phase === 'going') {
+      if (wander.waiting && Math.hypot(wander.pos.x - restSpot.x, wander.pos.y - restSpot.z) < 1.6) { restSpot.phase = 'arrived'; restSpot.arrivedAt = clock.elapsedTime; wander.holdHeading = restSpot.heading; }
+      else if (clock.elapsedTime - restSpot.startedAt > REST_SPOT.giveUpSec) { forcedRestActivity = null; restSpot.phase = 'fallback'; } // 着けない: いまの場所で
+    } else if (restSpot.phase === 'arrived' && clock.elapsedTime - restSpot.arrivedAt > 12) {
+      wander.holdHeading = null; restSpot.phase = 'fallback'; // 向きを固定したまま、いつまでも座れない場合の保険: 固定を外して、従来どおり
+    }
+    // 座り始めてよい瞬間: 平らな場所を探している間は、着いて、決めた向きに向き終えてから
+    let calm = calmBase;
+    if (restSpot.phase === 'going') calm = false;
+    else if (restSpot.phase === 'arrived') calm = calmBase && wander.holdHeading != null && angleDiff(wander.heading, wander.holdHeading) < 0.12;
+
     emoteState.spotT += delta;
     const needSpot = emoteBrain.isBusy() || (calm && emoteBrain.wantsAutoRest());
     if (needSpot) {
@@ -3743,7 +3907,7 @@ export function initScene(mountEl, options = {}) {
     } else emoteState.spotLive = false;
     emoteBrain.update(delta, {
       autoAllowed, calm, spotOk: emoteState.spotOk,
-      isNight: getTimeOfDay(gameHour) === 'night',
+      isNight: night,
       canLie: emoteState.canLie,
       interrupt: autoAllowed && starInterest.active, // 星に向かうと決めたら、起きて出かける
     });
@@ -3879,6 +4043,7 @@ export function initScene(mountEl, options = {}) {
     if (chestAutoCloseAt > 0 && clock.elapsedTime > chestAutoCloseAt && !wander.baseTask) { chest.close(); chestAutoCloseAt = 0; }
     chest.update(delta, { night: getTimeOfDay(gameHour) === 'night', t: clock.elapsedTime });
     updateLanterns(delta);
+    updateButterfly(delta, t); // v1.78: 鼻にとまる蝶
     updateSnowmanStarReaction(delta);
 
     // --- v1.39: 視線中心の「狙う」判定(歩行モード中のみ。一人称・三人称どちらも対象) ---
@@ -4226,9 +4391,12 @@ export function initScene(mountEl, options = {}) {
     emote: (kind) => { if (mode !== 'walk' && !(kind === 'stand')) return false; emoteBrain.request(kind); return true; },
     getEmoteState: () => emoteBrain.state,
     /** 検証用(管理者): 状態の確認と、モードに関わらずエモートを要求する・休憩の待ち時間を飛ばす。 */
-    debugEmote: () => ({ state: emoteBrain.state, pose: emoteBrain.getPose(), nextRestIn: emoteBrain._s.nextRestIn, spotOk: emoteState.spotOk, canLie: emoteState.canLie, wheelOpen: emoteState.wheelOpen }),
+    debugEmote: () => ({ restSpot: { ...restSpot }, butterfly: butterflyVisit.phase, state: emoteBrain.state, pose: emoteBrain.getPose(), nextRestIn: emoteBrain._s.nextRestIn, spotOk: emoteState.spotOk, canLie: emoteState.canLie, wheelOpen: emoteState.wheelOpen }),
     debugEmoteRequest: (kind) => emoteBrain.request(kind),
+    debugRestInfo: () => ({ range: +footprintRange(playerSnowman.group.position.x, playerSnowman.group.position.z, playerSnowman.group.rotation.y).toFixed(3), x: playerSnowman.group.position.x, z: playerSnowman.group.position.z, patch: nearestFlowerPatch(playerSnowman.group.position.x, playerSnowman.group.position.z), restSpot: { ...restSpot } }),
     debugEmoteDue: () => { emoteBrain._s.nextRestIn = 0; },
+    debugButterflyInfo: () => { playerSnowman.getNoseTipWorld(noseScratch); const c = butterflyVisit.position; return { phase: butterflyVisit.phase, dist: +Math.hypot(c.x - noseScratch.x, c.y - noseScratch.y, c.z - noseScratch.z).toFixed(3) }; },
+    debugButterflyConfig: (patch) => Object.assign(BUTTERFLY_EVENT, patch || {}), // 検証用: 確率・時間帯などを変える
     debugEmoteConfig: (patch) => Object.assign(emoteBrain.config, patch || {}), // 検証用: 待ち時間などを短くする
     setEmoteWheelOpen,
     isEmoteWheelOpen: () => emoteState.wheelOpen,

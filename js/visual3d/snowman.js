@@ -246,6 +246,10 @@ export function createSnowmanCharacter(scale = 1) {
   nose.position.set(0, headRadius * 0.02, headRadius * 0.95);
   nose.castShadow = true;
   headGroup.add(nose);
+  // v1.78: 鼻先の目印(鼻に止まる蝶の位置に使う)。にんじんの先端(円錐の先)
+  const noseTip = new THREE.Object3D();
+  noseTip.position.set(0, headRadius * 0.02, headRadius * 0.95 + headRadius * 0.31);
+  headGroup.add(noseTip);
 
   // 口: 閉じた口(炭のドットを並べたスマイル)と、開いた口(潰した球)を
   // 切り替える。2D版のgetMouthShape()の考え方(open量で形が変わる)を、
@@ -529,50 +533,6 @@ export function createSnowmanCharacter(scale = 1) {
   function emoteLieLift(theta) {
     const a = bodyRadius * 0.92, b = bodyRadius;
     return Math.sqrt((a * Math.cos(theta)) ** 2 + (b * Math.sin(theta)) ** 2) - a * Math.cos(theta);
-  }
-
-  // --- v1.73: 寝息の「Z」。眠っている間だけ、頭のあたりから3つの小さな「Z」が順にふわっと昇る ---
-  // 世界の座標で動かすため、シーンへは、最初の更新の時に雪だるまと同じ親へ足す(寝転んでいても上へ昇る)。
-  const zzz = (() => {
-    const cv = document.createElement('canvas');
-    cv.width = 32; cv.height = 32;
-    const c2 = cv.getContext('2d');
-    c2.font = 'bold 26px sans-serif'; c2.textAlign = 'center'; c2.textBaseline = 'middle';
-    c2.lineWidth = 4; c2.strokeStyle = 'rgba(40,60,110,0.9)'; c2.strokeText('Z', 16, 17);
-    c2.fillStyle = '#ffffff'; c2.fillText('Z', 16, 17);
-    const tex = new THREE.CanvasTexture(cv);
-    tex.magFilter = THREE.NearestFilter; tex.minFilter = THREE.NearestFilter; // 低解像度の画面に合わせて、にじませない
-    const root = new THREE.Group();
-    const items = [];
-    for (let i = 0; i < 3; i++) {
-      const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, opacity: 0, depthWrite: false, fog: false });
-      const sp = new THREE.Sprite(mat);
-      sp.visible = false;
-      root.add(sp);
-      items.push({ sp, mat, age: -0.001 - i * 1.15, life: 3.4 }); // ずらして出す(負=出番待ち)
-    }
-    return { root, items, tmp: new THREE.Vector3() };
-  })();
-  function updateZzz(delta) {
-    if (!zzz.root.parent && group.parent) group.parent.add(zzz.root); // 雪だるまと同じ親(シーン)へ
-    const on = emote.sleeping && emote.eyesClosed > 0.8;
-    if (!on && !zzz.items.some((it) => it.age >= 0)) return; // 眠っていなくて、昇っているものも無い
-    headGroup.getWorldPosition(zzz.tmp);
-    zzz.items.forEach((it, idx) => {
-      if (it.age < 0) { // 出番待ち(眠っている間だけ数える)
-        if (on) it.age += delta;
-        it.sp.visible = false;
-        return;
-      }
-      it.age += delta; // 昇っているものは、眠りが終わっても最後まで昇って消える
-      if (it.age >= it.life) { it.sp.visible = false; it.age = -0.05; return; }
-      const k = it.age / it.life;
-      it.sp.visible = true;
-      it.sp.position.set(zzz.tmp.x + 0.18 + k * 0.38 + Math.sin(k * 5 + idx) * 0.05, zzz.tmp.y + 0.45 + k * 0.85, zzz.tmp.z - 0.05);
-      const sc = 0.2 + k * 0.2;
-      it.sp.scale.set(sc, sc, 1);
-      it.mat.opacity = Math.min(1, k * 5) * (1 - Math.max(0, (k - 0.6) / 0.4));
-    });
   }
 
   /**
@@ -917,7 +877,6 @@ export function createSnowmanCharacter(scale = 1) {
 
     blushLeft.material.opacity = effIntensity * 0.35;
     blushRight.material.opacity = effIntensity * 0.35;
-    updateZzz(delta);
   }
 
   return {
@@ -932,6 +891,8 @@ export function createSnowmanCharacter(scale = 1) {
       emote.breathPhase = +p.breathPhase || 0; emote.sleeping = !!p.sleeping;
     },
     getEmote: () => ({ ...emote }),
+    /** v1.78: 鼻先の世界座標を target(THREE.Vector3)に入れて返す。 */
+    getNoseTipWorld: (target) => noseTip.getWorldPosition(target),
     /** v1.56: 頭の装備を見た目に反映する('jack_o_lantern' か null)。 */
     setHeadCover,
     headGroup,
