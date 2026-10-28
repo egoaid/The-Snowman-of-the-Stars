@@ -190,7 +190,7 @@ export function createFallingStarSystem(o) {
     return o.terrainHeightAt(st.spotX, st.spotZ) + (d > 0 ? d + 0.1 : 0.5);
   };
   const infoOf = (st) => ({
-    id: st.id, phase: st.phase,
+    id: st.id, phase: st.phase, buried: !!st.buried, // v1.79: 地形に埋まっている石(見守りの雪だるまは拾わない。歩行中の自分が見つけて拾う楽しみ)
     x: st.phase === 'falling' ? st.pos.x : st.spotX,
     y: st.pos.y,
     z: st.phase === 'falling' ? st.pos.z : st.spotZ,

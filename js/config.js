@@ -7,7 +7,7 @@
 export const APP = {
   titleJa: '星の雪だるま',
   titleEn: 'The Snowman of the Stars',
-  version: '1.78',
+  version: '1.79',
   // 表記上の統一形式。実際の権利は All rights reserved。
   copyright: '© 2026 egoaid',
   // v1.57: 公開(GitHub Pages)。絶対URLが必要な所(canonical・sitemap・OGP・manifest)の基準。
@@ -71,10 +71,10 @@ export const FALLING_STAR = {
 //   星の設定をそのまま使い、この3つ(珍しさ・数・光の色)だけ変える。
 export const MOON_STONE = {
   ...FALLING_STAR,
-  intervalSec: 540,            // 約9分に1回(星は2分)。夜のあいだだけ数える
+  intervalSec: 360,            // 約6分に1回(星は2分。v1.79: 9分→6分)。夜のあいだだけ数える
   firstDelayFactor: [0.5, 1.2],
   lifetimeSec: [1800, 3000],   // 降ってきた月の石が残る時間(星より長い)
-  maxStars: 2,                 // 同時に地上にある数の上限(降ってきたもの)
+  maxStars: 3,                 // 同時に地上にある数の上限(降ってきたもの。v1.79: 2→3)
   groundRadius: 0.2,
   buriedCount: 3,              // 地形に埋まっている月の石の数
   buriedSink: 0.1,             // 埋まっている月の石の、地面からの高さ(m)。小さいほど深く埋まっている
@@ -82,6 +82,36 @@ export const MOON_STONE = {
   lightDistance: 9,
   colors: { stone: 0xdcecff, glow: 0xffffff, trail: 0xffffff, light: 0xb8d4ff },
   glowStops: [[236, 244, 255], [190, 215, 255], [150, 190, 255]], // 光の色(中心・まわり・外側)。青白い
+};
+
+// v1.79: 落とし物。地形のあちこちに、小枝・おもちゃ・拾えるサイズの丸太が、ときどき落ちてくる(星・月の石は、これまでどおり夜に空から降る)。
+//   見守りの雪だるまは、落ちた音に気づいたり、近くを通りかかって見つけたりして、それを拾いに色んな場所へ歩いて行く。
+//   歩行中の自分も、近づいて拾える。保存はしない(毎回、新しく落ちる)。
+export const DROPS = {
+  // 種類ごと: 落ちる間隔(秒)・ゆらぎ・同時に地上にある数の上限・地上に残る時間(秒)。nightOnly: 夜のあいだだけ数える。
+  kinds: {
+    twig: { itemId: 'twig',     collectKind: 'dropped_twig', intervalSec: 90,  jitter: 0.3, max: 6, lifetimeSec: [1500, 1800], nightOnly: false, firstDelayFactor: [0.2, 0.6] },
+    toy:  { itemId: 'small_toy', collectKind: 'dropped_toy',  intervalSec: 240, jitter: 0.3, max: 3, lifetimeSec: [1500, 1800], nightOnly: false, firstDelayFactor: [0.4, 0.9] },
+    log:  { itemId: 'log',      collectKind: 'dropped_log',  intervalSec: 180, jitter: 0.3, max: 4, lifetimeSec: [1500, 1800], nightOnly: false, firstDelayFactor: [0.3, 0.8] },
+  },
+  // 落ちる場所(m)。歩ける範囲全体から選び、ばらけさせる。
+  spot: {
+    edgeMargin: 8,        // 歩ける範囲の縁からこれだけ内側
+    maxFromHome: 52,      // 雪だるまのホーム(冒険の中心)からの最大距離(冒険の範囲は60m)
+    campClear: 14,        // キャンプ(焚き火・テント)の近くには落とさない
+    otherClear: 12,       // 他の落とし物の近くには落とさない(ばらけさせる)
+    playerClear: 6,       // 歩いている自分・雪だるまの真上には落とさない
+    obstacleMargin: 1.8,  // 木・岩などの衝突円の外側
+    waterMargin: 2.5,     // 水際から
+    maxSlope: 0.6,        // 1.2m先との高さの差の上限(急な斜面には落とさない)
+    candidates: 10,       // 条件に合う候補をこれだけ集めて、いちばんばらける場所を選ぶ
+    attempts: 80,
+  },
+  fall: { seconds: 1.2, height: 12, bounce: 0.1, bounceSeconds: 0.35 }, // 空から短くころがるように落ちて、ぽんと弾む
+  fadeSeconds: 8,          // 消える時に、小さくなる時間
+  // 雪だるまの反応
+  noticeRadius: 35,        // 落とし物に気づく距離(以前は14〜16m)
+  landNotice: { range: 45, probability: 0.5, delaySec: [2, 8] }, // 落ちた音に気づいて、向かう(45m以内・2〜8秒後・50%)
 };
 
 // v1.69: 星のかけら・月のかけらで、倒木をくっつける/浮かせる。

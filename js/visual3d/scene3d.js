@@ -69,7 +69,9 @@ import { REMNANT_DEFS, planRemnants } from '../remnants.js';
 import { createRemnantField } from './remnants-visual.js';
 import { createEditMode } from './edit-mode.js';
 import { applySessionMode, currentSessionMode } from '../session-mode.js';
-import { APP, FALLING_STAR, MOON_STONE, SNOWMAN_STAR, SNOWMAN_COLLECT, INTERACTION, HOTBAR, INVENTORY, readStarTestMode } from '../config.js';
+import { APP, FALLING_STAR, MOON_STONE, SNOWMAN_STAR, SNOWMAN_COLLECT, INTERACTION, HOTBAR, INVENTORY, DROPS, readStarTestMode } from '../config.js';
+import { createDropField } from './drop-field.js'; // v1.79: 落とし物
+import { pickDropSpot } from '../drops.js';
 
 export const BUFFER_WIDTH = 480;
 export const BUFFER_HEIGHT = 270;
@@ -760,6 +762,12 @@ export function initScene(mountEl, options = {}) {
       const cands = collectRegistry.sense(wander.pos.x, wander.pos.y, { only: ['star'], now: clock.elapsedTime, pouchFull: pouch.isFull() });
       const c = cands.length ? collectRegistry.choose(cands) : null;
       if (c) return collectActivity(c);
+    }
+    // v1.79: 落ちた音に気づいた落とし物・月の石(気づいた上で向かうと決めた時)は、そちらへ向かう
+    if (dropInterest.active) {
+      const di = { ...dropInterest }; dropInterest.active = false;
+      const c = !pouch.isFull() ? dropCandidate(di.kind, di.id) : null;
+      if (c) return collectActivity({ ...c, dist: Math.hypot(c.x - wander.pos.x, c.z - wander.pos.y) });
     }
     // v1.54: 周りの拾えそうな物(星・小枝)に気づいたら、優先度の重みつきのくじで1つ選んで向かう(最寄りを順番に、ではない)
     if (!pouch.isFull()) {
@@ -3038,7 +3046,8 @@ export function initScene(mountEl, options = {}) {
     hooks: {
       onCollected(info) { inventory.add('moon_stone', 1); debugLog.log('moon.collected', { id: info && info.id }); }, // ホットバー優先で、空いている枠へ入る
       onFallStart(info) { debugLog.log('moon.fall', { id: info && info.id }); },
-      onLanded(info) { debugLog.log('moon.landed', { id: info && info.id }); },
+      onLanded(info) { debugLog.log('moon.landed', { id: info && info.id }); rollMoonStoneNotice(info); }, // v1.79: 雪だるまが、落ちた音に気づくことがある
+      onTaken(info) { debugLog.log('moon.taken', { id: info && info.id }); }, // v1.79: 見守りの雪だるまが拾った(ポーチへ入れるのは、拾う側)
       onExpired(info) { debugLog.log('moon.expired', { id: info && info.id }); },
     },
   });
@@ -3087,6 +3096,87 @@ export function initScene(mountEl, options = {}) {
       return out;
     },
     take: (cand) => { const l = cand.ref; if (!l || l.collected) return false; removeLogFromWorld(l); return true; },
+  });
+
+  // ================================================================
+  // v1.79: 落とし物。地形のあちこちに、小枝・おもちゃ・拾えるサイズの丸太が、ときどき落ちてくる(間隔・数は config.js の DROPS)。
+  //   見守りの雪だるまは、落ちた音に気づいて向かう(45m以内・2〜8秒後・50%)か、近くを通りかかって見つけて、拾いに行く。
+  //   月の石も、拾うようになった(星と同じく遠くまで気づく)。歩行中の自分も、近づいて拾える。保存はしない。
+  // ================================================================
+  const dropNotice = { pending: false, timer: 0, kind: null, id: null };
+  const dropInterest = { active: false, kind: null, id: null };
+  function rollDropNotice(kind, id, x, z) { // 落ちた音に気づく(気づいても、向かわないことがある=確率)
+    const L = DROPS.landNotice;
+    if (!wanderActive || emoteBrain.isBusy() || dropNotice.pending || dropInterest.active || starNotice.pending || starInterest.active) return;
+    const g = playerSnowman.group.position;
+    if (Math.hypot(x - g.x, z - g.z) > L.range || Math.random() >= L.probability) return;
+    Object.assign(dropNotice, { pending: true, timer: L.delaySec[0] + Math.random() * (L.delaySec[1] - L.delaySec[0]), kind, id });
+  }
+  function rollMoonStoneNotice(info) {
+    const st = info && moonStones.getLanded().find((m) => m.id === info.id);
+    if (st) rollDropNotice('moon_stone', st.id, st.spotX, st.spotZ);
+  }
+  /** 気づいた落とし物を、拾う候補にする(もう無ければ null)。 */
+  function dropCandidate(kind, id) {
+    if (kind === 'moon_stone') { const m = moonStones.getLanded().find((q) => q.id === id); return m ? { kind, id, x: m.spotX, z: m.spotZ, y: m.y } : null; }
+    const it = dropField.get(id);
+    return it && it.state === 'landed' ? { kind: it.collectKind, id: it.id, x: it.x, z: it.z, y: it.baseY } : null;
+  }
+  function updateDropNotice(delta) {
+    if (!dropNotice.pending) return;
+    if (!wanderActive) { dropNotice.pending = false; return; }
+    dropNotice.timer -= delta;
+    if (dropNotice.timer > 0) return;
+    dropNotice.pending = false;
+    if (emoteBrain.isBusy() || pouch.isFull() || !dropCandidate(dropNotice.kind, dropNotice.id)) return; // 寝ている・満杯・もう無い: 気づかなかったことに
+    Object.assign(dropInterest, { active: true, kind: dropNotice.kind, id: dropNotice.id });
+    if (wander.waiting) wander.waitTimer = Math.min(wander.waitTimer, 0.8 + Math.random() * 1.8); // 気づいた様子で、ほどなく歩き出す
+  }
+  const dropField = createDropField({
+    scene, terrainHeightAt, snowDepth: snowNow,
+    pickSpot: (key, others) => {
+      const g = playerSnowman.group.position;
+      return pickDropSpot({
+        rng: Math.random, playableRadius: PLAYABLE_RADIUS, home: { x: snowmanHomeX, z: snowmanHomeZ }, camp: { x: campX, z: campZ },
+        player: { x: g.x, z: g.z }, others, obstacles: collisionObstacles,
+        riverInfo: (x, z) => distanceToRiver(x, z, riverSamplesForAvoid), waterEdge: getWaterEdgeDistance,
+        heightAt: terrainHeightAt, climbBump: getClimbBump,
+      });
+    },
+    hooks: {
+      onSpawn(it) { // 歩行中の自分が、近づいて拾える
+        it.iid = interaction.register({
+          kind: 'remnant',
+          getPosition: () => ({ x: it.x, y: it.baseY + Math.max(0.1, it.height * 0.6), z: it.z }),
+          radius: Math.max(0.4, it.height * 1.4),
+          canInteract: () => it.state === 'landed' && inventory.canAdd(it.itemId, 1),
+          onInteract: () => {
+            if (it.state !== 'landed' || !inventory.canAdd(it.itemId, 1)) return;
+            const ref = { x: it.x, y: it.baseY, z: it.z };
+            if (dropField.take(it.id)) { inventory.add(it.itemId, 1); const s = sfx(); if (s) s.itemPickup(it.itemId, sfxRelative(ref.x, ref.y + 0.2, ref.z)); }
+          },
+        });
+        debugLog.log('drop.spawn', { id: it.id, x: +it.x.toFixed(1), z: +it.z.toFixed(1) });
+      },
+      onLanded(it) {
+        const s = sfx(); if (s) s.itemPlace(it.itemId, sfxRelative(it.x, it.baseY + 0.1, it.z)); // ぽとん(材質ごとの音)
+        rollDropNotice(it.collectKind, it.id, it.x, it.z);
+      },
+      onTaken(it) { debugLog.log('drop.taken', { id: it.id }); },
+      onRemoved(it) { if (it.iid != null) interaction.unregister(it.iid); },
+    },
+  });
+  for (const key of Object.keys(DROPS.kinds)) {
+    const ck = DROPS.kinds[key].collectKind;
+    collectRegistry.registerProvider(ck, {
+      list: (x, z, r) => dropField.list(ck, x, z, r),
+      take: (cand) => dropField.take(cand.id),
+    });
+  }
+  collectRegistry.registerProvider('moon_stone', { // v1.79: 月の石も、拾うようになった
+    // 降ってきた月の石だけ(地形に埋まっている石は、歩行中の自分が見つけて拾う楽しみとして、雪だるまは拾わない)
+    list: (x, z, r) => moonStones.getLanded().filter((st) => !st.buried && Math.hypot(st.spotX - x, st.spotZ - z) <= r).map((st) => ({ id: st.id, x: st.spotX, z: st.spotZ, y: st.y })),
+    take: (cand) => moonStones.take(cand.id),
   });
 
   // ================================================================
@@ -4045,6 +4135,8 @@ export function initScene(mountEl, options = {}) {
     updateLanterns(delta);
     updateButterfly(delta, t); // v1.78: 鼻にとまる蝶
     updateSnowmanStarReaction(delta);
+    updateDropNotice(delta); // v1.79
+    dropField.update(delta, getTimeOfDay(gameHour) === 'night'); // v1.79: 落とし物を落とす・進める
 
     // --- v1.39: 視線中心の「狙う」判定(歩行モード中のみ。一人称・三人称どちらも対象) ---
     if (mode === 'walk') {
@@ -4394,6 +4486,9 @@ export function initScene(mountEl, options = {}) {
     debugEmote: () => ({ restSpot: { ...restSpot }, butterfly: butterflyVisit.phase, state: emoteBrain.state, pose: emoteBrain.getPose(), nextRestIn: emoteBrain._s.nextRestIn, spotOk: emoteState.spotOk, canLie: emoteState.canLie, wheelOpen: emoteState.wheelOpen }),
     debugEmoteRequest: (kind) => emoteBrain.request(kind),
     debugRestInfo: () => ({ range: +footprintRange(playerSnowman.group.position.x, playerSnowman.group.position.z, playerSnowman.group.rotation.y).toFixed(3), x: playerSnowman.group.position.x, z: playerSnowman.group.position.z, patch: nearestFlowerPatch(playerSnowman.group.position.x, playerSnowman.group.position.z), restSpot: { ...restSpot } }),
+    debugInteract: () => { const d = new THREE.Vector3(); camera.getWorldDirection(d); const g = playerSnowman.group.position; return { kind: interaction.getFocusedKind(), eye: [+camera.position.x.toFixed(2), +camera.position.y.toFixed(2), +camera.position.z.toFixed(2)], dir: [+d.x.toFixed(2), +d.y.toFixed(2), +d.z.toFixed(2)], snowman: [+g.x.toFixed(2), +g.z.toFixed(2)], mode }; },
+    debugSetLook: (yaw, pitch) => { walk.lookRig.rotation.order = 'YXZ'; walk.lookRig.rotation.set(pitch, yaw, 0); }, // 検証用: 一人称の視線(ヨー・ピッチ。ラジアン。ピッチが負=下)
+    debugDrops: { spawn: (key) => { const it = dropField.spawn(key); return it ? { id: it.id, x: it.x, z: it.z } : null; }, list: () => dropField.getItems().map((i) => ({ id: i.id, key: i.key, state: i.state, x: +i.x.toFixed(1), z: +i.z.toFixed(1) })), counts: () => dropField.counts(), interest: () => ({ ...dropInterest }), notice: () => ({ ...dropNotice }) },
     debugEmoteDue: () => { emoteBrain._s.nextRestIn = 0; },
     debugButterflyInfo: () => { playerSnowman.getNoseTipWorld(noseScratch); const c = butterflyVisit.position; return { phase: butterflyVisit.phase, dist: +Math.hypot(c.x - noseScratch.x, c.y - noseScratch.y, c.z - noseScratch.z).toFixed(3) }; },
     debugButterflyConfig: (patch) => Object.assign(BUTTERFLY_EVENT, patch || {}), // 検証用: 確率・時間帯などを変える
