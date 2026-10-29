@@ -75,6 +75,8 @@ export default {
   "set.water.reflection": "✨ Reflect the stars and moon on the river",
   "set.water.reflection.note": "The night sky and the moon are reflected in the river. Not shown when water quality is “Off”.",
   "set.debuglog": "📋 Export activity log (JSON)",
+  "set.walklogjson": "🚶 Walk & events log (JSON)",
+  "set.walklogcsv": "🚶 Walk & events log (CSV)",
   "set.debuglog.note": "Saves a record of shards, gluing, floating and moon stones, plus the state at that moment, as a JSON file (for troubleshooting).",
   "set.screen.h": "📱 Screen",
   "set.wakelock": "Keep the screen on",

@@ -158,6 +158,8 @@
       </label>
       <div style="font-size:11px; opacity:0.75; margin-top:2px;" data-i18n="set.water.reflection.note">The night sky and the moon are reflected in the river. Not shown when water quality is “Off”.</div>
       <button type="button" id="debugLogBtn" style="margin-top:10px; font:inherit; font-size:12px; padding:5px 10px;" data-i18n="set.debuglog">📋 Export activity log (JSON)</button>
+      <button type="button" id="walkLogJsonBtn" style="margin-top:10px; font:inherit; font-size:12px; padding:5px 10px;" data-i18n="set.walklogjson">🚶 Walk &amp; events log (JSON)</button>
+      <button type="button" id="walkLogCsvBtn" style="margin-top:10px; font:inherit; font-size:12px; padding:5px 10px;" data-i18n="set.walklogcsv">🚶 Walk &amp; events log (CSV)</button>
       <div style="font-size:11px; opacity:0.75; margin-top:2px;" data-i18n="set.debuglog.note">Saves a record of shards, gluing, floating and moon stones, plus the state at that moment, as a JSON file (for troubleshooting).</div>
     </div>
         <div class="set-block">
@@ -2026,6 +2028,9 @@
           const saveLog = () => { try { scene.downloadDebugLog(); } catch (e) { console.error('debug log export failed', e); } };
           sp('spLog').addEventListener('click', saveLog);
           const dlb = document.getElementById('debugLogBtn'); if (dlb) dlb.addEventListener('click', saveLog);
+          // v1.80: 雪だるまの、歩いた経路と出来事のログ(解析用)
+          const wlj = document.getElementById('walkLogJsonBtn'); if (wlj) wlj.addEventListener('click', () => { try { scene.downloadActivityLog('json'); } catch (e) { console.error(e); } });
+          const wlc = document.getElementById('walkLogCsvBtn'); if (wlc) wlc.addEventListener('click', () => { try { scene.downloadActivityLog('csv'); } catch (e) { console.error(e); } });
           setInterval(() => {
             const st = scene.getShardPanel();
             panel.hidden = !st.editing;

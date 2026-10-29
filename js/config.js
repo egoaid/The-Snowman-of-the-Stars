@@ -7,7 +7,7 @@
 export const APP = {
   titleJa: '星の雪だるま',
   titleEn: 'The Snowman of the Stars',
-  version: '1.79',
+  version: '1.80',
   // 表記上の統一形式。実際の権利は All rights reserved。
   copyright: '© 2026 egoaid',
   // v1.57: 公開(GitHub Pages)。絶対URLが必要な所(canonical・sitemap・OGP・manifest)の基準。
@@ -102,11 +102,12 @@ export const DROPS = {
     otherClear: 12,       // 他の落とし物の近くには落とさない(ばらけさせる)
     playerClear: 6,       // 歩いている自分・雪だるまの真上には落とさない
     obstacleMargin: 1.8,  // 木・岩などの衝突円の外側
-    waterMargin: 2.5,     // 水際から
+    waterMargin: 6,       // 水際から(v1.80: 2.5→6m。河岸に偏って落ちないように)
     maxSlope: 0.6,        // 1.2m先との高さの差の上限(急な斜面には落とさない)
     candidates: 10,       // 条件に合う候補をこれだけ集めて、いちばんばらける場所を選ぶ
     attempts: 80,
   },
+  acrossRiverProb: 0.1,    // v1.80: 川の向こう側(雪だるまが渡れない側)に落とす確率。雪だるまは、渡れる橋が無いと、向こう側の物を拾いに行かない
   fall: { seconds: 1.2, height: 12, bounce: 0.1, bounceSeconds: 0.35 }, // 空から短くころがるように落ちて、ぽんと弾む
   fadeSeconds: 8,          // 消える時に、小さくなる時間
   // 雪だるまの反応

@@ -75,6 +75,8 @@ export default {
   "set.water.reflection": "✨ 川面に星と月を映す",
   "set.water.reflection.note": "夜の川に、星空と月が映ります。水面の品質が「オフ」の時は映りません。",
   "set.debuglog": "📋 動作ログを書き出す(JSON)",
+  "set.walklogjson": "🚶 歩いた経路・出来事のログ(JSON)",
+  "set.walklogcsv": "🚶 歩いた経路・出来事のログ(CSV)",
   "set.debuglog.note": "かけら・接着・浮遊・月の石の記録と、その時の状態を、JSONファイルで保存します(動作確認用)。",
   "set.screen.h": "📱 画面",
   "set.wakelock": "画面をつけたままにする",

@@ -49,6 +49,13 @@ const world = {
   ok(bad === 0, '落ちる場所が、全部の条件(縁・ホーム・キャンプ・自分・岩・水際・他の落とし物)を守る(違反 ' + bad + ')');
   ok(nulls < 20, '場所が見つからないことは、まれ(' + nulls + '/200)');
 }
+// 3b) (v1.80) 受け入れ条件(accept): 雪だるまが渡れる側にだけ落とす
+{
+  const side = (x, z) => (x > 30 ? 1 : -1); // 川が x=30 の縦線だとして、片側
+  let bad = 0, n = 0;
+  for (let i = 0; i < 100; i++) { const p = pickDropSpot({ ...world, others: [], accept: (x, z) => side(x, z) === -1 }); if (p) { n++; if (p.x > 30) bad++; } }
+  ok(n > 80 && bad === 0, '受け入れ条件を守る(違反 ' + bad + '/' + n + ')');
+}
 // 4) ばらける: 20個落とした時、全体に広がる(近い所に偏らない)
 {
   const placed = []; for (let i = 0; i < 20; i++) { const p = pickDropSpot({ ...world, others: placed.slice(-8) }); if (p) placed.push(p); }

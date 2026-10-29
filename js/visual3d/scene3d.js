@@ -47,7 +47,8 @@ import { createStagnationWatchdog, createRepeatDetector, blockerSignature, findR
 import { createFallingStarSystem, pickStarLandingSpot } from './falling-star.js';
 import { getRecipe, recipeInputs } from '../recipes.js'; // v1.69 / v1.74(recipeInputs)
 import { createStarTorchMesh, tickStarTorch, setStarTorchFar, STAR_TORCH } from './star-torch.js';
-import { createButterflyVisit } from './butterfly-visit.js'; // v1.78: 寝ている雪だるまの鼻に蝶がとまる // v1.74: 星の松明
+import { createButterflyVisit } from './butterfly-visit.js'; // v1.78: 寝ている雪だるまの鼻に蝶がとまる
+import { createActivityLog } from './activity-log.js'; // v1.80: 活動ログ(歩いた経路と出来事を記録して、あとで解析する) // v1.74: 星の松明
 import { createDebugLog } from './debug-log.js'; // v1.69: 動作確認用のログ(JSONで書き出せる)
 import { createGlueTool } from './glue-tool.js'; // v1.71: 接着モード(位置と角度を決めて接着・再編集)
 import { createShardSystem } from './shard-system.js'; // v1.69: 星のかけら・月のかけら(倒木を接着する・浮かせる)
@@ -593,6 +594,8 @@ export function initScene(mountEl, options = {}) {
   // 実際のCollision判定(木・岩との衝突)はまだ実装していない
   // (Snowman 3D Character.md 21〜22節の通り、将来のフェーズで対応)。
   const playerSnowman = createSnowmanCharacter(1);
+  const activityLog = createActivityLog({ version: APP.version }); // v1.80: 活動ログ(管理者が JSON / CSV で書き出して、解析する)
+  let simOnly = false; // v1.80: 描画なしの早送り(解析用)の間だけ true
   const emoteBrain = createEmoteBrain(); // v1.73: 座る・寝る(見守りでは、ときどき勝手に。歩行ではBキーのホイールから)
   const snowmanHomeX = campX + 4.0, snowmanHomeZ = campZ + 3.0; // 川・大木・テント・焚き火から十分離れた安全な位置(検証済み)
   placeOnTerrain(playerSnowman.group, snowmanHomeX, snowmanHomeZ, terrainHeightAt);
@@ -749,7 +752,54 @@ export function initScene(mountEl, options = {}) {
   let debugForceCrossing = false; // 開発・検証用: 次の行動を「川を渡る」に固定する
   // v1.78: 寝る前に、平らな場所へ歩いて行く。updateEmote が目的地を決めて、ここへ入れる(次の行動として最優先)。
   let forcedRestActivity = null;
+  /** v1.80: 行き先の種類(解析用の印)。 */
+  function classifyActivity(a) {
+    if (a.restSpot) return 'restspot';
+    if (a.toChest) return 'chest';
+    if (a.crossing) return 'cross';
+    if (a.collect) return 'collect';
+    if (a.activity === 'igloo') return 'igloo';
+    if (a.activity === 'flower') return 'flower';
+    if (a.target && Math.hypot(a.target.x - fireX, a.target.z - fireZ) < 4) return 'fire';
+    if (a.target && Math.hypot(a.target.x - campX, a.target.z - campZ) < 7) return 'camp';
+    return 'wander';
+  }
+  /** v1.80: ログに添える、地図の情報(解析で、川・キャンプ・冒険の範囲を重ねるため)。 */
+  function activityLogMeta() {
+    const river = riverSamplesForAvoid.map((q) => [+q.x.toFixed(1), +q.z.toFixed(1), +(q.width || 0).toFixed(1)]);
+    return { camp: [campX, campZ], fire: [fireX, fireZ], home: [snowmanHomeX, snowmanHomeZ], playableRadius: PLAYABLE_RADIUS, wanderRadius: WANDER_RADIUS, river, edgeOf: 'distance to the water edge (m, negative = inside the water)' };
+  }
   function pickNextWanderActivity() {
+    let a = pickNextWanderActivityRaw();
+    // v1.80: 散歩・花畑・焚き火・テントなどの行き先が、川の向こう側で、渡れる橋が無い時は、選び直す(川辺まで行って、はまるのを防ぐ)
+    if (!a.crossing && !a.collect && !a.restSpot && !a.toChest && a.target && !bridgeAvailable()) {
+      for (let tries = 0; tries < 6 && acrossRiver(wander.pos.x, wander.pos.y, a.target.x, a.target.z); tries++) { activityLog.event('activity.reroll', { x: wander.pos.x, z: wander.pos.y, tx: +a.target.x.toFixed(1), tz: +a.target.z.toFixed(1) }); a = pickNextWanderActivityRaw(); }
+    }
+    try {
+      a.tag = a.tag || classifyActivity(a); wander.actTag = a.tag;
+      const tx = a.target ? a.target.x : NaN, tz = a.target ? a.target.z : NaN;
+      activityLog.event('activity', { tag: a.tag, across: a.target ? acrossRiver(wander.pos.x, wander.pos.y, a.target.x, a.target.z) : false, x: wander.pos.x, z: wander.pos.y, tx: +tx.toFixed(1), tz: +tz.toFixed(1), dist: +Math.hypot(tx - wander.pos.x, tz - wander.pos.y).toFixed(1), edgeTarget: +edgeAt(tx, tz).toFixed(1), item: a.collect ? a.collect.kind : undefined });
+    } catch (e) { /* ログの失敗は握りつぶす */ }
+    return a;
+  }
+  /** v1.80: (x,z)が、川のどちら側か(+1 / -1)。最寄りの中心線の点で、向きとの外積の符号を見る。 */
+  function riverSide(x, z) {
+    const c = riverSamplesForAvoid;
+    let bi = 0, bd = Infinity;
+    for (let i = 0; i < c.length; i++) { const d = (c[i].x - x) ** 2 + (c[i].z - z) ** 2; if (d < bd) { bd = d; bi = i; } }
+    const a = c[Math.max(0, bi - 1)], b = c[Math.min(c.length - 1, bi + 1)];
+    return ((b.x - a.x) * (z - c[bi].z) - (b.z - a.z) * (x - c[bi].x)) > 0 ? 1 : -1;
+  }
+  const acrossRiver = (ax, az, bx, bz) => riverSide(ax, az) !== riverSide(bx, bz);
+  /** 渡れる丸太の橋が、いま使えるか(川の向こう側の物を、拾いに行ってよいか)。 */
+  function bridgeAvailable() {
+    try { return !!traversal.planLogCrossing(wander.pos.x, wander.pos.y, { isFailed: (k) => traversalFailures.isFailed(k), maxEntryDistance: 70 }); } catch (e) { return false; }
+  }
+  /** v1.80: 拾いに行ってよい物か。川の向こう側にある物は、渡れる橋がある時だけ(以前は、渡れないのに向かって、川辺ではまっていた)。 */
+  function reachableCandidate(c, bridge) { return bridge || !acrossRiver(wander.pos.x, wander.pos.y, c.x, c.z); }
+  /** (x,z)の、水際までの距離(m。水際の内側なら負)。 */
+  function edgeAt(x, z) { const rv = distanceToRiver(x, z, riverSamplesForAvoid); return rv.distance - getWaterEdgeDistance(rv.width); }
+  function pickNextWanderActivityRaw() {
     if (forcedRestActivity) { const a = forcedRestActivity; forcedRestActivity = null; return a; }
     // v1.38: 落ちてきた星が気になっている時は、そちらへ向かう(星が先に消えていたら忘れる)
     // v1.54: ポーチが満杯なら、探索をやめてテントのチェストへ帰る(チェストが満杯なら、そのまま持ち歩く)
@@ -759,19 +809,22 @@ export function initScene(mountEl, options = {}) {
     // 落ちてきた星が気になっている時(気づいた上で向かうと決めた時)は、そちらへ向かう
     if (starInterest.active) {
       starInterest.active = false;
-      const cands = collectRegistry.sense(wander.pos.x, wander.pos.y, { only: ['star'], now: clock.elapsedTime, pouchFull: pouch.isFull() });
+      const br = bridgeAvailable();
+      const cands = collectRegistry.sense(wander.pos.x, wander.pos.y, { only: ['star'], now: clock.elapsedTime, pouchFull: pouch.isFull() }).filter((q) => reachableCandidate(q, br));
       const c = cands.length ? collectRegistry.choose(cands) : null;
       if (c) return collectActivity(c);
     }
     // v1.79: 落ちた音に気づいた落とし物・月の石(気づいた上で向かうと決めた時)は、そちらへ向かう
     if (dropInterest.active) {
       const di = { ...dropInterest }; dropInterest.active = false;
-      const c = !pouch.isFull() ? dropCandidate(di.kind, di.id) : null;
+      const c0 = !pouch.isFull() ? dropCandidate(di.kind, di.id) : null;
+      const c = c0 && reachableCandidate(c0, bridgeAvailable()) ? c0 : null;
       if (c) return collectActivity({ ...c, dist: Math.hypot(c.x - wander.pos.x, c.z - wander.pos.y) });
     }
     // v1.54: 周りの拾えそうな物(星・小枝)に気づいたら、優先度の重みつきのくじで1つ選んで向かう(最寄りを順番に、ではない)
     if (!pouch.isFull()) {
-      const cands = collectRegistry.sense(wander.pos.x, wander.pos.y, { now: clock.elapsedTime });
+      const br2 = bridgeAvailable();
+      const cands = collectRegistry.sense(wander.pos.x, wander.pos.y, { now: clock.elapsedTime }).filter((q) => reachableCandidate(q, br2));
       if (cands.length) {
         const p = cands.some((c) => c.kind === 'star') ? SNOWMAN_COLLECT.attemptProbabilityStar : SNOWMAN_COLLECT.attemptProbability;
         if (Math.random() < p) { const c = collectRegistry.choose(cands); if (c) return collectActivity(c); }
@@ -1020,7 +1073,9 @@ export function initScene(mountEl, options = {}) {
     aiClimb.cancel(); nonWalkVertical.climbing = false;
     wander.detouring = 0; wander.turningAway = 0; wander.jumpAssist = false;
     const escBase = ESCAPE_DISTANCES[escapeState.level - 1];
-    const dir = findEscapeDirection(isBankPocket(wander.pos.x, wander.pos.y) ? Math.max(12, escBase) : escBase); // v1.78: 川辺の袋小路では、最初から遠く(12m以上)へ
+    const bankPocket = isBankPocket(wander.pos.x, wander.pos.y);
+    const dir = findEscapeDirection(bankPocket ? Math.max(12, escBase) : escBase);
+    activityLog.event('escape', { level: escapeState.level, bank: bankPocket, found: !!dir, x: wander.pos.x, z: wander.pos.y, edge: +edgeAt(wander.pos.x, wander.pos.y).toFixed(1) }); // v1.78: 川辺の袋小路では、最初から遠く(12m以上)へ
     if (!dir) {
       // どの向きにも通れない(完全に囲まれている): 無理に動かず、しばらく休んでからまた調べる
       wander.legs = []; wander.waiting = true; wander.waitTimer = 15 + Math.random() * 10; wander.waitElapsed = 0;
@@ -1269,6 +1324,7 @@ export function initScene(mountEl, options = {}) {
         if (itemId) took = pouch.take(itemId);
       }
       if (!took && collectRegistry.exists(c)) collectRegistry.ignore(c, clock.elapsedTime + SNOWMAN_COLLECT.ignoreAfterDeclineSec); // 拾わなかった物は、しばらく気にしない
+      activityLog.event('collect', { ck: c.kind, x: c.x, z: c.z, took, item: kind.itemId, edge: +edgeAt(c.x, c.z).toFixed(1) });
       ct.phase = 'around'; ct.timer = rand2(SNOWMAN_COLLECT.lookAroundSec); ct.t0 = ct.timer; ct.took = took;
       return true;
     }
@@ -3110,7 +3166,9 @@ export function initScene(mountEl, options = {}) {
     if (!wanderActive || emoteBrain.isBusy() || dropNotice.pending || dropInterest.active || starNotice.pending || starInterest.active) return;
     const g = playerSnowman.group.position;
     if (Math.hypot(x - g.x, z - g.z) > L.range || Math.random() >= L.probability) return;
+    if (!reachableCandidate({ x, z }, bridgeAvailable())) { activityLog.event('drop.unreachable', { ck: kind, x, z }); return; } // 川の向こう側で、渡れない: 気にしない
     Object.assign(dropNotice, { pending: true, timer: L.delaySec[0] + Math.random() * (L.delaySec[1] - L.delaySec[0]), kind, id });
+    activityLog.event('drop.notice', { ck: kind, x, z, dist: +Math.hypot(x - g.x, z - g.z).toFixed(1) });
   }
   function rollMoonStoneNotice(info) {
     const st = info && moonStones.getLanded().find((m) => m.id === info.id);
@@ -3128,7 +3186,11 @@ export function initScene(mountEl, options = {}) {
     dropNotice.timer -= delta;
     if (dropNotice.timer > 0) return;
     dropNotice.pending = false;
-    if (emoteBrain.isBusy() || pouch.isFull() || !dropCandidate(dropNotice.kind, dropNotice.id)) return; // 寝ている・満杯・もう無い: 気づかなかったことに
+    if (emoteBrain.isBusy() || pouch.isFull() || !dropCandidate(dropNotice.kind, dropNotice.id)) { // 寝ている・満杯・もう無い: 気づかなかったことに
+      activityLog.event('drop.ignored', { ck: dropNotice.kind, reason: emoteBrain.isBusy() ? 'busy' : pouch.isFull() ? 'pouch-full' : 'gone' });
+      return;
+    }
+    activityLog.event('drop.interest', { ck: dropNotice.kind });
     Object.assign(dropInterest, { active: true, kind: dropNotice.kind, id: dropNotice.id });
     if (wander.waiting) wander.waitTimer = Math.min(wander.waitTimer, 0.8 + Math.random() * 1.8); // 気づいた様子で、ほどなく歩き出す
   }
@@ -3136,7 +3198,9 @@ export function initScene(mountEl, options = {}) {
     scene, terrainHeightAt, snowDepth: snowNow,
     pickSpot: (key, others) => {
       const g = playerSnowman.group.position;
+      const homeSide = riverSide(snowmanHomeX, snowmanHomeZ), allowAcross = Math.random() < DROPS.acrossRiverProb; // 基本は、雪だるまが渡れる側(ホーム側)に
       return pickDropSpot({
+        accept: (x, z) => allowAcross || riverSide(x, z) === homeSide,
         rng: Math.random, playableRadius: PLAYABLE_RADIUS, home: { x: snowmanHomeX, z: snowmanHomeZ }, camp: { x: campX, z: campZ },
         player: { x: g.x, z: g.z }, others, obstacles: collisionObstacles,
         riverInfo: (x, z) => distanceToRiver(x, z, riverSamplesForAvoid), waterEdge: getWaterEdgeDistance,
@@ -3157,13 +3221,15 @@ export function initScene(mountEl, options = {}) {
           },
         });
         debugLog.log('drop.spawn', { id: it.id, x: +it.x.toFixed(1), z: +it.z.toFixed(1) });
+        activityLog.event('drop.spawn', { key: it.key, x: it.x, z: it.z, edge: +edgeAt(it.x, it.z).toFixed(1) });
       },
       onLanded(it) {
         const s = sfx(); if (s) s.itemPlace(it.itemId, sfxRelative(it.x, it.baseY + 0.1, it.z)); // ぽとん(材質ごとの音)
+        activityLog.event('drop.landed', { key: it.key, x: it.x, z: it.z });
         rollDropNotice(it.collectKind, it.id, it.x, it.z);
       },
       onTaken(it) { debugLog.log('drop.taken', { id: it.id }); },
-      onRemoved(it) { if (it.iid != null) interaction.unregister(it.iid); },
+      onRemoved(it, reason) { if (it.iid != null) interaction.unregister(it.iid); activityLog.event('drop.removed', { key: it.key, reason, x: it.x, z: it.z }); },
     },
   });
   for (const key of Object.keys(DROPS.kinds)) {
@@ -3854,6 +3920,7 @@ export function initScene(mountEl, options = {}) {
   //   昼の昼寝は、4割の確率で、花畑の近く(蝶が来られる場所)の平らな場所を選ぶ。
   // ----------------------------------------------------------------
   const REST_SPOT = { flatRange: 0.10, acceptRange: 0.20, searchMin: 2, searchMax: 18, flowerSearchMax: 30, samples: 64, waterMargin: 4, flowerProb: 0.4, giveUpSec: 90, headings: 8 };
+  let activityLogPrevEmote = 'stand';
   const restSpot = { phase: 'none', x: 0, z: 0, heading: 0, startedAt: 0 }; // phase: none | going | arrived | fallback
   /** (x,z)から向きhへ体を伸ばした時の、地面の高さの差(小さいほど平ら)。 */
   function footprintRange(x, z, h) {
@@ -3884,7 +3951,8 @@ export function initScene(mountEl, options = {}) {
   };
   /** 寝る場所を決める。{mode:'stay'|'go'|'none', x, z, heading}。 */
   function planRestSpot(px, pz, preferFlowers) {
-    const cur = bestRestHeading(px, pz);
+    const curBase = bestRestHeading(px, pz);
+    const cur = curBase && edgeAt(px, pz) >= REST_SPOT.waterMargin ? curBase : null; // v1.80: いまの場所も、水際から4m以上離れていること(以前は、平らなら水際でも、その場で寝た)
     if (cur && cur.range <= REST_SPOT.flatRange && !preferFlowers) return { mode: 'stay', x: px, z: pz, heading: cur.heading };
     const patch = preferFlowers ? nearestFlowerPatch(px, pz) : null;
     const maxFromHere = patch ? REST_SPOT.flowerSearchMax : REST_SPOT.searchMax;
@@ -3936,6 +4004,7 @@ export function initScene(mountEl, options = {}) {
         const T = butterflyVisit.approachSeconds(from, noseScratch);
         butterflyState.patch = from;
         butterflyVisit.start(from, noseScratch);
+        activityLog.event('butterfly.start', { x: g.position.x, z: g.position.z, patchDist: +patch.dist.toFixed(1) });
         emoteBrain.holdSleepFor(T + BUTTERFLY_EVENT.minStaySec); // 飛んでくる時間+とまっている時間ぶん、寝返り・目覚めを遅らせる
       }
     }
@@ -3944,6 +4013,7 @@ export function initScene(mountEl, options = {}) {
       if (st !== 'sleep' && (butterflyVisit.phase === 'approach' || butterflyVisit.phase === 'landed')) {
         const f = butterflyState.patch || { x: 0, y: 1, z: 0 };
         butterflyVisit.leave({ x: f.x, y: f.y, z: f.z }); // 寝返り・目覚め: 飛び立って、花畑のほうへ
+        activityLog.event('butterfly.leave', { state: st });
       }
       playerSnowman.getNoseTipWorld(noseScratch);
       butterflyVisit.update(delta, t, noseScratch);
@@ -3967,6 +4037,7 @@ export function initScene(mountEl, options = {}) {
       const flowersOk = !night && !!nearestFlowerPatch(px, pz) && shouldPollinatorsBeActive({ hour: gameHour, rainIntensity: weather.getRainIntensity(), fogAmount: weather.getSkyModifier().fogAmount, buriedUnderSnow: pollinatorsBuriedUnderSnow });
       const plan = planRestSpot(px, pz, flowersOk && Math.random() < REST_SPOT.flowerProb);
       restSpot.startedAt = clock.elapsedTime;
+      activityLog.event('restspot.plan', { mode: plan.mode, flowers: !!flowersOk, x: px, z: pz, tx: plan.x, tz: plan.z, dist: plan.x === undefined ? null : +Math.hypot(plan.x - px, plan.z - pz).toFixed(1), night });
       if (plan.mode === 'go') {
         Object.assign(restSpot, { phase: 'going', x: plan.x, z: plan.z, heading: plan.heading });
         forcedRestActivity = { target: { x: plan.x, z: plan.z }, restMin: 2, restMax: 3, activity: 'idle', restSpot: true };
@@ -3995,6 +4066,10 @@ export function initScene(mountEl, options = {}) {
         emoteState.canLie = emoteSpotFree(px, pz, hd, true);
       }
     } else emoteState.spotLive = false;
+    if (emoteBrain.state !== activityLogPrevEmote) { // 座る・寝る・起きる、の変わり目
+      activityLog.event('emote', { state: emoteBrain.state, from: activityLogPrevEmote, x: px, z: pz, edge: +edgeAt(px, pz).toFixed(1), range: +footprintRange(px, pz, hd).toFixed(3), night });
+      activityLogPrevEmote = emoteBrain.state;
+    }
     emoteBrain.update(delta, {
       autoAllowed, calm, spotOk: emoteState.spotOk,
       isNight: night,
@@ -4136,6 +4211,12 @@ export function initScene(mountEl, options = {}) {
     updateButterfly(delta, t); // v1.78: 鼻にとまる蝶
     updateSnowmanStarReaction(delta);
     updateDropNotice(delta); // v1.79
+    activityLog.tick(delta, () => { // v1.80: 軌跡(1秒ごと)
+      const g = playerSnowman.group.position;
+      const act = mode === 'walk' && !wanderActive ? 'player' : emoteBrain.isBusy() ? 'emote:' + emoteBrain.state
+        : wander.collectTask ? 'collect:' + wander.collectTask.phase : (wander.waiting ? 'wait:' : 'walk:') + (wander.actTag || '');
+      return { x: g.x, z: g.z, edge: edgeAt(g.x, g.z), night: getTimeOfDay(gameHour) === 'night', weather: weather.getWeather(), act };
+    });
     dropField.update(delta, getTimeOfDay(gameHour) === 'night'); // v1.79: 落とし物を落とす・進める
 
     // --- v1.39: 視線中心の「狙う」判定(歩行モード中のみ。一人称・三人称どちらも対象) ---
@@ -4294,7 +4375,7 @@ export function initScene(mountEl, options = {}) {
 
     // v1.68: 川面に映す星空(天地を反転して、画面と同じ解像度で描く)。見えない時・オフの時は描かない。
     if (waterReflectionEnabled && getRiverQuality() !== 'off') starfield.renderReflection(renderer, camera);
-    renderer.render(scene, camera);
+    if (!simOnly) renderer.render(scene, camera); // v1.80: 描画なしの早送り(解析用)の間は描かない
 
     // --- デバッグ統計を間引いて通知 ---
     debugFrameCount++;
@@ -4511,6 +4592,14 @@ export function initScene(mountEl, options = {}) {
     debugTraversal: {
       setManual: (on) => { debugManual = !!on; },
       /** 固定の刻み幅で、n コマ進める(実時間に依らず再現できる)。 */
+      // v1.80: 描画なしの早送り(解析用)。seconds 秒ぶん、描画を省いて、ロジックだけを dt 刻みで進める。ログの件数を返す。
+      fastForward: (seconds, dt = 0.1) => {
+        const orig = clock.getDelta; const n = Math.round(seconds / dt);
+        clock.getDelta = () => { clock.elapsedTime += dt; return dt; };
+        simOnly = true;
+        try { for (let i = 0; i < n; i++) renderFrame(); } finally { clock.getDelta = orig; simOnly = false; }
+        return activityLog.sizes();
+      },
       advance: (n, dt = 1 / 30) => {
         const orig = clock.getDelta;
         clock.getDelta = () => { clock.elapsedTime += dt; return dt; };
@@ -4688,7 +4777,13 @@ export function initScene(mountEl, options = {}) {
     // ---- v1.69: 星のかけら・月のかけら(編集モードのパネルから使う) ----
     getShardPanel: () => shardPanelState(),
     getDebugLog: () => debugLog.toObject(),          // v1.69: ログ(出来事 + その時点の状態)をオブジェクトで返す
-    downloadDebugLog: () => debugLog.download(),     // v1.69: JSONファイルとして書き出す(ファイル名を返す)
+    downloadDebugLog: () => debugLog.download(),
+    // v1.80: 活動ログ(歩いた経路・出来事)。管理者が書き出して解析する。
+    getActivityLog: () => activityLog.toObject({ meta: activityLogMeta() }),
+    downloadActivityLog: (format = 'json') => activityLog.download(format, { meta: activityLogMeta() }),
+    clearActivityLog: () => activityLog.clear(),
+    setActivityLogEnabled: (v) => activityLog.setEnabled(v),
+    getActivityLogSizes: () => activityLog.sizes(),     // v1.69: JSONファイルとして書き出す(ファイル名を返す)
     debugLogEvent: (kind, data) => debugLog.log(kind, data),
     craftShards: (kind) => craftShardsFromPool(kind),
     // v1.74: 星の松明を作る。持ち物の画面(歩行)・かけらパネル(編集)から。数は、持ち物とチェストの合計。

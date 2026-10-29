@@ -63,6 +63,7 @@ export function pickDropSpot(d) {
       if (Math.abs(d.heightAt(x + 1.2, z) - h) > S.maxSlope || Math.abs(d.heightAt(x, z + 1.2) - h) > S.maxSlope) continue;
     }
     if (d.climbBump && d.climbBump(x, z) > 0.12) continue;
+    if (d.accept && !d.accept(x, z)) continue; // v1.80: 呼び出し側の追加条件(例: 雪だるまが渡れる側)
     cands.push({ x, z });
   }
   if (!cands.length) return null;
