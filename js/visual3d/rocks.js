@@ -27,7 +27,10 @@ export function createRock(scale = 0.5, seed = 0, wet = false) {
     const vx = pos.getX(i);
     const vy = pos.getY(i);
     const vz = pos.getZ(i);
-    const n = Math.sin((i + seed) * 12.9898) * 43758.5453;
+    // v1.81: ずらし量は頂点の「番号」ではなく「位置」から決める。IcosahedronGeometryは
+    // 同じ角の頂点が面ごとに重複して持たれているため、番号で決めると同じ角が面ごとに
+    // 別の向きへずれ、面と面の間に隙間が空いていた。位置が同じなら必ず同じずれになる。
+    const n = Math.sin((Math.round(vx * 1000) * 12.9898 + Math.round(vy * 1000) * 78.233 + Math.round(vz * 1000) * 37.719 + seed * 4.1414)) * 43758.5453;
     const jitter = 0.22 + 0.18 * (n - Math.floor(n));
     pos.setX(i, vx * (0.85 + jitter));
     pos.setY(i, vy * (0.75 + jitter * 0.8));

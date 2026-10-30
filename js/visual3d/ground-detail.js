@@ -13,6 +13,8 @@ const grassVertexShader = `
   uniform vec2 uPlayerPos;
   uniform float uPlayerRadius;
   uniform float uPlayerPush;
+  uniform vec4 uPress[24]; // v1.81: 作業台・チェストの下で潰れる草。(x, z, 半径, 潰れ具合0〜1)
+  uniform int uPressCount;
   varying vec2 vUv;
   void main() {
     vUv = uv;
@@ -37,6 +39,26 @@ const grassVertexShader = `
     vec2 pushDir = toBlade / max(distToPlayer, 0.0001);
     float wobble = sin(uTime * 9.0 + phase * 2.0) * proximity * bendLinear * uPlayerPush * 0.35;
     worldPosition.xz += pushDir * (pushAmt + wobble);
+    // v1.81: 置いた物の下の草は折れてペシャンコになる。判定は草の根元の位置で行い、1本ぜんぶが同じように潰れる。
+    //   amountが下がる(拾って時間が経つ)ほど、少しずつ立ち上がる。
+    vec2 rootXZ = vec2(instanceMatrix[3].x, instanceMatrix[3].z);
+    float press = 0.0;
+    vec2 pressDir = vec2(0.0);
+    for (int i = 0; i < 24; i++) {
+      if (i >= uPressCount) break;
+      vec4 zn = uPress[i];
+      vec2 d = rootXZ - zn.xy;
+      float dl = length(d);
+      float f = zn.w * (1.0 - smoothstep(zn.z * 0.78, zn.z * 1.08, dl));
+      if (f > press) { press = f; pressDir = d / max(dl, 0.0001); }
+    }
+    if (press > 0.0) {
+      float e = smoothstep(0.0, 1.0, press);
+      float h = worldPosition.y - instanceMatrix[3].y;                // 根元からの高さ
+      worldPosition.y = instanceMatrix[3].y + h * (1.0 - 0.9 * e);     // ほぼ地面まで低くなる
+      vec2 side = (length(pressDir) > 0.0) ? pressDir : vec2(cos(phase), sin(phase));
+      worldPosition.xz += side * h * 0.6 * e;                          // 外側へ倒れ込む
+    }
     vec4 mvPosition = modelViewMatrix * worldPosition;
     gl_Position = projectionMatrix * mvPosition;
   }
@@ -182,6 +204,8 @@ export function createGrassField(terrainHeightFn, options = {}) {
       // ほぼ真横に倒れるくらいはっきり動く強さに調整した。
       uPlayerRadius: { value: 1.8 },
       uPlayerPush: { value: 0.42 },
+      uPress: { value: Array.from({ length: 24 }, () => new THREE.Vector4(0, 0, 1, 0)) },
+      uPressCount: { value: 0 },
     },
     vertexShader: grassVertexShader,
     fragmentShader: grassFragmentShader,
@@ -299,7 +323,18 @@ export function createGrassField(terrainHeightFn, options = {}) {
     material.uniforms.uSnowMix.value = Math.max(0, Math.min(1, v));
   }
 
-  return { mesh, update, setLightMul, setSeasonColors, setSnowMix };
+  /**
+   * v1.81: 潰れ領域を設定する(最大24個)。
+   * @param {{x:number,z:number,radius:number,amount:number}[]} zones amount: 1=ペシャンコ, 0=元通り
+   */
+  function setPressZones(zones) {
+    const arr = material.uniforms.uPress.value;
+    const n = Math.min(zones.length, arr.length);
+    for (let i = 0; i < n; i++) arr[i].set(zones[i].x, zones[i].z, zones[i].radius, zones[i].amount);
+    material.uniforms.uPressCount.value = n;
+  }
+
+  return { mesh, update, setLightMul, setSeasonColors, setSnowMix, setPressZones };
 }
 
 /**

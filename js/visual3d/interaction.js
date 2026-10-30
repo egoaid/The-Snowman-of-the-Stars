@@ -33,6 +33,8 @@ export function createInteractionSystem({ THREE, reach = 3.4 }) {
   highlight.matrixAutoUpdate = true;
 
   let focused = null;
+  let hold = null; // v1.81: 長押し中 { entry, start(ms), fired }
+  const nowMs = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
 
   /**
    * @param {object} def
@@ -44,6 +46,10 @@ export function createInteractionSystem({ THREE, reach = 3.4 }) {
    * @param {() => boolean} [def.canInteract] - 省略時はtrue。falseでもハイライトはするが、
    *   trigger()では反応しない(「見えてはいるが今は何もできない」を表現できる)。
    * @param {(entry:object) => void} [def.onInteract]
+   * @param {(entry:object) => void} [def.onHold] - v1.81: 長押し(holdSec秒、既定0.6)で1度だけ呼ばれる。これがある対象では、
+   *   onInteract は「押してすぐ離した時(タップ)」に呼ばれる。ない対象は、押した瞬間に onInteract(従来どおり)。
+   * @param {() => boolean} [def.canHold] - 省略時はtrue
+   * @param {number} [def.holdSec]
    * @returns {number} id(unregisterに使う)
    */
   function register(def) {
@@ -53,6 +59,7 @@ export function createInteractionSystem({ THREE, reach = 3.4 }) {
   }
   function unregister(id) {
     entries.delete(id);
+    if (hold && hold.entry.id === id) hold = null;
     if (focused && focused.id === id) { focused = null; highlight.visible = false; }
   }
 
@@ -60,7 +67,7 @@ export function createInteractionSystem({ THREE, reach = 3.4 }) {
    * @param {{x:number,y:number,z:number}} eye
    * @param {{x:number,y:number,z:number}} forward - 正規化済みの視線方向
    */
-  function update(eye, forward) {
+  function update(eye, forward, now = nowMs()) {
     let best = null;
     let bestAlong = Infinity;
     for (const e of entries.values()) {
@@ -78,6 +85,14 @@ export function createInteractionSystem({ THREE, reach = 3.4 }) {
       if (along < bestAlong) { bestAlong = along; best = e; }
     }
     focused = best;
+    if (hold) { // 長押し: 目を離したら取り消し。時間が来たら1度だけ実行
+      if (focused !== hold.entry) hold = null;
+      else if (!hold.fired && now - hold.start >= (hold.entry.holdSec || 0.6) * 1000) {
+        hold.fired = true;
+        const e = hold.entry;
+        if (e.onHold && (!e.canHold || e.canHold())) e.onHold(e);
+      }
+    }
     if (focused) {
       const p = focused.getPosition();
       highlight.position.set(p.x, p.y, p.z);
@@ -89,7 +104,7 @@ export function createInteractionSystem({ THREE, reach = 3.4 }) {
     }
   }
 
-  function hide() { focused = null; highlight.visible = false; }
+  function hide() { focused = null; hold = null; highlight.visible = false; }
 
   return {
     highlightObject: highlight,
@@ -99,6 +114,25 @@ export function createInteractionSystem({ THREE, reach = 3.4 }) {
     hide,
     getFocused: () => focused,
     getFocusedKind: () => (focused ? focused.kind : null),
+    /** v1.81: ボタンを押した。長押しのある対象なら長押しを数え始める(離した時にタップ判定)。ない対象は、すぐ trigger() と同じ。 */
+    press(now = nowMs()) {
+      if (!focused) return false;
+      if (focused.onHold) { hold = { entry: focused, start: now, fired: false }; return true; }
+      return this.trigger();
+    },
+    /** v1.81: ボタンを離した。長押しが成立する前なら、タップとして onInteract を呼ぶ。 */
+    release() {
+      const h = hold; hold = null;
+      if (!h || h.fired || focused !== h.entry) return false;
+      if (h.entry.canInteract && !h.entry.canInteract()) return false;
+      if (h.entry.onInteract) { h.entry.onInteract(h.entry); return true; }
+      return false;
+    },
+    /** v1.81: 長押しの進み具合 0〜1(押していなければ0) */
+    holdProgress(now = nowMs()) {
+      if (!hold || hold.fired) return 0;
+      return Math.max(0, Math.min(1, (now - hold.start) / ((hold.entry.holdSec || 0.6) * 1000)));
+    },
     /** 現在狙っている対象へアクションを起こす。何もしなければfalseを返す。 */
     trigger() {
       if (!focused) return false;

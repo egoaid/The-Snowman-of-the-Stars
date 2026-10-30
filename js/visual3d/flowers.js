@@ -194,6 +194,7 @@ export function createPoppyField(terrainHeightFn, options = {}) {
   const dummy = new THREE.Object3D();
 
   let placed = 0;
+  const flowerXZ = []; // v1.81: 実際に咲いている花の位置(x,zの並び)。「お花畑の上には置けない」の判定に使う
   for (const center of patchCenters) {
     for (let i = 0; i < perPatch; i++) {
       const a = rng() * Math.PI * 2;
@@ -223,6 +224,7 @@ export function createPoppyField(terrainHeightFn, options = {}) {
       dummy.updateMatrix();
       stemMesh.setMatrixAt(placed, dummy.matrix);
       headMesh.setMatrixAt(placed, dummy.matrix);
+      flowerXZ.push(x, z);
       placed++;
     }
   }
@@ -247,5 +249,15 @@ export function createPoppyField(terrainHeightFn, options = {}) {
     headMaterial.uniforms.uLightMul.value = v;
   }
 
-  return { group, update, setLightMul, patchCenters };
+  /** 半径 r の円(x,z)の中に、花が1本でもあるか(お花畑の上か)。margin は花の根元のまわりの余白。 */
+  function isOnFlowers(x, z, r, margin = 0.2) {
+    const rr = (r + margin) * (r + margin);
+    for (let i = 0; i < flowerXZ.length; i += 2) {
+      const dx = flowerXZ[i] - x, dz = flowerXZ[i + 1] - z;
+      if (dx * dx + dz * dz < rr) return true;
+    }
+    return false;
+  }
+
+  return { group, update, setLightMul, patchCenters, isOnFlowers };
 }

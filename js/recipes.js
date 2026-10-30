@@ -16,13 +16,14 @@ import { t } from './i18n.js';
 export const LOG_TO_WOOD = 10;        // 倒木(丸太)1個 → 木材10個(ユーザー指定)
 export const STAR_TO_SHARDS = 10;     // 星1個 → 星のかけら10個(ユーザー指定)
 export const MOON_TO_SHARDS = 10;     // 月の石1個 → 月のかけら10個(v1.69。個数のユーザー指定はまだ無いので、星と同じ暫定値)
-export const TENTATIVE = { craftingTableWood: 4, chestWood: 8 }; // 暫定値
+export const TENTATIVE = { craftingTableLogs: 1, chestWood: 8 }; // 暫定値(v1.81: 作業台は丸太から直接作る)
 
 export const RECIPES = [
-  { id: 'moon_to_shards',  station: 'inventory', input: { id: 'moon_stone', count: 1 }, output: { id: 'moon_shard', count: MOON_TO_SHARDS }, tentative: true },
-  { id: 'log_to_wood',      station: 'inventory', input: { id: 'log', count: 1 },   output: { id: 'wood', count: LOG_TO_WOOD } },
-  { id: 'star_to_shards',   station: 'inventory', input: { id: 'star', count: 1 },  output: { id: 'star_shard', count: STAR_TO_SHARDS } },
-  { id: 'crafting_table',   station: 'inventory', input: { id: 'wood', count: TENTATIVE.craftingTableWood }, output: { id: 'crafting_table', count: 1 }, tentative: true },
+  { id: 'moon_to_shards',  station: 'table', input: { id: 'moon_stone', count: 1 }, output: { id: 'moon_shard', count: MOON_TO_SHARDS }, tentative: true },
+  { id: 'log_to_wood',      station: 'table', input: { id: 'log', count: 1 },   output: { id: 'wood', count: LOG_TO_WOOD } },
+  { id: 'star_to_shards',   station: 'table', input: { id: 'star', count: 1 },  output: { id: 'star_shard', count: STAR_TO_SHARDS } },
+  // v1.81: 作業台は、歩行モードの持ち物の画面で、丸太から直接作る。木材・かけら・チェストは、置いた作業台で作る(station: 'table')。
+  { id: 'crafting_table',   station: 'inventory', input: { id: 'log', count: TENTATIVE.craftingTableLogs }, output: { id: 'crafting_table', count: 1 }, tentative: true },
   { id: 'chest',            station: 'inventory', input: { id: 'wood', count: TENTATIVE.chestWood },         output: { id: 'chest', count: 1 }, tentative: true },
   // v1.74: 星の松明(材料が2種類のレシピ。inputs)。端材(カット機能は保留中)ができたら、枝の代わりに使えるようにする。
   { id: 'star_torch',       station: 'inventory', inputs: [{ id: 'twig', count: 1 }, { id: 'star_shard', count: 1 }], output: { id: 'star_torch', count: 1 } },

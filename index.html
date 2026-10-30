@@ -487,12 +487,17 @@
         <div class="inv-label" data-i18n="inv.chest">🧰 Chest (Shift+click to move items to or from your belongings)</div>
         <div id="invChestGrid" class="inv-grid"></div>
       </div>
+      <div id="invTableWrap" style="display:none">
+        <div class="inv-label" data-i18n="inv.table">🛠️ Crafting Table</div>
+        <div id="invTableList"></div>
+      </div>
       <div class="inv-label" data-i18n="inv.bag">Belongings</div>
       <div id="invMainGrid" class="inv-grid"></div>
       <div class="inv-label" data-i18n="inv.hotbar">Hotbar</div>
       <div id="invHotbarGrid" class="inv-grid inv-hotbar"></div>
       <!-- v1.74: 星の松明を作る(枝1+星のかけら1。数は、持ち物とチェストの合計) -->
       <div class="inv-label" data-i18n="inv.craft">Crafting</div>
+      <button type="button" id="invCraftTable" class="inv-craft-btn" data-i18n="inv.craft.table">🛠️ Make a Crafting Table (Log ×1)</button>
       <button type="button" id="invCraftTorch" class="inv-craft-btn" data-i18n="inv.craft.starTorch">🌟 Make a Star Torch (Twig ×1 + Star Shard ×1)</button>
       <button type="button" id="invCraftTorchLog" class="inv-craft-btn" data-i18n="inv.craft.starTorchLog">🌟 Make 4 Star Torches (Log ×1 + Star Shard ×1)</button>
       <div id="invInfo" class="inv-info"></div>
@@ -775,10 +780,10 @@
     touchBtnAction.addEventListener('touchstart', (e) => {
       e.preventDefault();
       touchBtnAction.classList.add('active');
-      if (sceneRefForTouch) sceneRefForTouch.triggerInteract();
+      if (sceneRefForTouch) (sceneRefForTouch.interactPress || sceneRefForTouch.triggerInteract)(); // v1.81: 長押し対応
     }, { passive: false });
-    touchBtnAction.addEventListener('touchend', () => touchBtnAction.classList.remove('active'));
-    touchBtnAction.addEventListener('touchcancel', () => touchBtnAction.classList.remove('active'));
+    touchBtnAction.addEventListener('touchend', () => { touchBtnAction.classList.remove('active'); if (sceneRefForTouch && sceneRefForTouch.interactRelease) sceneRefForTouch.interactRelease(); });
+    touchBtnAction.addEventListener('touchcancel', () => { touchBtnAction.classList.remove('active'); if (sceneRefForTouch && sceneRefForTouch.interactRelease) sceneRefForTouch.interactRelease(); });
 
     // v1.58: スマホの「視点切替」ボタン(PCのVキーに相当)。一人称 → 三人称(後ろ) → 三人称(前) の順に切り替わる
     const touchBtnView = document.getElementById('touchBtnView');
@@ -1540,8 +1545,31 @@
     }
     // v1.74: 星の松明を作るボタン。材料(枝1+星のかけら1)があるときだけ押せる。持ち物が変わるたびに映す。
     const invCraftTorch = document.getElementById('invCraftTorch');
+    // v1.81: 作業台の画面(置いた作業台をクリックすると、持ち物の画面にこの欄が出る)と、丸太から作業台を作るボタン
+    const invTableWrap = document.getElementById('invTableWrap');
+    const invTableList = document.getElementById('invTableList');
+    const invCraftTable = document.getElementById('invCraftTable');
+    let tableUiOpen = false;
+    const itemLabel = (id, n) => { const d = ITEM_DEFS[id]; return `${d ? d.icon : ''} ${d ? d.name : id} ×${n}`; };
+    function renderTableList() {
+      invTableWrap.style.display = tableUiOpen ? 'block' : 'none';
+      if (!tableUiOpen || !sceneRefForTouch || !sceneRefForTouch.getTableCrafts) return;
+      const list = sceneRefForTouch.getTableCrafts();
+      invTableList.textContent = '';
+      for (const r of list) {
+        const b = document.createElement('button');
+        b.type = 'button'; b.className = 'inv-craft-btn'; b.disabled = !r.canCraft;
+        b.textContent = `${r.inputs.map((i) => itemLabel(i.id, i.count)).join(' + ')}  →  ${itemLabel(r.output.id, r.output.count)}`;
+        b.title = r.name;
+        b.addEventListener('click', () => { if (sceneRefForTouch.craftRecipe(r.id)) renderInventory(); else renderTableList(); });
+        invTableList.appendChild(b);
+      }
+    }
+    invCraftTable.addEventListener('click', () => { if (sceneRefForTouch && sceneRefForTouch.craftRecipe('crafting_table')) renderInventory(); updateInvCraft(); });
     function updateInvCraft() {
       const c = sceneRefForTouch && sceneRefForTouch.getInventoryCraft ? sceneRefForTouch.getInventoryCraft() : null;
+      invCraftTable.disabled = !c || !c.canCraftTable;
+      renderTableList();
       invCraftTorch.disabled = !c || !c.canCraftStarTorch;
       invCraftTorchLog.disabled = !c || !c.canCraftStarTorchLog;
     }
@@ -1600,6 +1628,7 @@
     function closeInventory() {
       if (sceneRefForTouch && sceneRefForTouch.closeChestUi) sceneRefForTouch.closeChestUi(); // チェストの画面も閉じる(ふたも閉じる)
       inventoryPanel.style.display = 'none';
+      tableUiOpen = false; // v1.81: 作業台の欄も閉じる
       invCursor.style.display = 'none';
       invDrag = null; invHover = null;
       invSplitMode = false; invSplitBtn.classList.remove('on');
@@ -1728,9 +1757,12 @@
     document.getElementById('stage').addEventListener('mousedown', (e) => {
       if (isInventoryOpen() || isEmoteWheelOpen()) return;
       if (!sceneRefForTouch || sceneRefForTouch.getMode() !== 'walk') return;
-      if (e.button === 0) sceneRefForTouch.triggerInteract();
+      if (e.button === 0) sceneRefForTouch.interactPress(); // v1.81: 押した時。長押しのある対象(作業台)は、離した時にタップ扱い
       else if (e.button === 2) sceneRefForTouch.placeHeldItem(true); // v1.56: 右クリックで、手に持った物を狙った地面に置く(マイクラと同じ)
     });
+    const releaseInteract = () => { if (sceneRefForTouch && sceneRefForTouch.interactRelease) sceneRefForTouch.interactRelease(); };
+    window.addEventListener('mouseup', (e) => { if (e.button === 0) releaseInteract(); });
+    window.addEventListener('blur', releaseInteract);
     // 歩行中は、右クリックでメニューを出さない(置く操作に使うため)
     document.getElementById('stage').addEventListener('contextmenu', (e) => {
       if (sceneRefForTouch && sceneRefForTouch.getMode() === 'walk') e.preventDefault();
@@ -1811,6 +1843,7 @@
           broadleafShape: initialBroadleafShape,
           broadleafRatioOverride: initialBroadleafShape.ratio,
           forceHalloween: urlParams.get('halloween') === '1', // 確認用: 期間外でもジャック・オー・ランタンを地表に出す
+          onTableUi: () => { if (!isInventoryOpen()) { openInventory(); } tableUiOpen = true; renderInventory(); }, // v1.81: 置いた作業台をクリック
           onChestUi: () => { if (!isInventoryOpen()) { openInventory(); } if (sceneRefForTouch) sceneRefForTouch.openChestUi(); renderInventory(); },
           onModeChange: (mode) => {
             setTouchControlsVisible(mode === 'walk');

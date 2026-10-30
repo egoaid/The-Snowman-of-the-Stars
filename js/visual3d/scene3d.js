@@ -45,7 +45,7 @@ import { createLogObstacleManager, isWalkOver } from './log-obstacles.js';
 import { createTraversal, createVerticalState, createClimbController, createTraversalFailureMemory, ACTION, climbDurationFor } from './traversal.js';
 import { createStagnationWatchdog, createRepeatDetector, blockerSignature, findRescueSpot, hopPoint } from './wander-watchdog.js';
 import { createFallingStarSystem, pickStarLandingSpot } from './falling-star.js';
-import { getRecipe, recipeInputs } from '../recipes.js'; // v1.69 / v1.74(recipeInputs)
+import { getRecipe, recipeInputs, RECIPES } from '../recipes.js'; // v1.69 / v1.74(recipeInputs)
 import { createStarTorchMesh, tickStarTorch, setStarTorchFar, STAR_TORCH } from './star-torch.js';
 import { createButterflyVisit } from './butterfly-visit.js'; // v1.78: 寝ている雪だるまの鼻に蝶がとまる
 import { createActivityLog } from './activity-log.js'; // v1.80: 活動ログ(歩いた経路と出来事を記録して、あとで解析する) // v1.74: 星の松明
@@ -64,6 +64,9 @@ import { createCollectibleRegistry, COLLECTIBLE_KINDS } from '../collectibles.js
 import { createPouch } from '../pouch.js';
 import { createBaseChest } from './chest.js';
 import { findFreePlacement } from '../placement.js';
+import { t as tr } from '../i18n.js';
+import { createPressField } from './press-field.js';
+import { createCraftingTableMesh, CRAFTING_TABLE } from './crafting-table.js';
 import { createEquipment, EQUIP_SLOTS } from '../equipment.js';
 import { createJackOLanternMesh, createLanternLightPool } from './lantern.js';
 import { REMNANT_DEFS, planRemnants } from '../remnants.js';
@@ -1980,13 +1983,14 @@ export function initScene(mountEl, options = {}) {
   // (InstancedMeshなのでGPU負荷は小さいが、配置時の川・avoidゾーンとの
   // 距離判定コストがあるため青天井には増やさない。全体の密度としては
   // 以前よりやや下がる=「木が多すぎる」印象の緩和にもつながる)。
-  const { mesh: grassMesh, update: updateGrass, setLightMul: setGrassLightMul, setSeasonColors: setGrassSeasonColors, setSnowMix: setGrassSnowMix } = createGrassField(terrainHeightAt, {
+  const { mesh: grassMesh, update: updateGrass, setLightMul: setGrassLightMul, setSeasonColors: setGrassSeasonColors, setSnowMix: setGrassSnowMix, setPressZones: setGrassPressZones } = createGrassField(terrainHeightAt, {
     count: 12000,
     halfSize: PLAYABLE_RADIUS, // Phase 2: Playable Areaの円内に収める(円形範囲として扱われる)
     avoid: grassAvoid,
     seed: 555,
   });
   scene.add(grassMesh);
+  const pressField = createPressField(); // v1.81: 作業台・チェストの下で草が潰れる領域(拾うと10秒かけて立ち上がる)
 
   // --- Coquelicot(ヒナゲシ)の花畑パッチ ---
   // マルセイユなど南フランスの野原をイメージした、鮮やかな赤い野生の
@@ -3488,6 +3492,16 @@ export function initScene(mountEl, options = {}) {
     debugLog.log('craft', { kind: recipeId, ok: true, pool: { twig: poolCount('twig'), starShard: poolCount('star_shard'), starTorch: poolCount('star_torch') } });
     return true;
   }
+  /** v1.81: 作業台・持ち物の画面のクラフト(レシピ id で指定)。持ち物→チェストの順に材料を取り、入りきらなければ元に戻す。 */
+  const craftRecipeFromPool = (recipeId) => craftStarTorchFromPool(recipeId);
+  /** v1.81: 作業台で作れる物の一覧(画面に出す用)。 */
+  function getTableCrafts() {
+    return RECIPES.filter((r) => r.station === 'table').map((r) => ({
+      id: r.id, name: r.name, output: { ...r.output },
+      inputs: recipeInputs(r).map((i) => ({ id: i.id, count: i.count, have: poolCount(i.id) })),
+      canCraft: recipeInputs(r).every((i) => poolCount(i.id) >= i.count),
+    }));
+  }
   const heldLog = () => { const h = editMode._internals && editMode._internals.getHeld ? editMode._internals.getHeld() : null; return h || null; };
   function attachShardToHeld(kind) {
     const res = attachShardToHeldInner(kind);
@@ -3697,7 +3711,36 @@ export function initScene(mountEl, options = {}) {
   const LANTERN_GROUND_RADIUS = 0.36;
   const LANTERN_REST_LIFT = LANTERN_GROUND_RADIUS * 0.86;   // 中心の高さ(平たい形なので半径の0.86倍。底が地面に着く)
   const LANTERN_SNOW_SINK = LANTERN_REST_LIFT - 0.09;        // 雪面に置いた時は、中心が雪面の+0.09m(底の約7割が雪に埋まる)
-  const placeRadiusOf = (itemId) => (itemId === 'jack_o_lantern' ? LANTERN_GROUND_RADIUS + 0.06 : itemId === 'star_torch' ? STAR_TORCH.footprint : ITEM_PLACE_RADIUS); // 重なり判定の円の大きさ
+  // v1.81: 置くと草を潰し、歩いて通り抜けられない大きな物(作業台。チェストは次の段階で足す)
+  const SOLID_PLACED = {
+    crafting_table: { footprint: CRAFTING_TABLE.footprint, press: CRAFTING_TABLE.pressRadius, build: createCraftingTableMesh, lookY: 0.5, grab: 0.7 },
+  };
+  // v1.81: 長押しの進みを、画面の中心に小さな輪で見せる(拾うまでの約0.6秒)
+  let holdRingEl = null;
+  function updateHoldRing(p) {
+    if (typeof document === 'undefined') return;
+    if (p <= 0) { if (holdRingEl) holdRingEl.style.display = 'none'; return; }
+    if (!holdRingEl) {
+      holdRingEl = document.createElement('div');
+      holdRingEl.style.cssText = 'position:fixed;left:50%;top:50%;width:46px;height:46px;margin:-23px 0 0 -23px;border-radius:50%;z-index:60;pointer-events:none;-webkit-mask:radial-gradient(circle,transparent 15px,#000 16px);mask:radial-gradient(circle,transparent 15px,#000 16px)';
+      document.body.appendChild(holdRingEl);
+    }
+    holdRingEl.style.display = 'block';
+    holdRingEl.style.background = `conic-gradient(rgba(255,243,196,.92) ${Math.round(p * 360)}deg, rgba(255,255,255,.18) 0)`;
+  }
+  let placeNoticeEl = null, placeNoticeTimer = 0;
+  function showPlaceNotice(text) {
+    if (typeof document === 'undefined') return;
+    if (!placeNoticeEl) {
+      placeNoticeEl = document.createElement('div');
+      placeNoticeEl.style.cssText = 'position:fixed;left:50%;bottom:22%;transform:translateX(-50%);padding:8px 16px;border-radius:10px;background:rgba(20,24,34,.78);color:#fff;font-size:14px;z-index:60;pointer-events:none;transition:opacity .3s';
+      document.body.appendChild(placeNoticeEl);
+    }
+    placeNoticeEl.textContent = text; placeNoticeEl.style.opacity = '1';
+    clearTimeout(placeNoticeTimer);
+    placeNoticeTimer = setTimeout(() => { placeNoticeEl.style.opacity = '0'; }, 2400);
+  }
+  const placeRadiusOf = (itemId) => (itemId === 'jack_o_lantern' ? LANTERN_GROUND_RADIUS + 0.06 : itemId === 'star_torch' ? STAR_TORCH.footprint : SOLID_PLACED[itemId] ? SOLID_PLACED[itemId].footprint : ITEM_PLACE_RADIUS); // 重なり判定の円の大きさ
   function placementObstacles() { return collisionObstacles.concat([{ x: chestX, z: chestZ, radius: chest.radius }]); }
   function placedFootprints() {
     const out = placedItems.map((it) => ({ x: it.x, z: it.z, radius: placeRadiusOf(it.itemId) }));
@@ -3716,26 +3759,46 @@ export function initScene(mountEl, options = {}) {
     let mesh;
     // v1.56-H4: restLift=地面に置いた時の高さ、snowSink=雪面に置いた時に雪へ埋まる量。雪が積もっていれば雪面の上に乗る(少し埋まる)
     const isLantern = itemId === 'jack_o_lantern';
-    const restLift = isLantern ? LANTERN_REST_LIFT : 0.01, snowSink = isLantern ? LANTERN_SNOW_SINK : 0.07;
+    let slopeLift = 0;
+    const restLift0 = isLantern ? LANTERN_REST_LIFT : 0.01, snowSink0 = isLantern ? LANTERN_SNOW_SINK : 0.07;
     if (isLantern) { mesh = createJackOLanternMesh(LANTERN_GROUND_RADIUS); mesh.position.set(x, terrainHeightAt(x, z) + LANTERN_REST_LIFT, z); mesh.rotation.y = yaw; }
+    else if (SOLID_PLACED[itemId]) { // v1.81: 作業台。斜面でも浮かないよう、四隅のうちいちばん高い所に合わせる(脚は地面の下まで伸びている)
+      mesh = SOLID_PLACED[itemId].build(); mesh.rotation.y = yaw;
+      const cx = Math.cos(yaw), sx = Math.sin(yaw), hw = CRAFTING_TABLE.width / 2, hd = CRAFTING_TABLE.depth / 2;
+      let hMax = terrainHeightAt(x, z);
+      for (const [lx, lz] of [[hw, hd], [-hw, hd], [hw, -hd], [-hw, -hd]]) hMax = Math.max(hMax, terrainHeightAt(x + lx * cx + lz * sx, z - lx * sx + lz * cx));
+      slopeLift = hMax - terrainHeightAt(x, z);
+      mesh.position.set(x, hMax + 0.01, z);
+    }
     else if (itemId === 'star_torch') { mesh = createStarTorchMesh(); mesh.position.set(x, terrainHeightAt(x, z) + 0.01, z); mesh.rotation.y = yaw; } // v1.74: 地面に真っすぐ立てる
     else {
       const held = buildHeldItem(itemId); if (!held) return null;
       mesh = new THREE.Group(); held.scale.setScalar(1.6); mesh.add(held); mesh.position.set(x, terrainHeightAt(x, z) + 0.01, z); mesh.rotation.y = yaw;
     }
     scene.add(mesh);
-    const it = { id: `placed-${++placedSeq}`, itemId, x, z, mesh, iid: null, restLift, snowSink };
+    const restLift = restLift0 + slopeLift, snowSink = snowSink0 + slopeLift;
+    const it = { id: `placed-${++placedSeq}`, itemId, x, z, mesh, iid: null, restLift, snowSink, pressId: 0, obstacle: null };
+    const solid = SOLID_PLACED[itemId];
+    if (solid) {
+      it.pressId = pressField.add(x, z, solid.press);                 // 下の草がペシャンコになる
+      it.obstacle = { x, z, radius: solid.footprint * 0.9 };           // 歩いて通り抜けられない
+      collisionObstacles.push(it.obstacle);
+    }
     mesh.position.y = placedItemY(it);
+    const pickUp = () => {
+      if (!inventory.canAdd(it.itemId, 1)) { if (solid) showPlaceNotice(tr('notice.bagFull')); return; }
+      const s = sfx(); if (s) s.itemPickup(it.itemId, sfxRelative(it.x, terrainHeightAt(it.x, it.z) + 0.2, it.z));
+      removePlacedItem(it); inventory.add(it.itemId, 1);
+    };
+    // v1.81: 作業台は、タップ=クラフトの画面を開く / 長押し(0.6秒)=拾う。画面が使えない時(onTableUiなし)は、従来どおりタップで拾う。
+    const tableUi = !!(solid && it.itemId === 'crafting_table' && options.onTableUi);
     it.iid = interaction.register({
       kind: 'placed',
-      getPosition: () => ({ x: it.x, y: it.mesh.position.y + (it.itemId === 'star_torch' ? 0.6 : 0.2), z: it.z }), // v1.74: 松明は背が高いので、少し上を狙える
-      radius: 0.45,
-      canInteract: () => inventory.canAdd(it.itemId, 1),
-      onInteract: () => {
-        if (!inventory.canAdd(it.itemId, 1)) return;
-        const s = sfx(); if (s) s.itemPickup(it.itemId, sfxRelative(it.x, terrainHeightAt(it.x, it.z) + 0.2, it.z));
-        removePlacedItem(it); inventory.add(it.itemId, 1);
-      },
+      getPosition: () => ({ x: it.x, y: it.mesh.position.y + (it.itemId === 'star_torch' ? 0.6 : solid ? solid.lookY : 0.2), z: it.z }), // v1.74: 松明は背が高いので、少し上を狙える
+      radius: solid ? solid.grab : 0.45,
+      canInteract: () => (tableUi ? true : inventory.canAdd(it.itemId, 1)),
+      onInteract: () => { if (tableUi) options.onTableUi(); else pickUp(); },
+      ...(tableUi ? { onHold: pickUp, holdSec: 0.6 } : {}),
     });
     placedItems.push(it);
     if (!opts.silent) { const s = sfx(); if (s) s.itemPlace(itemId, sfxRelative(x, terrainHeightAt(x, z) + 0.1, z)); }
@@ -3744,6 +3807,8 @@ export function initScene(mountEl, options = {}) {
   function removePlacedItem(it) {
     const i = placedItems.indexOf(it); if (i >= 0) placedItems.splice(i, 1);
     interaction.unregister(it.iid); scene.remove(it.mesh);
+    if (it.pressId) pressField.release(it.pressId, clock.elapsedTime); // v1.81: 拾うと、草は10秒かけて立ち上がる
+    if (it.obstacle) { const k = collisionObstacles.indexOf(it.obstacle); if (k >= 0) collisionObstacles.splice(k, 1); }
   }
   /** 手に持っている物を1個、足元の前に置く。置けたら置いた物の情報、置けなければnull。 */
   const _aimDir = new THREE.Vector3();
@@ -3765,15 +3830,19 @@ export function initScene(mountEl, options = {}) {
     if (emoteBrain.isBusy() || emoteState.wheelOpen) return null; // v1.73
     const id = inventory.getSelected();
     const def = id && getItemDef(id);
-    if (!def || def.category === 'placeable' || !buildHeldItem(id)) return null;
+    if (!def || (def.category === 'placeable' && !SOLID_PLACED[id]) || !buildHeldItem(id)) return null;
     const yaw = playerSnowman.group.rotation.y;
     const target = aim ? aimGroundPoint() : null;
     const px = target ? target.x : playerSnowman.group.position.x + Math.sin(yaw) * 1.1;
     const pz = target ? target.z : playerSnowman.group.position.z + Math.cos(yaw) * 1.1;
+    const solidDef = SOLID_PLACED[id];
+    const yawPlace = solidDef ? yaw + Math.PI : yaw; // 作業台の正面は、置いた人のほうを向く
     const spot = resolvePlacement(px, pz, placeRadiusOf(id)); // 水の中・遊べる範囲の外には置かない。重なるなら、いちばん近い空き位置へずらす
     if (!spot) return null;
+    // v1.81: お花畑の上には置けない(草・枯れ葉の上は置ける)。雪で花が埋まっている間は、花が見えないので置ける
+    if (solidDef && poppyField && poppyField.group.visible && poppyField.isOnFlowers(spot.x, spot.z, solidDef.footprint)) { showPlaceNotice(tr('notice.noPlaceFlowers')); return null; }
     if (!inventory.remove(id, 1)) return null;
-    return addPlacedItem(id, spot.x, spot.z, yaw, { exact: true });
+    return addPlacedItem(id, spot.x, spot.z, yawPlace, { exact: true });
   }
   const lanternEmitters = [];
   function updateLanterns(delta) {
@@ -4223,6 +4292,7 @@ export function initScene(mountEl, options = {}) {
     if (mode === 'walk') {
       camera.getWorldDirection(interactForwardScratch);
       interaction.update(camera.position, interactForwardScratch);
+      updateHoldRing(interaction.holdProgress()); // v1.81
     }
     syncHeldItem();
 
@@ -4296,6 +4366,7 @@ export function initScene(mountEl, options = {}) {
     }
 
     updateFire(t);
+    if (pressField.update(t)) setGrassPressZones(pressField.list(t)); // v1.81
     updateGrass(t, snowX, snowZ); // v1.34: 雪だるまの位置を渡し、近くの草が踏まれて揺れるようにする
     if (poppyField) poppyField.update(t);
     if (pollinators) {
@@ -4719,6 +4790,14 @@ export function initScene(mountEl, options = {}) {
       firstPersonHands.triggerActionSwing();
       return interaction.trigger();
     },
+    /** v1.81: ボタンを押した/離した(長押しのある対象用)。押した時の腕の動きは triggerInteract と同じ。 */
+    interactPress: () => {
+      if (mode !== 'walk' || emoteBrain.isBusy() || emoteState.wheelOpen) return false;
+      playerSnowman.triggerActionSwing();
+      firstPersonHands.triggerActionSwing();
+      return interaction.press();
+    },
+    interactRelease: () => interaction.release(),
     getFocusedKind: () => interaction.getFocusedKind(),
     /** 開発用(コンソールから): 今すぐ星を落とす。通常のUIには出さない。 */
     /**
@@ -4786,9 +4865,11 @@ export function initScene(mountEl, options = {}) {
     getActivityLogSizes: () => activityLog.sizes(),     // v1.69: JSONファイルとして書き出す(ファイル名を返す)
     debugLogEvent: (kind, data) => debugLog.log(kind, data),
     craftShards: (kind) => craftShardsFromPool(kind),
+    craftRecipe: (id) => craftRecipeFromPool(id), // v1.81
+    getTableCrafts, // v1.81
     // v1.74: 星の松明を作る。持ち物の画面(歩行)・かけらパネル(編集)から。数は、持ち物とチェストの合計。
     craftStarTorch: (from) => craftStarTorchFromPool(from === 'log' ? 'log_to_star_torch' : 'star_torch'), // from: 'twig'(既定) | 'log'(v1.75)
-    getInventoryCraft: () => ({ twig: poolCount('twig'), starShard: poolCount('star_shard'), starTorch: poolCount('star_torch'), canCraftStarTorch: poolCount('twig') >= 1 && poolCount('star_shard') >= 1, log: poolCount('log'), canCraftStarTorchLog: poolCount('log') >= 1 && poolCount('star_shard') >= 1 }),
+    getInventoryCraft: () => ({ twig: poolCount('twig'), starShard: poolCount('star_shard'), starTorch: poolCount('star_torch'), canCraftStarTorch: poolCount('twig') >= 1 && poolCount('star_shard') >= 1, log: poolCount('log'), canCraftStarTorchLog: poolCount('log') >= 1 && poolCount('star_shard') >= 1, canCraftTable: poolCount('log') >= 1 }),
     attachShard: (kind) => attachShardToHeld(kind),
     detachShard: (kind) => detachShardFromHeld(kind), // v1.71
     // v1.71: 接着モード
