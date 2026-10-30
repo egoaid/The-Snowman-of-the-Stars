@@ -28,7 +28,7 @@ function addLog(group, angleDeg, length, radius) {
  * @param {number} scale
  * @returns {{ group: THREE.Group, update: (t:number)=>void, light: THREE.PointLight }}
  */
-export function createCampfire(scale = 1) {
+export function createCampfire(scale = 1, { lit = true, withLight = true } = {}) { // v1.87: lit=火がついているか。withLight=false なら、光は作らない(置いた焚き火は、ランタンなどと光の枠を分け合う)
   const group = new THREE.Group();
 
   // 組んだ薪(4本、テント状に)
@@ -67,9 +67,8 @@ export function createCampfire(scale = 1) {
   group.add(flameGroup);
 
   // 暖色の光(夜間にもっと周囲を照らせるよう、強さ・届く距離を拡大)
-  const light = new THREE.PointLight(0xff9a4a, 3.4, 10 * scale, 2);
-  light.position.set(0, 0.6 * scale, 0);
-  group.add(light);
+  const light = withLight ? new THREE.PointLight(0xff9a4a, 3.4, 10 * scale, 2) : null;
+  if (light) { light.position.set(0, 0.6 * scale, 0); group.add(light); }
 
   // 燠(上昇するパーティクル)
   const emberCount = 20;
@@ -93,9 +92,19 @@ export function createCampfire(scale = 1) {
   const embers = new THREE.Points(emberGeo, emberMaterial);
   group.add(embers);
 
+  // v1.87: 火の点け消し。消えている間は、炎・燠(と光)を隠して、動かさない。薪と石の輪だけが残る。
+  let isLit = lit;
+  function setLit(on) {
+    isLit = !!on;
+    flameGroup.visible = isLit; embers.visible = isLit;
+    if (light) light.visible = isLit;
+  }
+  setLit(isLit);
+
   function update(time) {
+    if (!isLit) return;
     const flicker = 0.85 + Math.sin(time * 11) * 0.08 + Math.sin(time * 23.1) * 0.05;
-    light.intensity = 3.2 * flicker;
+    if (light) light.intensity = 3.2 * flicker;
     flameGroup.scale.set(1, 0.9 + flicker * 0.25, 1);
     flameGroup.rotation.y = Math.sin(time * 3) * 0.3;
 
@@ -108,5 +117,5 @@ export function createCampfire(scale = 1) {
     positions.needsUpdate = true;
   }
 
-  return { group, update, light };
+  return { group, update, light, setLit, isLit: () => isLit };
 }

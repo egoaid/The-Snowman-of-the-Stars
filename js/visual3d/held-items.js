@@ -66,6 +66,16 @@ const HELD_ITEM_BUILDERS = {
     g.add(base, top); g.position.y = 0.08;
     const holder = new THREE.Group(); holder.add(g); return holder;
   },
+  campfire: () => { // 手に持つ焚き火: 組んだ薪の小さな束と、石が2つ
+    const g = new THREE.Group();
+    for (let i = 0; i < 3; i++) {
+      const l = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.017, 0.15, 6), MATERIALS.wood);
+      l.rotation.z = Math.PI / 2 - 0.5; l.rotation.y = (i / 3) * Math.PI * 2; l.position.set(Math.cos(i * 2.09) * 0.03, 0.05, Math.sin(i * 2.09) * 0.03); g.add(l);
+    }
+    for (let i = 0; i < 2; i++) { const st = new THREE.Mesh(new THREE.DodecahedronGeometry(0.03, 0), MATERIALS.stone); st.position.set(i ? 0.07 : -0.07, 0.025, i ? -0.03 : 0.035); g.add(st); }
+    g.position.y = 0.05;
+    const holder = new THREE.Group(); holder.add(g); return holder;
+  },
   chest: () => {
     const g = new THREE.Group();
     const body = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.12, 0.14), MATERIALS.chestBody);

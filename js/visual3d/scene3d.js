@@ -45,7 +45,7 @@ import { createLogObstacleManager, isWalkOver } from './log-obstacles.js';
 import { createTraversal, createVerticalState, createClimbController, createTraversalFailureMemory, ACTION, climbDurationFor } from './traversal.js';
 import { createStagnationWatchdog, createRepeatDetector, blockerSignature, findRescueSpot, hopPoint } from './wander-watchdog.js';
 import { createFallingStarSystem, pickStarLandingSpot } from './falling-star.js';
-import { getRecipe, recipeInputs, RECIPES } from '../recipes.js'; // v1.69 / v1.74(recipeInputs)
+import { getRecipe, recipeInputs, RECIPES, pebblesFromRock, ROCK_COLLECT_MAX_SCALE } from '../recipes.js'; // v1.69 / v1.74(recipeInputs)
 import { createStarTorchMesh, tickStarTorch, setStarTorchFar, STAR_TORCH } from './star-torch.js';
 import { createButterflyVisit } from './butterfly-visit.js'; // v1.78: 寝ている雪だるまの鼻に蝶がとまる
 import { createActivityLog } from './activity-log.js'; // v1.80: 活動ログ(歩いた経路と出来事を記録して、あとで解析する) // v1.74: 星の松明
@@ -66,6 +66,7 @@ import { createBaseChest } from './chest.js'; // 置いたチェストの見た�
 import { findFreePlacement } from '../placement.js';
 import { t as tr } from '../i18n.js';
 import { createPressField } from './press-field.js';
+import { createCoalField } from './coal-field.js';
 import { createCraftingTableMesh, CRAFTING_TABLE } from './crafting-table.js';
 import { createEquipment, EQUIP_SLOTS } from '../equipment.js';
 import { createJackOLanternMesh, createLanternLightPool } from './lantern.js';
@@ -542,6 +543,7 @@ export function initScene(mountEl, options = {}) {
   const legacyChestX = campX + Math.sin(legacyChestAngle) * legacyChestDist, legacyChestZ = campZ + Math.cos(legacyChestAngle) * legacyChestDist;
   let uiChest = null;                  // 持ち物の画面で開いている、置いたチェスト
   const placedChests = [];             // 置いたチェスト(ふたのアニメーション用)
+  const placedFires = [];              // v1.87: 置いた焚き火(炎のゆらぎ用)
 
   // --- かまくら(積雪5m到達時、テントの代わりに表示) ---
   // 2026-09: 新規追加。「積雪が5mに達するとテントの代わりに雪の
@@ -2501,6 +2503,7 @@ export function initScene(mountEl, options = {}) {
     // --- 積雪(色の変化。降っている間ゆっくり白さが増す) ---
     const snowCoverage = weather.getSnowCoverage();
     const snowDepth = weather.getSnowDepth();
+    coalField.setSnowDepth(snowDepth); // v1.85: 雪が積もっている間、木炭は埋まって見えない
     const rime = weather.getRimeIntensity();
     terrain.material.color.copy(terrainColorCurrent).lerp(SNOW_WHITE, snowCoverage * 0.8);
     // 樹氷(2〜3m付近)の時は、通常の積雪による色混ざりより強く白くする
@@ -3637,14 +3640,40 @@ export function initScene(mountEl, options = {}) {
       },
     });
   }
-  for (const rock of rockClusters) {
-    interaction.register({
+  // v1.86: 小さな岩は、長押し(0.8秒)で回収できる。岩は丸ごと消えて、小石が1〜3個出る。大きな岩は、これまでどおり狙えるだけ。
+  //   岩が消えたら、見た目・登れる盛り上がり・物理の当たり判定・雪に埋もれる対象から、すべて外す(岩の番号は変えない=保存・復元のため)。
+  function removeRock(idx) {
+    const rock = rockClusters[idx];
+    if (!rock || rock.taken) return false;
+    rock.taken = true;
+    scene.remove(rock.mesh);
+    interaction.unregister(rock.iid);
+    physics.removeStaticCollider('rock-' + idx);
+    const bi = climbableBumps.findIndex((b) => b.x === rock.x && b.z === rock.z); if (bi >= 0) climbableBumps.splice(bi, 1);
+    const ui = burialCandidates.findIndex((b) => b.mesh === rock.mesh); if (ui >= 0) burialCandidates.splice(ui, 1);
+    const ri = riverRockClusters.findIndex((b) => b.x === rock.x && b.z === rock.z); if (ri >= 0) riverRockClusters.splice(ri, 1);
+    return true;
+  }
+  function collectRock(idx) {
+    const rock = rockClusters[idx];
+    if (!rock || rock.taken) return;
+    const n = pebblesFromRock(rock.scale);
+    if (!inventory.canAdd('stone', n)) { showPlaceNotice(tr('notice.bagFull')); return; }
+    const s = sfx(); if (s) s.itemPickup('stone', sfxRelative(rock.x, terrainHeightAt(rock.x, rock.z) + 0.2, rock.z));
+    removeRock(idx);
+    for (let k = 0; k < n; k++) inventory.add('stone', 1);
+    debugLog.log('rock.collected', { index: idx, pebbles: n });
+  }
+  rockClusters.forEach((rock, idx) => {
+    const small = rock.scale < ROCK_COLLECT_MAX_SCALE;
+    rock.iid = interaction.register({
       kind: 'rock',
       getPosition: () => ({ x: rock.x, y: terrainHeightAt(rock.x, rock.z) + rock.scale * 0.5, z: rock.z }),
       radius: rock.scale * 1.1,
-      canInteract: () => false,
+      canInteract: () => small && !rock.taken && rock.mesh.visible, // 雪に埋もれて見えない岩は、回収できない
+      ...(small ? { onHold: () => collectRock(idx), holdSec: 0.8 } : {}),
     });
-  }
+  });
   // 歩行モード: 小さな物は、狙って拾える(大きな物は、狙えるだけで拾えない)
   function registerRemnantInteraction(it) {
     const kind = COLLECTIBLE_KINDS[it.kind];
@@ -3708,6 +3737,8 @@ export function initScene(mountEl, options = {}) {
   const SOLID_PLACED = {
     crafting_table: { footprint: CRAFTING_TABLE.footprint, press: CRAFTING_TABLE.pressRadius, build: createCraftingTableMesh, width: CRAFTING_TABLE.width, depth: CRAFTING_TABLE.depth, slope: 'max', lookY: 0.5, grab: 0.7 },
     // v1.83: 置けるチェスト(基地のチェストと同じ見た目・27スロット)。斜面では、いちばん低い角に合わせて、高い側は地面に少し埋める。
+    // v1.87: 置ける焚き火(組んだ薪と石の輪。火は、まだ消えている)。石の輪は、斜面で高い側を地面に埋める。
+    campfire: { footprint: 0.7, press: 0.78, isFire: true, width: 1.0, depth: 1.0, slope: 'min', lookY: 0.25, grab: 0.8 },
     chest: { footprint: 0.58, press: 0.68, isChest: true, width: 0.95, depth: 0.6, slope: 'min', lookY: 0.3, grab: 0.75 },
   };
   // v1.81: 長押しの進みを、画面の中心に小さな輪で見せる(拾うまでの約0.6秒)
@@ -3754,7 +3785,7 @@ export function initScene(mountEl, options = {}) {
     let mesh;
     // v1.56-H4: restLift=地面に置いた時の高さ、snowSink=雪面に置いた時に雪へ埋まる量。雪が積もっていれば雪面の上に乗る(少し埋まる)
     const isLantern = itemId === 'jack_o_lantern';
-    let slopeLift = 0, placedChest = null;
+    let slopeLift = 0, placedChest = null, placedFire = null;
     const restLift0 = isLantern ? LANTERN_REST_LIFT : 0.01, snowSink0 = isLantern ? LANTERN_SNOW_SINK : 0.07;
     if (isLantern) { mesh = createJackOLanternMesh(LANTERN_GROUND_RADIUS); mesh.position.set(x, terrainHeightAt(x, z) + LANTERN_REST_LIFT, z); mesh.rotation.y = yaw; }
     else if (SOLID_PLACED[itemId]) { // v1.81/83: 作業台・チェスト。四隅の高さに合わせて置く(作業台は脚が地面の下まで伸びる。チェストは高い側を埋める)
@@ -3766,6 +3797,9 @@ export function initScene(mountEl, options = {}) {
           onClose: () => { const s2 = sfx(); if (s2) s2.chestClose(sfxRelative(x, terrainHeightAt(x, z) + 0.4, z)); },
         });
         mesh = placedChest.group;
+      } else if (sd.isFire) {
+        placedFire = createCampfire(1.0, { lit: false, withLight: false });
+        mesh = placedFire.group;
       } else mesh = sd.build();
       mesh.rotation.y = yaw;
       const cx = Math.cos(yaw), sx = Math.sin(yaw), hw = sd.width / 2, hd = sd.depth / 2;
@@ -3787,6 +3821,7 @@ export function initScene(mountEl, options = {}) {
     const restLift = restLift0 + slopeLift, snowSink = snowSink0; // v1.83: 雪の中でも、斜面のぶんの持ち上げ(slopeLift)が消えないよう、snowSinkには足さない
     const it = { id: `placed-${++placedSeq}`, itemId, x, z, mesh, iid: null, restLift, snowSink, pressId: 0, obstacle: null };
     const solid = SOLID_PLACED[itemId];
+    if (placedFire) { it.fire = placedFire; placedFires.push(placedFire); } // v1.87
     if (placedChest) { // v1.83: 置いたチェストの中身(保存したものがあれば戻す)
       it.chest = placedChest; placedChests.push(placedChest);
       if (opts && opts.chest) placedChest.restore(opts.chest);
@@ -3806,13 +3841,14 @@ export function initScene(mountEl, options = {}) {
     // v1.81/83: 作業台・チェストは、タップ=画面を開く / 長押し(0.6秒)=拾う。画面が使えない時は、従来どおりタップで拾う。
     const tableUi = !!(solid && it.itemId === 'crafting_table' && options.onTableUi);
     const chestUi = !!(it.chest && options.onChestUi);
+    const fireItem = !!it.fire; // v1.87: 焚き火は、長押しで拾う(タップでの着火・消火は、次の段階で足す)
     it.iid = interaction.register({
       kind: 'placed',
       getPosition: () => ({ x: it.x, y: it.mesh.position.y + (it.itemId === 'star_torch' ? 0.6 : solid ? solid.lookY : 0.2), z: it.z }), // v1.74: 松明は背が高いので、少し上を狙える
       radius: solid ? solid.grab : 0.45,
-      canInteract: () => ((tableUi || chestUi) ? true : inventory.canAdd(it.itemId, 1)),
-      onInteract: () => { if (tableUi) options.onTableUi(); else if (chestUi) { uiChest = it.chest; options.onChestUi(); } else pickUp(); },
-      ...((tableUi || chestUi) ? { onHold: pickUp, holdSec: 0.6 } : {}),
+      canInteract: () => ((tableUi || chestUi || fireItem) ? true : inventory.canAdd(it.itemId, 1)),
+      onInteract: () => { if (tableUi) options.onTableUi(); else if (chestUi) { uiChest = it.chest; options.onChestUi(); } else if (!fireItem) pickUp(); },
+      ...((tableUi || chestUi || fireItem) ? { onHold: pickUp, holdSec: 0.6 } : {}),
     });
     placedItems.push(it);
     if (!opts.silent) { const s = sfx(); if (s) s.itemPlace(itemId, sfxRelative(x, terrainHeightAt(x, z) + 0.1, z)); }
@@ -3821,6 +3857,7 @@ export function initScene(mountEl, options = {}) {
   function removePlacedItem(it) {
     const i = placedItems.indexOf(it); if (i >= 0) placedItems.splice(i, 1);
     interaction.unregister(it.iid); scene.remove(it.mesh);
+    if (it.fire) { const k3 = placedFires.indexOf(it.fire); if (k3 >= 0) placedFires.splice(k3, 1); } // v1.87
     if (it.chest) { const k2 = placedChests.indexOf(it.chest); if (k2 >= 0) placedChests.splice(k2, 1); it.chest.dispose(); } // v1.83
     if (it.pressId) pressField.release(it.pressId, clock.elapsedTime); // v1.81: 拾うと、草は10秒かけて立ち上がる
     if (it.obstacle) { const k = collisionObstacles.indexOf(it.obstacle); if (k >= 0) collisionObstacles.splice(k, 1); }
@@ -3882,6 +3919,37 @@ export function initScene(mountEl, options = {}) {
   // チェストの画面(歩行モード): 持ち物の画面に、置いたチェストのスロットを足して開く。閉じるとふたも閉じる。
   function openChestUi() { if (!uiChest) return; uiChest.open(); inventory.attachArea('chest', uiChest.storage.slots); }
   function closeChestUi() { if (inventory.hasArea('chest')) { inventory.detachArea('chest'); if (uiChest) uiChest.close(); } uiChest = null; }
+  // --- v1.85: 木炭。太古の山火事でできた炭が、急な斜面のふちや川岸の地層から顔を出している。長押しで回収する。 ---
+  const coalField = createCoalField({
+    scene, terrainHeightAt, range: PLAYABLE_RADIUS,
+    rng: makeRng(worldGen ? deriveSeed(worldGen.seed, 'coal') : 4141),
+    bankDistanceAt: (x, z) => { const { distance, width } = distanceToRiver(x, z, riverSamplesForAvoid); return distance - getWaterEdgeDistance(width); },
+    isBlocked: (x, z) => {
+      if (Math.hypot(x, z) > PLAYABLE_RADIUS) return true;
+      const { distance, width } = distanceToRiver(x, z, riverSamplesForAvoid);
+      if (distance < getWaterEdgeDistance(width) + 0.25) return true; // 水の中・水際ぎりぎりは避ける(川岸は、すこし離れた所から)
+      for (let i = 0; i < 2; i++) { const zone = avoidZones[i]; if (Math.hypot(x - zone.x, z - zone.z) < zone.radius + 1.5) return true; } // キャンプと大木
+      for (const t of livingTreePositions) if (Math.hypot(x - t.x, z - t.z) < t.scale * 0.35 + 0.6) return true;
+      for (const rk of rockClusters) if (Math.hypot(x - rk.x, z - rk.z) < rk.scale * 1.3 + 0.5) return true;
+      return false;
+    },
+  });
+  for (const cp of coalField.pieces) {
+    cp.iid = interaction.register({
+      kind: 'coal',
+      getPosition: () => ({ x: cp.x, y: cp.y + 0.12, z: cp.z }),
+      radius: 0.5,
+      canInteract: () => !cp.taken && !coalField.isHidden(), // 雪の下では、拾えない
+      onHold: () => { // 長押しで、1個回収
+        if (cp.taken) return;
+        if (!inventory.canAdd('coal', 1)) { showPlaceNotice(tr('notice.bagFull')); return; }
+        const s = sfx(); if (s) s.itemPickup('coal', sfxRelative(cp.x, cp.y + 0.1, cp.z));
+        coalField.take(cp.index); interaction.unregister(cp.iid); inventory.add('coal', 1);
+        debugLog.log('coal.collected', { index: cp.index });
+      },
+    });
+  }
+
   interaction.register({
     kind: 'star',
     enabled: () => fallingStars.isLanded(),
@@ -4265,6 +4333,7 @@ export function initScene(mountEl, options = {}) {
       canCollect: mode === 'walk' && !wanderActive, // v1.54: 見守りの雪だるまは、近づくだけで拾わず、眺めて自分で決める(collectTask)
       isNight: getTimeOfDay(gameHour) === 'night', // 新しい星までの数えは夜のあいだだけ進む
     });
+    for (const pf of placedFires) pf.update(clock.elapsedTime); // v1.87
     for (const pc of placedChests) pc.update(delta, { night: getTimeOfDay(gameHour) === 'night', t: clock.elapsedTime }); // v1.83
     updateLanterns(delta);
     updateButterfly(delta, t); // v1.78: 鼻にとまる蝶
@@ -4543,6 +4612,8 @@ export function initScene(mountEl, options = {}) {
       placed: placedItems.slice(0, 400).map((it) => ({ id: it.itemId, x: r3(it.x), z: r3(it.z), yaw: r3(it.mesh.rotation.y), ...(it.chest ? { chest: it.chest.storage.serialize() } : {}) })),
       logs: logs.slice(0, 300),
       shards: shardSystem.serialize(), // v1.69: 星のかけら・月のかけらを貼った倒木と、接着した塊(倒木の番号で)
+      rockTaken: rockClusters.map((r, i) => (r.taken ? i : -1)).filter((i) => i >= 0), // v1.86: 回収した岩
+      coalTaken: coalField.pieces.filter((q) => q.taken).map((q) => q.index), // v1.85: 回収した木炭
       moonTaken: moonBuried.map((m, i) => (moonStones.getLanded().some((s) => s.id === m.id) ? -1 : i)).filter((i) => i >= 0), // v1.69: 拾われた、埋まっていた月の石
       remnants: remnantField.items.filter((it) => it.collected).map((it) => it.id).slice(0, 400),
       weather: { name: weather.getWeather(), auto: weather.isAutoMode(), snow: r3(weather.getSnowDepth()) },
@@ -4578,6 +4649,8 @@ export function initScene(mountEl, options = {}) {
       syncLogObstacles();
     });
     guard(() => { if (st.shards) shardSystem.restore(st.shards); }); // v1.69: 倒木の位置を戻したあとに、かけらと接着を戻す
+    guard(() => { for (const i of Array.isArray(st.rockTaken) ? st.rockTaken : []) removeRock(i); }); // v1.86
+    guard(() => { for (const i of Array.isArray(st.coalTaken) ? st.coalTaken : []) { if (coalField.take(i)) interaction.unregister(coalField.pieces[i].iid); } }); // v1.85
     guard(() => { for (const i of Array.isArray(st.moonTaken) ? st.moonTaken : []) { const m = moonBuried[i]; if (m) moonStones.take(m.id); } }); // v1.69
     guard(() => { for (const id of Array.isArray(st.remnants) ? st.remnants : []) remnantField.take(id); });
     guard(() => {
@@ -4731,6 +4804,8 @@ export function initScene(mountEl, options = {}) {
       collect: {
         plantStar: (x, z) => fallingStars.debugPlant(x, z),
         setCapacity: (n) => pouch.setCapacity(n),
+        rocks: () => rockClusters.map((r, i) => ({ i, x: +r.x.toFixed(2), z: +r.z.toFixed(2), scale: +r.scale.toFixed(2), taken: !!r.taken })),
+        coalPieces: () => coalField.pieces.map((q) => ({ i: q.index, x: +q.x.toFixed(2), z: +q.z.toFixed(2), taken: q.taken })),
         chestPos: () => { const it = placedItems.find((q) => q.chest); if (!it) return null; const st = chestStandOf(it); return { x: it.x, z: it.z, standX: st.x, standZ: st.z }; },
         info: () => ({
           carried: Object.fromEntries(pouch.carried()), total: pouch.total(), full: pouch.isFull(), cap: pouch.capacity,
