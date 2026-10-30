@@ -545,6 +545,8 @@ export function initScene(mountEl, options = {}) {
   placeOnTerrain(chest.group, chestX, chestZ, terrainHeightAt);
   chest.group.rotation.y = chestAngle;
   scene.add(chest.group);
+  let uiChest = chest;                 // v1.83: 持ち物の画面で開いているチェスト(基地のチェスト、または置いたチェスト)
+  const placedChests = [];             // v1.83: 置いたチェスト(ふたのアニメーション用)
   collisionObstacles.push({ x: chestX, z: chestZ, radius: chest.radius * 0.85 });
   const chestCollider = { id: 'chest-camp', kind: 'cylinder', x: chestX, z: chestZ, y: terrainHeightAt(chestX, chestZ) + chest.height / 2, radius: chest.radius * 0.85, height: chest.height };
   worldColliders.push(chestCollider);
@@ -3713,7 +3715,9 @@ export function initScene(mountEl, options = {}) {
   const LANTERN_SNOW_SINK = LANTERN_REST_LIFT - 0.09;        // 雪面に置いた時は、中心が雪面の+0.09m(底の約7割が雪に埋まる)
   // v1.81: 置くと草を潰し、歩いて通り抜けられない大きな物(作業台。チェストは次の段階で足す)
   const SOLID_PLACED = {
-    crafting_table: { footprint: CRAFTING_TABLE.footprint, press: CRAFTING_TABLE.pressRadius, build: createCraftingTableMesh, lookY: 0.5, grab: 0.7 },
+    crafting_table: { footprint: CRAFTING_TABLE.footprint, press: CRAFTING_TABLE.pressRadius, build: createCraftingTableMesh, width: CRAFTING_TABLE.width, depth: CRAFTING_TABLE.depth, slope: 'max', lookY: 0.5, grab: 0.7 },
+    // v1.83: 置けるチェスト(基地のチェストと同じ見た目・27スロット)。斜面では、いちばん低い角に合わせて、高い側は地面に少し埋める。
+    chest: { footprint: 0.58, press: 0.68, isChest: true, width: 0.95, depth: 0.6, slope: 'min', lookY: 0.3, grab: 0.75 },
   };
   // v1.81: 長押しの進みを、画面の中心に小さな輪で見せる(拾うまでの約0.6秒)
   let holdRingEl = null;
@@ -3759,16 +3763,29 @@ export function initScene(mountEl, options = {}) {
     let mesh;
     // v1.56-H4: restLift=地面に置いた時の高さ、snowSink=雪面に置いた時に雪へ埋まる量。雪が積もっていれば雪面の上に乗る(少し埋まる)
     const isLantern = itemId === 'jack_o_lantern';
-    let slopeLift = 0;
+    let slopeLift = 0, placedChest = null;
     const restLift0 = isLantern ? LANTERN_REST_LIFT : 0.01, snowSink0 = isLantern ? LANTERN_SNOW_SINK : 0.07;
     if (isLantern) { mesh = createJackOLanternMesh(LANTERN_GROUND_RADIUS); mesh.position.set(x, terrainHeightAt(x, z) + LANTERN_REST_LIFT, z); mesh.rotation.y = yaw; }
-    else if (SOLID_PLACED[itemId]) { // v1.81: 作業台。斜面でも浮かないよう、四隅のうちいちばん高い所に合わせる(脚は地面の下まで伸びている)
-      mesh = SOLID_PLACED[itemId].build(); mesh.rotation.y = yaw;
-      const cx = Math.cos(yaw), sx = Math.sin(yaw), hw = CRAFTING_TABLE.width / 2, hd = CRAFTING_TABLE.depth / 2;
-      let hMax = terrainHeightAt(x, z);
-      for (const [lx, lz] of [[hw, hd], [-hw, hd], [hw, -hd], [-hw, -hd]]) hMax = Math.max(hMax, terrainHeightAt(x + lx * cx + lz * sx, z - lx * sx + lz * cx));
-      slopeLift = hMax - terrainHeightAt(x, z);
-      mesh.position.set(x, hMax + 0.01, z);
+    else if (SOLID_PLACED[itemId]) { // v1.81/83: 作業台・チェスト。四隅の高さに合わせて置く(作業台は脚が地面の下まで伸びる。チェストは高い側を埋める)
+      const sd = SOLID_PLACED[itemId];
+      if (sd.isChest) {
+        placedChest = createBaseChest({ scale: 1.0 });
+        placedChest.setSoundHooks({
+          onOpen: () => { const s2 = sfx(); if (s2) s2.chestOpen(sfxRelative(x, terrainHeightAt(x, z) + 0.4, z)); },
+          onClose: () => { const s2 = sfx(); if (s2) s2.chestClose(sfxRelative(x, terrainHeightAt(x, z) + 0.4, z)); },
+        });
+        mesh = placedChest.group;
+      } else mesh = sd.build();
+      mesh.rotation.y = yaw;
+      const cx = Math.cos(yaw), sx = Math.sin(yaw), hw = sd.width / 2, hd = sd.depth / 2;
+      const hc = terrainHeightAt(x, z);
+      let hPick = hc;
+      for (const [lx, lz] of [[hw, hd], [-hw, hd], [hw, -hd], [-hw, -hd]]) {
+        const hh = terrainHeightAt(x + lx * cx + lz * sx, z - lx * sx + lz * cx);
+        hPick = sd.slope === 'min' ? Math.min(hPick, hh) : Math.max(hPick, hh);
+      }
+      slopeLift = hPick - hc;
+      mesh.position.set(x, hPick + 0.01, z);
     }
     else if (itemId === 'star_torch') { mesh = createStarTorchMesh(); mesh.position.set(x, terrainHeightAt(x, z) + 0.01, z); mesh.rotation.y = yaw; } // v1.74: 地面に真っすぐ立てる
     else {
@@ -3776,9 +3793,13 @@ export function initScene(mountEl, options = {}) {
       mesh = new THREE.Group(); held.scale.setScalar(1.6); mesh.add(held); mesh.position.set(x, terrainHeightAt(x, z) + 0.01, z); mesh.rotation.y = yaw;
     }
     scene.add(mesh);
-    const restLift = restLift0 + slopeLift, snowSink = snowSink0 + slopeLift;
+    const restLift = restLift0 + slopeLift, snowSink = snowSink0; // v1.83: 雪の中でも、斜面のぶんの持ち上げ(slopeLift)が消えないよう、snowSinkには足さない
     const it = { id: `placed-${++placedSeq}`, itemId, x, z, mesh, iid: null, restLift, snowSink, pressId: 0, obstacle: null };
     const solid = SOLID_PLACED[itemId];
+    if (placedChest) { // v1.83: 置いたチェストの中身(保存したものがあれば戻す)
+      it.chest = placedChest; placedChests.push(placedChest);
+      if (opts && opts.chest) placedChest.restore(opts.chest);
+    }
     if (solid) {
       it.pressId = pressField.add(x, z, solid.press);                 // 下の草がペシャンコになる
       it.obstacle = { x, z, radius: solid.footprint * 0.9 };           // 歩いて通り抜けられない
@@ -3786,19 +3807,21 @@ export function initScene(mountEl, options = {}) {
     }
     mesh.position.y = placedItemY(it);
     const pickUp = () => {
+      if (it.chest && it.chest.storage.total() > 0) { showPlaceNotice(tr('notice.chestNotEmpty')); return; } // 中身があるチェストは、拾えない(中身が消えないように)
       if (!inventory.canAdd(it.itemId, 1)) { if (solid) showPlaceNotice(tr('notice.bagFull')); return; }
       const s = sfx(); if (s) s.itemPickup(it.itemId, sfxRelative(it.x, terrainHeightAt(it.x, it.z) + 0.2, it.z));
       removePlacedItem(it); inventory.add(it.itemId, 1);
     };
-    // v1.81: 作業台は、タップ=クラフトの画面を開く / 長押し(0.6秒)=拾う。画面が使えない時(onTableUiなし)は、従来どおりタップで拾う。
+    // v1.81/83: 作業台・チェストは、タップ=画面を開く / 長押し(0.6秒)=拾う。画面が使えない時は、従来どおりタップで拾う。
     const tableUi = !!(solid && it.itemId === 'crafting_table' && options.onTableUi);
+    const chestUi = !!(it.chest && options.onChestUi);
     it.iid = interaction.register({
       kind: 'placed',
       getPosition: () => ({ x: it.x, y: it.mesh.position.y + (it.itemId === 'star_torch' ? 0.6 : solid ? solid.lookY : 0.2), z: it.z }), // v1.74: 松明は背が高いので、少し上を狙える
       radius: solid ? solid.grab : 0.45,
-      canInteract: () => (tableUi ? true : inventory.canAdd(it.itemId, 1)),
-      onInteract: () => { if (tableUi) options.onTableUi(); else pickUp(); },
-      ...(tableUi ? { onHold: pickUp, holdSec: 0.6 } : {}),
+      canInteract: () => ((tableUi || chestUi) ? true : inventory.canAdd(it.itemId, 1)),
+      onInteract: () => { if (tableUi) options.onTableUi(); else if (chestUi) { uiChest = it.chest; options.onChestUi(); } else pickUp(); },
+      ...((tableUi || chestUi) ? { onHold: pickUp, holdSec: 0.6 } : {}),
     });
     placedItems.push(it);
     if (!opts.silent) { const s = sfx(); if (s) s.itemPlace(itemId, sfxRelative(x, terrainHeightAt(x, z) + 0.1, z)); }
@@ -3807,6 +3830,7 @@ export function initScene(mountEl, options = {}) {
   function removePlacedItem(it) {
     const i = placedItems.indexOf(it); if (i >= 0) placedItems.splice(i, 1);
     interaction.unregister(it.iid); scene.remove(it.mesh);
+    if (it.chest) { const k2 = placedChests.indexOf(it.chest); if (k2 >= 0) placedChests.splice(k2, 1); it.chest.dispose(); } // v1.83
     if (it.pressId) pressField.release(it.pressId, clock.elapsedTime); // v1.81: 拾うと、草は10秒かけて立ち上がる
     if (it.obstacle) { const k = collisionObstacles.indexOf(it.obstacle); if (k >= 0) collisionObstacles.splice(k, 1); }
   }
@@ -3865,8 +3889,8 @@ export function initScene(mountEl, options = {}) {
   }
   const _lanternHeadPos = new THREE.Vector3();
   // チェストの画面(歩行モード): 持ち物の画面に、チェストのスロットを足して開く。閉じるとふたも閉じる。
-  function openChestUi() { chest.open(); chestAutoCloseAt = 0; inventory.attachArea('chest', chest.storage.slots); }
-  function closeChestUi() { if (inventory.hasArea('chest')) { inventory.detachArea('chest'); chest.close(); } }
+  function openChestUi() { uiChest.open(); chestAutoCloseAt = 0; inventory.attachArea('chest', uiChest.storage.slots); }
+  function closeChestUi() { if (inventory.hasArea('chest')) { inventory.detachArea('chest'); uiChest.close(); } uiChest = chest; }
 
   // --- v1.54: 歩行モードで、プレイヤーがチェストを使う(手に持っている物を1個しまう。手ぶらなら中身を1個取り出す) ---
   // ふたは開けて、少し経つと自動で閉じる。見守りの雪だるまがしまっている最中は、ふたに触らない。
@@ -3889,7 +3913,7 @@ export function initScene(mountEl, options = {}) {
     getPosition: () => ({ x: chestX, y: chest.group.position.y - chestGroundOffset + 0.35, z: chestZ }),
     radius: chest.radius * 1.1,
     canInteract: () => true,
-    onInteract: () => { playerUseChest(); },
+    onInteract: () => { uiChest = chest; playerUseChest(); },
   });
   interaction.register({
     kind: 'star',
@@ -4276,6 +4300,7 @@ export function initScene(mountEl, options = {}) {
     });
     if (chestAutoCloseAt > 0 && clock.elapsedTime > chestAutoCloseAt && !wander.baseTask) { chest.close(); chestAutoCloseAt = 0; }
     chest.update(delta, { night: getTimeOfDay(gameHour) === 'night', t: clock.elapsedTime });
+    for (const pc of placedChests) pc.update(delta, { night: getTimeOfDay(gameHour) === 'night', t: clock.elapsedTime }); // v1.83
     updateLanterns(delta);
     updateButterfly(delta, t); // v1.78: 鼻にとまる蝶
     updateSnowmanStarReaction(delta);
@@ -4551,7 +4576,7 @@ export function initScene(mountEl, options = {}) {
     return {
       inventory: inventory.serialize(), equipment: equipment.serialize(), pouch: pouch.serialize(),
       chest: chest.storage.serialize(),
-      placed: placedItems.slice(0, 400).map((it) => ({ id: it.itemId, x: r3(it.x), z: r3(it.z), yaw: r3(it.mesh.rotation.y) })),
+      placed: placedItems.slice(0, 400).map((it) => ({ id: it.itemId, x: r3(it.x), z: r3(it.z), yaw: r3(it.mesh.rotation.y), ...(it.chest ? { chest: it.chest.storage.serialize() } : {}) })),
       logs: logs.slice(0, 300),
       shards: shardSystem.serialize(), // v1.69: 星のかけら・月のかけらを貼った倒木と、接着した塊(倒木の番号で)
       moonTaken: moonBuried.map((m, i) => (moonStones.getLanded().some((s) => s.id === m.id) ? -1 : i)).filter((i) => i >= 0), // v1.69: 拾われた、埋まっていた月の石
@@ -4591,7 +4616,7 @@ export function initScene(mountEl, options = {}) {
       for (const e of Array.isArray(st.placed) ? st.placed : []) {
         if (!e || typeof e.id !== 'string' || !isKnownItem(e.id) || !num(e.x) || !num(e.z)) { skipped++; continue; }
         if (Math.hypot(e.x, e.z) > PLAYABLE_RADIUS * 1.5) { skipped++; continue; }
-        addPlacedItem(e.id, e.x, e.z, num(e.yaw) ? e.yaw : 0, { exact: true, silent: true });
+        addPlacedItem(e.id, e.x, e.z, num(e.yaw) ? e.yaw : 0, { exact: true, silent: true, chest: e.chest });
       }
     });
     guard(() => {

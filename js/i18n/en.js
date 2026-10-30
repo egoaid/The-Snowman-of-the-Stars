@@ -337,6 +337,7 @@ export default {
   "item.diamond.name": "Diamond",
   "item.diamond.desc": "A clear stone that slept deep inside the rock.",
   "notice.noPlaceFlowers": "Can’t place that on a flower field",
+  "notice.chestNotEmpty": "Empty the chest before picking it up",
   "notice.bagFull": "Your bag is full",
   "inv.table": "🛠️ Crafting Table",
   "inv.craft.table": "🛠️ Make a Crafting Table (Log ×1)",

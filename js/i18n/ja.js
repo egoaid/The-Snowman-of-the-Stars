@@ -337,6 +337,7 @@ export default {
   "item.diamond.name": "ダイヤ",
   "item.diamond.desc": "岩の奥で眠っていた、透きとおった石。",
   "notice.noPlaceFlowers": "お花畑の上には置けません",
+  "notice.chestNotEmpty": "チェストの中身を出してから拾ってください",
   "notice.bagFull": "持ち物がいっぱいです",
   "inv.table": "🛠️ 作業台",
   "inv.craft.table": "🛠️ 作業台を作る(丸太1)",
