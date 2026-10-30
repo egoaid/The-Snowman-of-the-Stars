@@ -62,7 +62,7 @@ import { createPhysics } from '../physics.js';
 import { createFallenLogSystem, levelQuaternion, logBuryHeight, logMinClearance } from './fallen-log-system.js';
 import { createCollectibleRegistry, COLLECTIBLE_KINDS } from '../collectibles.js';
 import { createPouch } from '../pouch.js';
-import { createBaseChest } from './chest.js';
+import { createBaseChest } from './chest.js'; // 置いたチェストの見た目と中身(v1.84: 世界に最初からあるチェストは廃止)
 import { findFreePlacement } from '../placement.js';
 import { t as tr } from '../i18n.js';
 import { createPressField } from './press-field.js';
@@ -535,28 +535,13 @@ export function initScene(mountEl, options = {}) {
   collisionObstacles.push(fireCollision);
   worldColliders.push({ id: 'campfire', kind: 'cylinder', x: fireX, z: fireZ, y: terrainHeightAt(fireX, fireZ) + 0.2, radius: 0.45, height: 0.4 });
 
-  // --- v1.54 E4: チェスト(テントの出入口の横。見守りの雪だるまが、集めた物をしまう場所) ---
-  // 星のかけらの飾りがついた、世界のチェスト。キャンプの中心から、入口の向きに対して横へずらし、
-  // かまくらの外側にも収まる距離に置く。正面はキャンプの外側を向く(雪だるまは外側からしまう)。
-  const chest = createBaseChest({ scale: 1.0 });
-  const chestAngle = campDoorAngle + SNOWMAN_COLLECT.chestAngleFromDoor;
-  const chestDist = Math.max(SNOWMAN_COLLECT.chestDistance, iglooOuterRadiusPlanned + 0.9);
-  const chestX = campX + Math.sin(chestAngle) * chestDist, chestZ = campZ + Math.cos(chestAngle) * chestDist;
-  placeOnTerrain(chest.group, chestX, chestZ, terrainHeightAt);
-  chest.group.rotation.y = chestAngle;
-  scene.add(chest.group);
-  let uiChest = chest;                 // v1.83: 持ち物の画面で開いているチェスト(基地のチェスト、または置いたチェスト)
-  const placedChests = [];             // v1.83: 置いたチェスト(ふたのアニメーション用)
-  collisionObstacles.push({ x: chestX, z: chestZ, radius: chest.radius * 0.85 });
-  const chestCollider = { id: 'chest-camp', kind: 'cylinder', x: chestX, z: chestZ, y: terrainHeightAt(chestX, chestZ) + chest.height / 2, radius: chest.radius * 0.85, height: chest.height };
-  worldColliders.push(chestCollider);
-  const chestGroundOffset = chest.group.position.y - terrainHeightAt(chestX, chestZ); // 地面からの置き高さ(雪が無い時の見た目を保つ)
-  const chestStand = { x: chestX + Math.sin(chestAngle) * 1.15, z: chestZ + Math.cos(chestAngle) * 1.15 }; // しまう時に立つ場所(正面)
-  // v1.56-H3: チェストの開閉音。見守りの雪だるまの開閉も、歩行モードのプレイヤーの開閉も、chest.open()/close()を通るのでここで鳴る。
-  chest.setSoundHooks({
-    onOpen: () => { const s = sfx(); if (s) s.chestOpen(sfxRelative(chestX, terrainHeightAt(chestX, chestZ) + 0.4, chestZ)); },
-    onClose: () => { const s = sfx(); if (s) s.chestClose(sfxRelative(chestX, terrainHeightAt(chestX, chestZ) + 0.4, chestZ)); },
-  });
+  // --- v1.84: テントのそばの元のチェストは廃止した(作業台で作るチェストだけにした)。 ---
+  // 古い保存データに中身があれば、その場所に「置いたチェスト」として引き継ぐ(中身が消えないように)。そのための昔の位置だけ残す。
+  const legacyChestAngle = campDoorAngle + SNOWMAN_COLLECT.chestAngleFromDoor;
+  const legacyChestDist = Math.max(SNOWMAN_COLLECT.chestDistance, iglooOuterRadiusPlanned + 0.9);
+  const legacyChestX = campX + Math.sin(legacyChestAngle) * legacyChestDist, legacyChestZ = campZ + Math.cos(legacyChestAngle) * legacyChestDist;
+  let uiChest = null;                  // 持ち物の画面で開いている、置いたチェスト
+  const placedChests = [];             // 置いたチェスト(ふたのアニメーション用)
 
   // --- かまくら(積雪5m到達時、テントの代わりに表示) ---
   // 2026-09: 新規追加。「積雪が5mに達するとテントの代わりに雪の
@@ -804,12 +789,24 @@ export function initScene(mountEl, options = {}) {
   function reachableCandidate(c, bridge) { return bridge || !acrossRiver(wander.pos.x, wander.pos.y, c.x, c.z); }
   /** (x,z)の、水際までの距離(m。水際の内側なら負)。 */
   function edgeAt(x, z) { const rv = distanceToRiver(x, z, riverSamplesForAvoid); return rv.distance - getWaterEdgeDistance(rv.width); }
+  /** v1.84: しまいに行くチェスト: 置いたチェストのうち、空きがあって、いまプレイヤーが開いていない、いちばん近いもの。 */
+  function pickStorageChest() {
+    let best = null, bd = 80;
+    for (const it of placedItems) {
+      if (!it.chest || it.chest === uiChest || it.chest.storage.isFull()) continue;
+      const d = Math.hypot(it.x - wander.pos.x, it.z - wander.pos.y);
+      if (d < bd) { bd = d; best = it; }
+    }
+    return best;
+  }
+  const chestStandOf = (it) => ({ x: it.x + Math.sin(it.mesh.rotation.y) * 1.15, z: it.z + Math.cos(it.mesh.rotation.y) * 1.15 }); // しまう時に立つ場所(正面)
   function pickNextWanderActivityRaw() {
     if (forcedRestActivity) { const a = forcedRestActivity; forcedRestActivity = null; return a; }
     // v1.38: 落ちてきた星が気になっている時は、そちらへ向かう(星が先に消えていたら忘れる)
     // v1.54: ポーチが満杯なら、探索をやめてテントのチェストへ帰る(チェストが満杯なら、そのまま持ち歩く)
-    if (pouch.isFull() && !pouch.isEmpty() && !chest.storage.isFull()) {
-      return { target: { x: chestStand.x, z: chestStand.z }, restMin: 2, restMax: 4, activity: 'idle', toChest: true };
+    if (pouch.isFull() && !pouch.isEmpty()) { // v1.84: いちばん近い、空きのある「置いたチェスト」へしまいに行く(無ければ、そのまま持ち歩く)
+      const tc = pickStorageChest();
+      if (tc) { const st = chestStandOf(tc); return { target: { x: st.x, z: st.z }, restMin: 2, restMax: 4, activity: 'idle', toChest: true, chestIt: tc }; }
     }
     // 落ちてきた星が気になっている時(気づいた上で向かうと決めた時)は、そちらへ向かう
     if (starInterest.active) {
@@ -894,7 +891,7 @@ export function initScene(mountEl, options = {}) {
   function computeWanderLegs(next) {
     wander.routePlan = null;
     wander.collectTask = next.collect ? { cand: next.collect, phase: 'goto' } : null; // v1.54
-    wander.baseTask = next.toChest ? { phase: 'goto' } : null;
+    wander.baseTask = next.toChest ? { phase: 'goto', it: next.chestIt } : null;
     // v1.53 E2: 川を渡りたい時は、丸太の表面を伝って向こう岸へ届く経路があるかを、物理的な到達可能性から調べる
     // (丸太に「橋」の印は無い。入口で乗れるか・上を歩けるか・向こうに地面があるかを面の高さと位置から確かめる)。
     // 無ければ、川岸まで行って佇む。失敗した足がかりは一定時間覚えて、同じ不可能な試みを繰り返さない。
@@ -1341,29 +1338,33 @@ export function initScene(mountEl, options = {}) {
     }
     return false;
   }
-  /** 気まぐれ: チェストにジャック・オー・ランタンがあれば、頭にかぶってみる。かぶっていれば、また脱いでしまうこともある。 */
-  function aiLanternWhim() {
+  /** 気まぐれ: しまいに来たチェスト(ch)にジャック・オー・ランタンがあれば、頭にかぶってみる。かぶっていれば、また脱いでしまうこともある。 */
+  function aiLanternWhim(ch) {
+    if (!ch) return;
     const head = equipment.get('head');
-    if (!head && chest.storage.count('jack_o_lantern') > 0 && Math.random() < 0.4) {
-      if (chest.storage.take('jack_o_lantern', 1) > 0) equipment.set('head', 'jack_o_lantern');
+    if (!head && ch.storage.count('jack_o_lantern') > 0 && Math.random() < 0.4) {
+      if (ch.storage.take('jack_o_lantern', 1) > 0) equipment.set('head', 'jack_o_lantern');
     } else if (head === 'jack_o_lantern' && Math.random() < 0.3) {
-      if (chest.storage.store('jack_o_lantern', 1) > 0) equipment.set('head', null);
+      if (ch.storage.store('jack_o_lantern', 1) > 0) equipment.set('head', null);
     }
   }
   function beginChestTask() {
-    wander.baseTask = { phase: 'face', timer: 1.6, stored: 0 };
+    const it = wander.baseTask ? wander.baseTask.it : null;
+    wander.baseTask = { phase: 'face', timer: 1.6, stored: 0, it };
     wander.legs = [];
   }
   function runBaseTask(bt, delta) {
     wander.walking = false; resetEscapeWatch(); resetStuckCheck();
     const COL = SNOWMAN_COLLECT;
+    const it = bt.it, chest = it && it.chest; // v1.84: しまう先は、置いたチェスト。途中で拾われたら、やめる
+    if (!chest || !placedItems.includes(it)) { endTasks(); return true; }
     if (bt.phase === 'face') { // チェストの方を向く(向き終えるか、1.6秒たつまで)
-      const err = faceToward(chestX, chestZ, delta);
+      const err = faceToward(it.x, it.z, delta);
       bt.timer -= delta;
       if (err < 0.15 || bt.timer <= 0) { bt.phase = 'open'; bt.timer = COL.chestOpenSec; chest.open(); }
       return true;
     }
-    faceToward(chestX, chestZ, delta);
+    faceToward(it.x, it.z, delta);
     if (bt.phase === 'open') {
       bt.timer -= delta;
       if (bt.timer <= 0 && chest.settled()) { bt.phase = 'store'; bt.timer = 0.2; }
@@ -1383,7 +1384,7 @@ export function initScene(mountEl, options = {}) {
     }
     if (bt.phase === 'close') {
       bt.timer -= delta;
-      if (bt.timer <= 0 && chest.settled()) { bt.phase = 'pause'; bt.timer = rand2(COL.chestPauseSec); aiLanternWhim(); }
+      if (bt.timer <= 0 && chest.settled()) { bt.phase = 'pause'; bt.timer = rand2(COL.chestPauseSec); aiLanternWhim(chest); }
       return true;
     }
     if (bt.phase === 'pause') {
@@ -2366,7 +2367,7 @@ export function initScene(mountEl, options = {}) {
     wanderActive = !!active;
     if (wanderActive) emoteBrain.adoptAuto(); // v1.73
     wander.collectTask = null; wander.baseTask = null; // v1.54: モードの切り替えで、途中の動作は終える
-    if (!wanderActive) { cinemaMode = false; chest.close(); } // 見守りモードを切ったら自動カメラも切る
+    if (!wanderActive) { cinemaMode = false; for (const pc of placedChests) if (pc !== uiChest) pc.close(); } // 見守りモードを切ったら自動カメラも切る
     if (wanderActive && fallingStars.isLanded()) rollSnowmanStarReaction(); // すでに落ちている星にも気づくことがある
   }
 
@@ -2622,14 +2623,6 @@ export function initScene(mountEl, options = {}) {
     }
 
     // v1.56-H4: かまくらが建った段階で、チェストはかまくらの隣の雪面の上に現れる(それまでは雪に埋もれて見えない)。
-    // かまくらが消えて雪が引いたら、元の地面の位置に戻る。位置(x,z)はかまくらの隣のまま変わらない。
-    {
-      const chestY = terrainHeightAt(chestX, chestZ) + chestGroundOffset + (iglooActiveState ? snowDepth : 0);
-      if (Math.abs(chest.group.position.y - chestY) > 1e-4) {
-        chest.group.position.y = chestY;
-        chestCollider.y = chestY - chestGroundOffset + chest.height / 2;
-      }
-    }
 
     // 2026-09(改訂4): 焚き火の位置は年間を通して固定(fireX/fireZ)。
     // 以前はかまくら設置時に別の場所へ動かしていたが、「位置が変わるのは
@@ -3443,19 +3436,18 @@ export function initScene(mountEl, options = {}) {
   // v1.69: かけらの持ち物。編集モードでは、持ち物(ホットバー・リュック)とチェストの中身を、まとめて使える。
   //   数は両方の合計。使う時は、持ち物から先に、足りなければチェストから取る。
   // ================================================================
-  const poolCount = (id) => inventory.count(id) + chest.storage.count(id);
+  const poolCount = (id) => inventory.count(id); // v1.84: 元のチェストの廃止で、持ち物だけ(置いたチェストの中身は数えない)
   function poolTake(id, n = 1) {
     if (poolCount(id) < n) return false;
     let left = n;
     const fromInv = Math.min(left, inventory.count(id));
     if (fromInv > 0 && inventory.remove(id, fromInv)) left -= fromInv;
-    if (left > 0) left -= chest.storage.take(id, left);
     return left === 0;
   }
   /** v1.71: 1つ、入れ物(持ち物→チェスト)へ戻す。入りきらなければ false。 */
   function poolGive(id) {
     if (inventory.canAdd(id, 1)) { inventory.add(id, 1); return true; }
-    return chest.storage.store(id, 1) > 0;
+    return false;
   }
   /** 星→星のかけら、月の石→月のかけら。入れ物(持ち物→チェスト)に入りきらなければ、元に戻す。 */
   function craftShardsFromPool(kind) {
@@ -3463,12 +3455,11 @@ export function initScene(mountEl, options = {}) {
     if (!recipe || !poolTake(recipe.input.id, recipe.input.count)) { debugLog.log('craft', { kind, ok: false, reason: 'no-material' }); return false; }
     let left = recipe.output.count;
     while (left > 0 && inventory.canAdd(recipe.output.id, 1)) { inventory.add(recipe.output.id, 1); left -= 1; }
-    if (left > 0) left -= chest.storage.store(recipe.output.id, left);
     if (left > 0) { // 入りきらない: できたぶんを戻して、材料も戻す(何も起きなかったことにする)
       debugLog.log('craft', { kind, ok: false, reason: 'storage-full' });
       const made = recipe.output.count - left;
       poolTake(recipe.output.id, made);
-      if (!inventory.add(recipe.input.id, recipe.input.count)) chest.storage.store(recipe.input.id, recipe.input.count);
+      inventory.add(recipe.input.id, recipe.input.count);
       return false;
     }
     shardPanelDirty = true;
@@ -3745,7 +3736,7 @@ export function initScene(mountEl, options = {}) {
     placeNoticeTimer = setTimeout(() => { placeNoticeEl.style.opacity = '0'; }, 2400);
   }
   const placeRadiusOf = (itemId) => (itemId === 'jack_o_lantern' ? LANTERN_GROUND_RADIUS + 0.06 : itemId === 'star_torch' ? STAR_TORCH.footprint : SOLID_PLACED[itemId] ? SOLID_PLACED[itemId].footprint : ITEM_PLACE_RADIUS); // 重なり判定の円の大きさ
-  function placementObstacles() { return collisionObstacles.concat([{ x: chestX, z: chestZ, radius: chest.radius }]); }
+  function placementObstacles() { return collisionObstacles; }
   function placedFootprints() {
     const out = placedItems.map((it) => ({ x: it.x, z: it.z, radius: placeRadiusOf(it.itemId) }));
     for (const it of remnantField.items) if (!it.collected) out.push({ x: it.x, z: it.z, radius: it.kind === 'jack_o_lantern' ? placeRadiusOf('jack_o_lantern') : 0.25 });
@@ -3888,33 +3879,9 @@ export function initScene(mountEl, options = {}) {
     for (const e of lanternEmitters) if (e.torch) setStarTorchFar(e.torch.mesh, !e.lit);
   }
   const _lanternHeadPos = new THREE.Vector3();
-  // チェストの画面(歩行モード): 持ち物の画面に、チェストのスロットを足して開く。閉じるとふたも閉じる。
-  function openChestUi() { uiChest.open(); chestAutoCloseAt = 0; inventory.attachArea('chest', uiChest.storage.slots); }
-  function closeChestUi() { if (inventory.hasArea('chest')) { inventory.detachArea('chest'); uiChest.close(); } uiChest = chest; }
-
-  // --- v1.54: 歩行モードで、プレイヤーがチェストを使う(手に持っている物を1個しまう。手ぶらなら中身を1個取り出す) ---
-  // ふたは開けて、少し経つと自動で閉じる。見守りの雪だるまがしまっている最中は、ふたに触らない。
-  let chestAutoCloseAt = 0;
-  function playerUseChest() {
-    if (options.onChestUi) { options.onChestUi(); return { action: 'ui' }; } // 画面があれば、持ち物のようにチェストの中身を見て移し替える
-    chest.open(); chestAutoCloseAt = clock.elapsedTime + 1.8;
-    const sel = inventory.getSelected();
-    if (sel && inventory.count(sel) > 0) {
-      if (chest.storage.store(sel, 1) > 0) inventory.remove(sel, 1); // しまえた分だけ持ち物から減る(満杯なら何も起きない)
-      return { action: 'store', itemId: sel };
-    }
-    for (const id of Object.keys(chest.storage.contents())) {
-      if (inventory.canAdd(id, 1) && chest.storage.take(id, 1) > 0) { inventory.add(id, 1); return { action: 'take', itemId: id }; }
-    }
-    return { action: 'none' };
-  }
-  interaction.register({
-    kind: 'chest',
-    getPosition: () => ({ x: chestX, y: chest.group.position.y - chestGroundOffset + 0.35, z: chestZ }),
-    radius: chest.radius * 1.1,
-    canInteract: () => true,
-    onInteract: () => { uiChest = chest; playerUseChest(); },
-  });
+  // チェストの画面(歩行モード): 持ち物の画面に、置いたチェストのスロットを足して開く。閉じるとふたも閉じる。
+  function openChestUi() { if (!uiChest) return; uiChest.open(); inventory.attachArea('chest', uiChest.storage.slots); }
+  function closeChestUi() { if (inventory.hasArea('chest')) { inventory.detachArea('chest'); if (uiChest) uiChest.close(); } uiChest = null; }
   interaction.register({
     kind: 'star',
     enabled: () => fallingStars.isLanded(),
@@ -4298,8 +4265,6 @@ export function initScene(mountEl, options = {}) {
       canCollect: mode === 'walk' && !wanderActive, // v1.54: 見守りの雪だるまは、近づくだけで拾わず、眺めて自分で決める(collectTask)
       isNight: getTimeOfDay(gameHour) === 'night', // 新しい星までの数えは夜のあいだだけ進む
     });
-    if (chestAutoCloseAt > 0 && clock.elapsedTime > chestAutoCloseAt && !wander.baseTask) { chest.close(); chestAutoCloseAt = 0; }
-    chest.update(delta, { night: getTimeOfDay(gameHour) === 'night', t: clock.elapsedTime });
     for (const pc of placedChests) pc.update(delta, { night: getTimeOfDay(gameHour) === 'night', t: clock.elapsedTime }); // v1.83
     updateLanterns(delta);
     updateButterfly(delta, t); // v1.78: 鼻にとまる蝶
@@ -4575,7 +4540,6 @@ export function initScene(mountEl, options = {}) {
     });
     return {
       inventory: inventory.serialize(), equipment: equipment.serialize(), pouch: pouch.serialize(),
-      chest: chest.storage.serialize(),
       placed: placedItems.slice(0, 400).map((it) => ({ id: it.itemId, x: r3(it.x), z: r3(it.z), yaw: r3(it.mesh.rotation.y), ...(it.chest ? { chest: it.chest.storage.serialize() } : {}) })),
       logs: logs.slice(0, 300),
       shards: shardSystem.serialize(), // v1.69: 星のかけら・月のかけらを貼った倒木と、接着した塊(倒木の番号で)
@@ -4592,7 +4556,11 @@ export function initScene(mountEl, options = {}) {
     const num = (v) => typeof v === 'number' && Number.isFinite(v);
     const guard = (fn) => { try { fn(); } catch (e) { skipped++; console.warn('[save] 復元できなかった部分があります', e); } };
     guard(() => { if (st.pouch) pouch.restore(st.pouch); });
-    guard(() => { if (st.chest) chest.restore(st.chest); });
+    guard(() => { // v1.84: 古い保存データ(元のチェスト)に中身があれば、昔の場所に置いたチェストとして引き継ぐ
+      const old = st.chest; if (!old) return;
+      const has = Array.isArray(old.slots) ? old.slots.some((q) => q && q.count > 0) : !!(old.items && Object.values(old.items).some((v) => v > 0));
+      if (has) addPlacedItem('chest', legacyChestX, legacyChestZ, legacyChestAngle, { exact: true, silent: true, chest: old });
+    });
     guard(() => { if (st.equipment) equipment.restore(st.equipment); });
     guard(() => { if (st.inventory) inventory.load(st.inventory); }); // 最後に読むと、変更の通知で画面・装備の見た目も更新される
     // 倒木: 番号(生成順)・長さ・太さが一致するものだけ戻す(生成のしかたが変わっていたら、ずれた物は戻さない)
@@ -4763,17 +4731,17 @@ export function initScene(mountEl, options = {}) {
       collect: {
         plantStar: (x, z) => fallingStars.debugPlant(x, z),
         setCapacity: (n) => pouch.setCapacity(n),
-        chestPos: () => ({ x: chestX, z: chestZ, standX: chestStand.x, standZ: chestStand.z }),
+        chestPos: () => { const it = placedItems.find((q) => q.chest); if (!it) return null; const st = chestStandOf(it); return { x: it.x, z: it.z, standX: st.x, standZ: st.z }; },
         info: () => ({
           carried: Object.fromEntries(pouch.carried()), total: pouch.total(), full: pouch.isFull(), cap: pouch.capacity,
-          chest: chest.storage.contents(), chestOpen: chest.isOpen(), lid: +chest.lidAngle().toFixed(2),
+          chests: placedChests.map((c) => c.storage.contents()), chestOpen: placedChests.some((c) => c.isOpen()),
           invStar: inventory.count('star'), invTwig: inventory.count('twig'), stars: fallingStars.getLanded().length,
           collectPhase: wander.collectTask ? wander.collectTask.phase : null, basePhase: wander.baseTask ? wander.baseTask.phase : null,
           logs: fallenLogs.filter((l) => !l.collected && ['twig', 'small_branch'].includes(l.type)).length,
         }),
         senseAll: (x, z) => collectRegistry.sense(x, z, { now: clock.elapsedTime }).map((c) => ({ kind: c.kind, d: +c.dist.toFixed(1) })),
         renderInfo: () => ({ programs: renderer.info.programs ? renderer.info.programs.length : -1, calls: renderer.info.render.calls, tris: renderer.info.render.triangles, geos: renderer.info.memory.geometries, texs: renderer.info.memory.textures }),
-        registry: collectRegistry, pouch, chest, fallingStars, inventory,
+        registry: collectRegistry, pouch, fallingStars, inventory,
         remnants: remnantField, remnantPlans, equipment, lanternLights, placedItems, addPlacedItem,
       },
       /** 開発・検証用: 見守りの雪だるまの次の行き先を指定する(待機を打ち切って、その地点へ歩かせる)。 */
@@ -4847,8 +4815,6 @@ export function initScene(mountEl, options = {}) {
       wander.waiting = true; wander.waitTimer = 0; wander.waitElapsed = 0; // 次の行動の選び直し → ポーチが満杯なので、チェストへ帰る
       return { filled: n, total: pouch.total() };
     },
-    /** 歩行モードのプレイヤーが、チェストを使う(検証用。通常はインタラクションから呼ばれる)。 */
-    debugPlayerUseChest: () => playerUseChest(),
     debugTriggerStar: () => fallingStars.trigger({ x: playerSnowman.group.position.x, z: playerSnowman.group.position.z }),
     debugGetStarState: () => ({ phase: fallingStars.getPhase(), countdown: fallingStars.getCountdown(), star: fallingStars.getActive(), placed: treeDecor.getPlaced(), pouch: inventory.snapshot() }),
     // --- v1.37: スマホの画面上コントローラ(ジョイスティック+A/Bボタン)用API ---
