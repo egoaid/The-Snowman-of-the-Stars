@@ -181,6 +181,23 @@
       }, 0.9);
     },
 
+    /** v1.88: 着火: 小さな「ボッ」と、ぱちぱち。 */
+    fireIgnite(rel = null) {
+      this._voice(rel, 1.1, (ctx, out, t) => {
+        noiseHit(ctx, out, t, { type: 'lowpass', freq: 400, freqEnd: 1400, gain: 0.3, decay: 0.28 });
+        tone(ctx, out, t, { type: 'sine', f0: 90, f1: 160, gain: 0.2, decay: 0.22 });
+        for (let i = 0; i < 4; i++) noiseHit(ctx, out, t + 0.2 + i * 0.09 + Math.random() * 0.05, { type: 'bandpass', freq: rnd(1800, 3400), q: 3, gain: 0.07, decay: 0.025 });
+      }, 0.9);
+    },
+    /** v1.88: 消火: 「シュー」と、蒸気のような音。 */
+    fireExtinguish(rel = null) {
+      this._voice(rel, 1.6, (ctx, out, t) => {
+        noiseHit(ctx, out, t, { type: 'highpass', freq: 2200, freqEnd: 900, gain: 0.2, decay: 0.9, attack: 0.04 });
+        noiseHit(ctx, out, t, { type: 'bandpass', freq: 3600, freqEnd: 1500, q: 1.2, gain: 0.1, decay: 0.7, attack: 0.03 });
+        tone(ctx, out, t, { type: 'sine', f0: 120, f1: 55, gain: 0.12, decay: 0.3 });
+      }, 0.9);
+    },
+
     // ================================================================
     // アイテムを置く・拾う
     // ================================================================

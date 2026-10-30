@@ -67,6 +67,7 @@ import { findFreePlacement } from '../placement.js';
 import { t as tr } from '../i18n.js';
 import { createPressField } from './press-field.js';
 import { createCoalField } from './coal-field.js';
+import { fireAction, nextWet, pickWetLimit } from '../fire-rules.js';
 import { createCraftingTableMesh, CRAFTING_TABLE } from './crafting-table.js';
 import { createEquipment, EQUIP_SLOTS } from '../equipment.js';
 import { createJackOLanternMesh, createLanternLightPool } from './lantern.js';
@@ -2936,9 +2937,16 @@ export function initScene(mountEl, options = {}) {
 
     // --- 焚き火: 固定の点音源 ---
     {
-      const dx = fireSoundPos.x - px;
-      const dy = fireSoundPos.y - py;
-      const dz = fireSoundPos.z - pz;
+      // v1.88: 音は、いちばん近い「ついている火」から聞こえる(キャンプの焚き火、または置いた焚き火)
+      let sx = fireSoundPos.x, sy = fireSoundPos.y, sz = fireSoundPos.z, best = Math.hypot(sx - px, sy - py, sz - pz);
+      for (const it of placedItems) {
+        if (!it.fire || !it.fire.isLit()) continue;
+        const d = Math.hypot(it.x - px, it.mesh.position.y + 0.2 - py, it.z - pz);
+        if (d < best) { best = d; sx = it.x; sy = it.mesh.position.y + 0.2; sz = it.z; }
+      }
+      const dx = sx - px;
+      const dy = sy - py;
+      const dz = sz - pz;
       const localRight = dx * _right.x + dz * _right.z;
       const localForward = dx * _fwd.x + dz * _fwd.z;
       fireSound.setListenerRelativePosition(localRight, dy, -localForward);
@@ -3821,7 +3829,7 @@ export function initScene(mountEl, options = {}) {
     const restLift = restLift0 + slopeLift, snowSink = snowSink0; // v1.83: 雪の中でも、斜面のぶんの持ち上げ(slopeLift)が消えないよう、snowSinkには足さない
     const it = { id: `placed-${++placedSeq}`, itemId, x, z, mesh, iid: null, restLift, snowSink, pressId: 0, obstacle: null };
     const solid = SOLID_PLACED[itemId];
-    if (placedFire) { it.fire = placedFire; placedFires.push(placedFire); } // v1.87
+    if (placedFire) { it.fire = placedFire; placedFires.push(placedFire); if (opts && opts.lit) placedFire.setLit(true); } // v1.87/88: 保存した火の状態を戻す
     if (placedChest) { // v1.83: 置いたチェストの中身(保存したものがあれば戻す)
       it.chest = placedChest; placedChests.push(placedChest);
       if (opts && opts.chest) placedChest.restore(opts.chest);
@@ -3841,13 +3849,13 @@ export function initScene(mountEl, options = {}) {
     // v1.81/83: 作業台・チェストは、タップ=画面を開く / 長押し(0.6秒)=拾う。画面が使えない時は、従来どおりタップで拾う。
     const tableUi = !!(solid && it.itemId === 'crafting_table' && options.onTableUi);
     const chestUi = !!(it.chest && options.onChestUi);
-    const fireItem = !!it.fire; // v1.87: 焚き火は、長押しで拾う(タップでの着火・消火は、次の段階で足す)
+    const fireItem = !!it.fire; // v1.87/88: 焚き火は、タップで着火・消火、長押しで拾う
     it.iid = interaction.register({
       kind: 'placed',
       getPosition: () => ({ x: it.x, y: it.mesh.position.y + (it.itemId === 'star_torch' ? 0.6 : solid ? solid.lookY : 0.2), z: it.z }), // v1.74: 松明は背が高いので、少し上を狙える
       radius: solid ? solid.grab : 0.45,
       canInteract: () => ((tableUi || chestUi || fireItem) ? true : inventory.canAdd(it.itemId, 1)),
-      onInteract: () => { if (tableUi) options.onTableUi(); else if (chestUi) { uiChest = it.chest; options.onChestUi(); } else if (!fireItem) pickUp(); },
+      onInteract: () => { if (tableUi) options.onTableUi(); else if (chestUi) { uiChest = it.chest; options.onChestUi(); } else if (fireItem) useFire(it); else pickUp(); },
       ...((tableUi || chestUi || fireItem) ? { onHold: pickUp, holdSec: 0.6 } : {}),
     });
     placedItems.push(it);
@@ -3896,6 +3904,33 @@ export function initScene(mountEl, options = {}) {
     if (!inventory.remove(id, 1)) return null;
     return addPlacedItem(id, spot.x, spot.z, yawPlace, { exact: true });
   }
+  // --- v1.88: 置いた焚き火の着火・消火 ---
+  //   着火: 星の松明を持って、消えている焚き火をクリック(松明は減らない)。雨の中では、つかない。
+  //   消火: 手に何も持たずに、ついている焚き火をクリック。雨・雷雨・台風が続くと、ひとりでに消える。拾うと、消えた状態で持ち物に戻る。
+  function setFireLit(it, on, how) {
+    if (!it.fire || it.fire.isLit() === !!on) return;
+    it.fire.setLit(on); it.wet = 0; it.wetLimit = 0;
+    const s = sfx(); const rel = sfxRelative(it.x, it.mesh.position.y + 0.3, it.z);
+    if (s) { if (on && s.fireIgnite) s.fireIgnite(rel); else if (!on && s.fireExtinguish) s.fireExtinguish(rel); }
+    debugLog.log('fire.' + (on ? 'lit' : 'out'), { x: +it.x.toFixed(1), z: +it.z.toFixed(1), how });
+  }
+  function useFire(it) {
+    const act = fireAction({ lit: it.fire.isLit(), selected: inventory.getSelected(), rain: weather.getRainIntensity() });
+    if (act === 'extinguish') setFireLit(it, false, 'hand');
+    else if (act === 'ignite') setFireLit(it, true, 'torch');
+    else if (act === 'need-empty-hand') showPlaceNotice(tr('notice.fireEmptyHand'));
+    else if (act === 'need-torch') showPlaceNotice(tr('notice.fireNeedTorch'));
+    else if (act === 'rain') showPlaceNotice(tr('notice.fireRain'));
+  }
+  function updatePlacedFires(delta) {
+    const rain = weather.getRainIntensity();
+    for (const it of placedItems) {
+      if (!it.fire || !it.fire.isLit()) continue;
+      it.wet = nextWet(it.wet || 0, delta, rain);
+      if (!it.wetLimit) it.wetLimit = pickWetLimit();
+      if (it.wet > it.wetLimit) setFireLit(it, false, 'rain');
+    }
+  }
   const lanternEmitters = [];
   function updateLanterns(delta) {
     // 頭の装備を雪だるまの見た目へ
@@ -3910,6 +3945,8 @@ export function initScene(mountEl, options = {}) {
       tickStarTorch(it.mesh, clock.elapsedTime);
       lanternEmitters.push({ x: it.x, y: it.mesh.position.y + STAR_TORCH.height + 0.1, z: it.z, intensity: STAR_TORCH.intensity, distance: STAR_TORCH.distance, color: STAR_TORCH.color, torch: it });
     }
+    // v1.88: ついている焚き火も、光の枠を分け合う(カメラに近い順)
+    for (const it of placedItems) if (it.fire && it.fire.isLit()) lanternEmitters.push({ x: it.x, y: it.mesh.position.y + 0.55, z: it.z, intensity: 3.2, distance: 10, color: 0xff9a4a });
     if (head === 'jack_o_lantern') { playerSnowman.headGroup.getWorldPosition(_lanternHeadPos); lanternEmitters.push({ x: _lanternHeadPos.x, y: _lanternHeadPos.y, z: _lanternHeadPos.z, ...LANTERN_WORN }); }
     lanternLights.update(lanternEmitters, camera.position.x, camera.position.y, camera.position.z, clock.elapsedTime);
     // v1.75: 光の枠から外れた(遠い)松明にも、見た目だけの光のにじみを出す。枠をもらえた松明は、本物の光が周りを照らす
@@ -4335,6 +4372,7 @@ export function initScene(mountEl, options = {}) {
     });
     for (const pf of placedFires) pf.update(clock.elapsedTime); // v1.87
     for (const pc of placedChests) pc.update(delta, { night: getTimeOfDay(gameHour) === 'night', t: clock.elapsedTime }); // v1.83
+    updatePlacedFires(delta); // v1.88
     updateLanterns(delta);
     updateButterfly(delta, t); // v1.78: 鼻にとまる蝶
     updateSnowmanStarReaction(delta);
@@ -4609,7 +4647,7 @@ export function initScene(mountEl, options = {}) {
     });
     return {
       inventory: inventory.serialize(), equipment: equipment.serialize(), pouch: pouch.serialize(),
-      placed: placedItems.slice(0, 400).map((it) => ({ id: it.itemId, x: r3(it.x), z: r3(it.z), yaw: r3(it.mesh.rotation.y), ...(it.chest ? { chest: it.chest.storage.serialize() } : {}) })),
+      placed: placedItems.slice(0, 400).map((it) => ({ id: it.itemId, x: r3(it.x), z: r3(it.z), yaw: r3(it.mesh.rotation.y), ...(it.chest ? { chest: it.chest.storage.serialize() } : {}), ...(it.fire && it.fire.isLit() ? { lit: true } : {}) })),
       logs: logs.slice(0, 300),
       shards: shardSystem.serialize(), // v1.69: 星のかけら・月のかけらを貼った倒木と、接着した塊(倒木の番号で)
       rockTaken: rockClusters.map((r, i) => (r.taken ? i : -1)).filter((i) => i >= 0), // v1.86: 回収した岩
@@ -4657,7 +4695,7 @@ export function initScene(mountEl, options = {}) {
       for (const e of Array.isArray(st.placed) ? st.placed : []) {
         if (!e || typeof e.id !== 'string' || !isKnownItem(e.id) || !num(e.x) || !num(e.z)) { skipped++; continue; }
         if (Math.hypot(e.x, e.z) > PLAYABLE_RADIUS * 1.5) { skipped++; continue; }
-        addPlacedItem(e.id, e.x, e.z, num(e.yaw) ? e.yaw : 0, { exact: true, silent: true, chest: e.chest });
+        addPlacedItem(e.id, e.x, e.z, num(e.yaw) ? e.yaw : 0, { exact: true, silent: true, chest: e.chest, lit: e.lit });
       }
     });
     guard(() => {
