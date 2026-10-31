@@ -71,6 +71,7 @@ import { createPressField } from './press-field.js';
 import { createCoalField } from './coal-field.js';
 import { pickClearings, CLEARING } from './clearings.js';
 import { computeBufferSize } from './buffer-size.js';
+import { iglooMeltStep, iglooScale, iglooIsSolid } from '../igloo-rules.js';
 import { SNOWBALL, canGather, nextMelt, throwVelocity, stepSnowball } from '../snowball.js';
 import { fireAction, nextWet, pickWetLimit } from '../fire-rules.js';
 import { createCraftingTableMesh, CRAFTING_TABLE } from './crafting-table.js';
@@ -3757,6 +3758,8 @@ export function initScene(mountEl, options = {}) {
     // v1.83: 置けるチェスト(基地のチェストと同じ見た目・27スロット)。斜面では、いちばん低い角に合わせて、高い側は地面に少し埋める。
     // v1.87: 置ける焚き火(組んだ薪と石の輪。火は、まだ消えている)。石の輪は、斜面で高い側を地面に埋める。
     // v1.92: 置けるテント。ゆるやかな斜面でも置ける(高い側を地面に埋める)。物理(丸太が屋根に載る)の当たり判定つき。
+    // v1.95: 置ける雪のかまくら(入口つきのドーム。入口の隙間から中に入れる)。雪のない時期は、約1分で溶けて消える。
+    igloo: { footprint: 3.9, press: 3.5, isIgloo: true, noCircle: true, width: 6.0, depth: 6.0, slope: 'min', maxRise: 1.0, lookY: 0.9, grab: 3.2 },
     tent: { footprint: 2.4, press: 2.5, build: () => createTent(1.5), width: 3.3, depth: 3.45, slope: 'min', maxRise: 0.9, lookY: 0.7, grab: 1.9, collider: true },
     campfire: { footprint: 0.7, press: 0.78, isFire: true, width: 1.0, depth: 1.0, slope: 'min', maxRise: 0.6, lookY: 0.25, grab: 0.8 },
     chest: { footprint: 0.58, press: 0.68, isChest: true, width: 0.95, depth: 0.6, slope: 'min', maxRise: 0.6, lookY: 0.3, grab: 0.75 },
@@ -3805,7 +3808,7 @@ export function initScene(mountEl, options = {}) {
     let mesh;
     // v1.56-H4: restLift=地面に置いた時の高さ、snowSink=雪面に置いた時に雪へ埋まる量。雪が積もっていれば雪面の上に乗る(少し埋まる)
     const isLantern = itemId === 'jack_o_lantern';
-    let slopeLift = 0, placedChest = null, placedFire = null;
+    let slopeLift = 0, placedChest = null, placedFire = null, placedIgloo = null;
     const restLift0 = isLantern ? LANTERN_REST_LIFT : 0.01, snowSink0 = isLantern ? LANTERN_SNOW_SINK : 0.07;
     if (isLantern) { mesh = createJackOLanternMesh(LANTERN_GROUND_RADIUS); mesh.position.set(x, terrainHeightAt(x, z) + LANTERN_REST_LIFT, z); mesh.rotation.y = yaw; }
     else if (SOLID_PLACED[itemId]) { // v1.81/83: 作業台・チェスト。四隅の高さに合わせて置く(作業台は脚が地面の下まで伸びる。チェストは高い側を埋める)
@@ -3817,6 +3820,11 @@ export function initScene(mountEl, options = {}) {
           onClose: () => { const s2 = sfx(); if (s2) s2.chestClose(sfxRelative(x, terrainHeightAt(x, z) + 0.4, z)); },
         });
         mesh = placedChest.group;
+      } else if (sd.isIgloo) {
+        placedIgloo = createIgloo(IGLOO_SCALE);
+        const lights = []; placedIgloo.group.traverse((o) => { if (o.isPointLight) lights.push(o); });
+        for (const l of lights) l.parent.remove(l); // 蝋燭の光は、光の枠(lanternEmitters)で分け合う
+        mesh = placedIgloo.group;
       } else if (sd.isFire) {
         placedFire = createCampfire(1.0, { lit: false, withLight: false });
         mesh = placedFire.group;
@@ -3841,6 +3849,16 @@ export function initScene(mountEl, options = {}) {
     const restLift = restLift0 + slopeLift, snowSink = snowSink0; // v1.83: 雪の中でも、斜面のぶんの持ち上げ(slopeLift)が消えないよう、snowSinkには足さない
     const it = { id: `placed-${++placedSeq}`, itemId, x, z, mesh, iid: null, restLift, snowSink, pressId: 0, obstacle: null };
     const solid = SOLID_PLACED[itemId];
+    if (placedIgloo) { // v1.95: 溶け具合と、入口の隙間つきの当たり判定(柱の輪)
+      it.igloo = placedIgloo; it.melt = Math.max(0, Math.min(1, (opts && opts.melt) || 0));
+      const dir = new THREE.Vector3(Math.sin(mesh.rotation.y), 0, Math.cos(mesh.rotation.y));
+      it.obstacles = buildIglooPostObstacles(x, z, placedIgloo.outerRadius, dir, placedIgloo.doorwayHalfAngle);
+      for (const o of it.obstacles) collisionObstacles.push(o);
+      it.colliderId = 'placed-' + it.id;
+      physics.addStaticCollider({ id: it.colliderId, kind: 'cylinder', x, z, y: mesh.position.y + placedIgloo.outerRadius * 0.45, radius: placedIgloo.outerRadius * 0.9, height: placedIgloo.outerRadius * 0.9 });
+      mesh.scale.setScalar(iglooScale(it.melt));
+      if (!iglooIsSolid(it.melt)) dropIglooCollision(it);
+    }
     if (placedFire) { it.fire = placedFire; placedFires.push(placedFire); if (opts && opts.lit) placedFire.setLit(true); } // v1.87/88: 保存した火の状態を戻す
     if (placedChest) { // v1.83: 置いたチェストの中身(保存したものがあれば戻す)
       it.chest = placedChest; placedChests.push(placedChest);
@@ -3852,8 +3870,10 @@ export function initScene(mountEl, options = {}) {
     }
     if (solid) {
       it.pressId = pressField.add(x, z, solid.press);                 // 下の草がペシャンコになる
-      it.obstacle = { x, z, radius: solid.footprint * 0.9 };           // 歩いて通り抜けられない
-      collisionObstacles.push(it.obstacle);
+      if (!solid.noCircle) { // かまくらは、入口の隙間つきの柱の輪(上で登録)
+        it.obstacle = { x, z, radius: solid.footprint * 0.9 };           // 歩いて通り抜けられない
+        collisionObstacles.push(it.obstacle);
+      }
     }
     mesh.position.y = placedItemY(it);
     const pickUp = () => {
@@ -3866,7 +3886,7 @@ export function initScene(mountEl, options = {}) {
     const tableUi = !!(solid && it.itemId === 'crafting_table' && options.onTableUi);
     const chestUi = !!(it.chest && options.onChestUi);
     const fireItem = !!it.fire; // v1.87/88: 焚き火は、タップで着火・消火、長押しで拾う
-    const tentItem = it.itemId === 'tent'; // v1.92: テントは、長押しで、たたんで拾う(タップでは、何も起きない)
+    const tentItem = it.itemId === 'tent' || it.itemId === 'igloo'; // v1.92/95: テント・かまくらは、長押しで、たたんで拾う(タップでは、何も起きない)
     it.iid = interaction.register({
       kind: 'placed',
       getPosition: () => ({ x: it.x, y: it.mesh.position.y + (it.itemId === 'star_torch' ? 0.6 : solid ? solid.lookY : 0.2), z: it.z }), // v1.74: 松明は背が高いので、少し上を狙える
@@ -3883,6 +3903,7 @@ export function initScene(mountEl, options = {}) {
     const i = placedItems.indexOf(it); if (i >= 0) placedItems.splice(i, 1);
     interaction.unregister(it.iid); scene.remove(it.mesh);
     if (it.colliderId) physics.removeStaticCollider(it.colliderId); // v1.92
+    if (it.obstacles) { for (const o of it.obstacles) { const k4 = collisionObstacles.indexOf(o); if (k4 >= 0) collisionObstacles.splice(k4, 1); } it.obstacles = null; } // v1.95
     if (it.fire) { const k3 = placedFires.indexOf(it.fire); if (k3 >= 0) placedFires.splice(k3, 1); } // v1.87
     if (it.chest) { const k2 = placedChests.indexOf(it.chest); if (k2 >= 0) placedChests.splice(k2, 1); it.chest.dispose(); } // v1.83
     if (it.pressId) pressField.release(it.pressId, clock.elapsedTime); // v1.81: 拾うと、草は10秒かけて立ち上がる
@@ -3977,6 +3998,30 @@ export function initScene(mountEl, options = {}) {
     else if (act === 'need-torch') showPlaceNotice(tr('notice.fireNeedTorch'));
     else if (act === 'rain') showPlaceNotice(tr('notice.fireRain'));
   }
+  /** v1.95: 柱の輪の当たり判定と物理を外す(もう小さく溶けたかまくら) */
+  function dropIglooCollision(it) {
+    if (it.obstacles) { for (const o of it.obstacles) { const k = collisionObstacles.indexOf(o); if (k >= 0) collisionObstacles.splice(k, 1); } it.obstacles = null; }
+    if (it.colliderId) { physics.removeStaticCollider(it.colliderId); it.colliderId = null; }
+  }
+  let iglooFlameT = 0;
+  /** v1.95: 置いたかまくらの溶け(雪のない時期だけ)・見た目の縮小・蝋燭の炎・消える時 */
+  function updatePlacedIgloos(delta) {
+    const depth = weather.getSnowDepth(), snowing = weather.getWeather() === 'snow';
+    iglooFlameT += delta;
+    for (const it of placedItems.slice()) {
+      if (!it.igloo) continue;
+      const before = it.melt;
+      it.melt = iglooMeltStep({ melt: it.melt, delta, depth, snowing });
+      if (it.melt !== before) it.mesh.scale.setScalar(iglooScale(it.melt));
+      if (it.igloo.updateFlame && it.melt < 0.9) it.igloo.updateFlame(iglooFlameT);
+      if (it.obstacles && !iglooIsSolid(it.melt)) dropIglooCollision(it);
+      if (it.melt >= 1) { // 溶けて消えた(アイテムも、なくなる)
+        spawnSnowPuff(it.x, it.mesh.position.y + 0.3, it.z, 24, 2.4);
+        removePlacedItem(it);
+        showPlaceNotice(tr('notice.iglooMelted')); debugLog.log('igloo.melted', { x: +it.x.toFixed(1), z: +it.z.toFixed(1) });
+      }
+    }
+  }
   function updatePlacedFires(delta) {
     const rain = weather.getRainIntensity();
     for (const it of placedItems) {
@@ -4000,6 +4045,8 @@ export function initScene(mountEl, options = {}) {
       tickStarTorch(it.mesh, clock.elapsedTime);
       lanternEmitters.push({ x: it.x, y: it.mesh.position.y + STAR_TORCH.height + 0.1, z: it.z, intensity: STAR_TORCH.intensity, distance: STAR_TORCH.distance, color: STAR_TORCH.color, torch: it });
     }
+    // v1.95: 置いたかまくらの蝋燭も、光の枠を分け合う(溶けて小さくなるほど、弱くなる)
+    for (const it of placedItems) if (it.igloo && it.melt < 0.85) lanternEmitters.push({ x: it.x + Math.sin(it.mesh.rotation.y) * 0.6, y: it.mesh.position.y + 0.7, z: it.z + Math.cos(it.mesh.rotation.y) * 0.6, intensity: 1.8 * (1 - it.melt), distance: 13, color: 0xffb066 });
     // v1.88: ついている焚き火も、光の枠を分け合う(カメラに近い順)
     for (const it of placedItems) if (it.fire && it.fire.isLit()) lanternEmitters.push({ x: it.x, y: it.mesh.position.y + 0.55, z: it.z, intensity: 3.2, distance: 10, color: 0xff9a4a });
     if (head === 'jack_o_lantern') { playerSnowman.headGroup.getWorldPosition(_lanternHeadPos); lanternEmitters.push({ x: _lanternHeadPos.x, y: _lanternHeadPos.y, z: _lanternHeadPos.z, ...LANTERN_WORN }); }
@@ -4569,6 +4616,7 @@ export function initScene(mountEl, options = {}) {
     for (const pf of placedFires) pf.update(clock.elapsedTime); // v1.87
     for (const pc of placedChests) pc.update(delta, { night: getTimeOfDay(gameHour) === 'night', t: clock.elapsedTime }); // v1.83
     updatePlacedFires(delta); // v1.88
+    updatePlacedIgloos(delta); // v1.95
     updatePlacementGuide();   // v1.90
     updateSnowStuff(delta);   // v1.94
     updateLanterns(delta);
@@ -4830,7 +4878,7 @@ export function initScene(mountEl, options = {}) {
     });
     return {
       inventory: inventory.serialize(), equipment: equipment.serialize(), pouch: pouch.serialize(),
-      placed: placedItems.slice(0, 400).map((it) => ({ id: it.itemId, x: r3(it.x), z: r3(it.z), yaw: r3(it.mesh.rotation.y), ...(it.chest ? { chest: it.chest.storage.serialize() } : {}), ...(it.fire && it.fire.isLit() ? { lit: true } : {}) })),
+      placed: placedItems.slice(0, 400).map((it) => ({ id: it.itemId, x: r3(it.x), z: r3(it.z), yaw: r3(it.mesh.rotation.y), ...(it.chest ? { chest: it.chest.storage.serialize() } : {}), ...(it.fire && it.fire.isLit() ? { lit: true } : {}), ...(it.igloo && it.melt > 0 ? { melt: +it.melt.toFixed(3) } : {}) })),
       logs: logs.slice(0, 300),
       shards: shardSystem.serialize(), // v1.69: 星のかけら・月のかけらを貼った倒木と、接着した塊(倒木の番号で)
       tentBundleTaken: tentBundle.taken, // v1.92: 落ちているテントを拾ったか
@@ -4880,7 +4928,7 @@ export function initScene(mountEl, options = {}) {
       for (const e of Array.isArray(st.placed) ? st.placed : []) {
         if (!e || typeof e.id !== 'string' || !isKnownItem(e.id) || !num(e.x) || !num(e.z)) { skipped++; continue; }
         if (Math.hypot(e.x, e.z) > PLAYABLE_RADIUS * 1.5) { skipped++; continue; }
-        addPlacedItem(e.id, e.x, e.z, num(e.yaw) ? e.yaw : 0, { exact: true, silent: true, chest: e.chest, lit: e.lit });
+        addPlacedItem(e.id, e.x, e.z, num(e.yaw) ? e.yaw : 0, { exact: true, silent: true, chest: e.chest, lit: e.lit, melt: e.melt });
       }
     });
     guard(() => {
@@ -5027,6 +5075,7 @@ export function initScene(mountEl, options = {}) {
       collect: {
         plantStar: (x, z) => fallingStars.debugPlant(x, z),
         setCapacity: (n) => pouch.setCapacity(n),
+        igloos: () => placedItems.filter((q) => q.igloo).map((q) => ({ x: +q.x.toFixed(1), z: +q.z.toFixed(1), melt: +q.melt.toFixed(3) })),
         snow: { dents: () => snowDents.count(), balls: () => snowballs.length, gatherNow: (x, z) => collectSnow(x, z), throwNow: () => throwSnowball(), melt: () => snowballMeltTimer },
         tentBundle: () => ({ x: +tentBundle.x.toFixed(2), z: +tentBundle.z.toFixed(2), taken: tentBundle.taken }),
         rocks: () => rockClusters.map((r, i) => ({ i, x: +r.x.toFixed(2), z: +r.z.toFixed(2), scale: +r.scale.toFixed(2), taken: !!r.taken })),

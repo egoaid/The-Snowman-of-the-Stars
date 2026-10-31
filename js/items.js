@@ -37,6 +37,7 @@ export const ITEM_DEFS = {
   diamond: { id: 'diamond', icon: '💎', maxStack: 64, category: 'resource',    hand: 'right' },
   // 置いて使う道具(まだ置く機能は無い。アイテムとしてだけ先に定義する)
   crafting_table: { id: 'crafting_table', icon: '🛠️', maxStack: 16, category: 'placeable', hand: 'right' },
+  igloo: { id: 'igloo', icon: '🛖', maxStack: 4, category: 'placeable', hand: 'right' }, // v1.95: 雪玉100個から作る。置くと、雪が溶ける時期は約1分で消える
   tent: { id: 'tent', icon: '⛺', maxStack: 4, category: 'placeable', hand: 'right' }, // v1.92: たたんだテント。地形に落ちている
   snowball: { id: 'snowball', icon: '⚪', iconSvg: SNOWBALL_ICON_SVG, maxStack: 64, category: 'resource', hand: 'right' }, // v1.94: 雪が積もると、雪面から集められる。投げて遊べる
   campfire: { id: 'campfire', icon: '🔥', maxStack: 8, category: 'placeable', hand: 'right' }, // v1.87: 作業台で、丸太・小石・木炭から作る

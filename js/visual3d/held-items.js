@@ -69,6 +69,12 @@ const HELD_ITEM_BUILDERS = {
     const holder = new THREE.Group(); holder.add(g); return holder;
   },
   snowball: () => { const m = lump(new THREE.SphereGeometry(0.075, 10, 8), MATERIALS.snow, 0.07); return m; }, // v1.94
+  igloo: () => { // v1.95: 手に持つ、小さな雪のドーム(入口つき)
+    const g = new THREE.Group();
+    const dome = new THREE.Mesh(new THREE.SphereGeometry(0.085, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2), MATERIALS.snow); g.add(dome);
+    const door = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.04, 0.03), MATERIALS.coal); door.position.set(0, 0.02, 0.082); g.add(door);
+    g.position.y = 0.03; const holder = new THREE.Group(); holder.add(g); return holder;
+  },
   tent: () => { // v1.92: 手に持つ、たたんだテント
     const g = createTentBundleMesh(); g.scale.setScalar(0.2); g.rotation.y = Math.PI / 2; g.position.set(0, 0.0, 0.0);
     const holder = new THREE.Group(); holder.add(g); return holder;

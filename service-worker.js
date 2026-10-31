@@ -5,7 +5,7 @@
  *   ・version.json: 常にネットワーク(更新の確認用。キャッシュしない)
  *   ・新しい版のService Workerは、待機状態になる。画面の「新しい版があります」を押すと(SKIP_WAITING)、切り替わる。
  */
-const BUILD = '1.94-20261031';
+const BUILD = '1.95-20261031';
 const PRECACHE = [
   "./",
   "css/layout.css",
@@ -105,6 +105,7 @@ const PRECACHE = [
   "js/visual3d/activity-log.js",
   "js/drops.js",
   "js/fire-rules.js",
+  "js/igloo-rules.js",
   "js/snowball.js",
   "js/visual3d/tent.js",
   "js/visual3d/terrain-noise.js",
