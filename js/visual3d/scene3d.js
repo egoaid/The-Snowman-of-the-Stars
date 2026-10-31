@@ -70,6 +70,8 @@ import { t as tr } from '../i18n.js';
 import { createPressField } from './press-field.js';
 import { createCoalField } from './coal-field.js';
 import { pickClearings, CLEARING } from './clearings.js';
+import { computeBufferSize } from './buffer-size.js';
+import { SNOWBALL, canGather, nextMelt, throwVelocity, stepSnowball } from '../snowball.js';
 import { fireAction, nextWet, pickWetLimit } from '../fire-rules.js';
 import { createCraftingTableMesh, CRAFTING_TABLE } from './crafting-table.js';
 import { createEquipment, EQUIP_SLOTS } from '../equipment.js';
@@ -319,18 +321,37 @@ export function initScene(mountEl, options = {}) {
   // なってきた時だけワールド座標ベースの簡易ノイズでまだらに欠けさせる
   // ことで、「一様に消える」のではなく「まだらに溶け残る」ように見せる。
   const snowMeltPatchinessUniform = { value: 0 };
+  // v1.94: 雪玉を集めた所の雪面のへこみ(最大12か所)。(x, z, 半径, へこみ具合0〜1)。5秒かけて元に戻る。
+  const SNOW_DENT_MAX = 12;
+  const snowDentUniform = { value: Array.from({ length: SNOW_DENT_MAX }, () => new THREE.Vector4(0, 0, 1, 0)) };
+  const snowDentCountUniform = { value: 0 };
   snowCapMaterial.onBeforeCompile = (shader) => {
     shader.uniforms.uMeltPatchiness = snowMeltPatchinessUniform;
+    shader.uniforms.uSnowDent = snowDentUniform;
+    shader.uniforms.uSnowDentCount = snowDentCountUniform;
     shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', '#include <common>\nvarying vec2 vMeltWorldXZ;')
-      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvMeltWorldXZ = (modelMatrix * vec4(transformed, 1.0)).xz;');
+      .replace('#include <common>', '#include <common>\nvarying vec2 vMeltWorldXZ;\nvarying float vSnowDent;\nuniform vec4 uSnowDent[12];\nuniform int uSnowDentCount;')
+      .replace('#include <begin_vertex>', [
+        '#include <begin_vertex>',
+        'vMeltWorldXZ = (modelMatrix * vec4(transformed, 1.0)).xz;',
+        'vSnowDent = 0.0;',
+        'for (int i = 0; i < 12; i++) {',
+        '  if (i >= uSnowDentCount) break;',
+        '  vec4 dn = uSnowDent[i];',
+        '  float f = (1.0 - smoothstep(0.0, dn.z, distance(vMeltWorldXZ, dn.xy))) * smoothstep(0.0, 1.0, dn.w);',
+        '  transformed.y -= f * ' + SNOWBALL.dentDepth.toFixed(3) + ';',
+        '  vSnowDent = max(vSnowDent, f);',
+        '}',
+      ].join('\n'));
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', '#include <common>\nuniform float uMeltPatchiness;\nvarying vec2 vMeltWorldXZ;')
+      .replace('#include <common>', '#include <common>\nuniform float uMeltPatchiness;\nvarying vec2 vMeltWorldXZ;\nvarying float vSnowDent;')
       .replace('#include <dithering_fragment>', [
         'if (uMeltPatchiness > 0.001) {',
         '  float n = fract(sin(dot(floor(vMeltWorldXZ * 2.2), vec2(12.9898, 78.233))) * 43758.5453123);',
         '  if (n < uMeltPatchiness * 0.92) discard;',
         '}',
+        // v1.94: へこみの中は、少し青く暗くして、くぼみに見せる(雪面の法線は変えないので、色で見せる)
+        'gl_FragColor.rgb = mix(gl_FragColor.rgb, vec3(0.70, 0.80, 0.92), vSnowDent * 0.85);',
         '#include <dithering_fragment>',
       ].join('\n'));
   };
@@ -3887,10 +3908,12 @@ export function initScene(mountEl, options = {}) {
   function canPlaceHeld() {
     if (mode !== 'walk' || emoteBrain.isBusy() || emoteState.wheelOpen) return false;
     const id = inventory.getSelected();
+    if (id === 'snowball') return false; // v1.94: 雪玉は、置かずに投げる
     const def = id && getItemDef(id);
     return !!(def && !(def.category === 'placeable' && !SOLID_PLACED[id]) && buildHeldItem(id));
   }
   function placeHeldItem(aim = false) {
+    if (mode === 'walk' && !emoteBrain.isBusy() && !emoteState.wheelOpen && inventory.getSelected() === 'snowball') { throwSnowball(); return null; } // v1.94: Q・右クリックでも、雪玉は投げる
     if (!canPlaceHeld()) return null; // v1.73/v1.91
     const id = inventory.getSelected();
     const yaw = playerSnowman.group.rotation.y;
@@ -4045,6 +4068,120 @@ export function initScene(mountEl, options = {}) {
       debugLog.log('tent.collected', {});
     },
   });
+
+  // --- v1.94: 雪玉。雪が積もると、どこの雪面からでも、何も持たずに長押しで集められる(押し続ければ、続けて集まる)。 ---
+  //   集めた所の雪面は少しへこみ、5秒で元に戻る。雪玉は、手に持ってクリックで投げられる。持ち物の中の雪玉は、雪のない暖かい時期に溶ける(チェストの中は溶けない)。
+  const snowDents = createPressField({ max: SNOW_DENT_MAX, restoreSec: SNOWBALL.dentSec });
+  const SNOW_PUFF_MAX = 48;
+  const puffGeo = new THREE.BoxGeometry(0.06, 0.06, 0.06);
+  const puffMat = new THREE.MeshBasicMaterial({ color: 0xf6faff });
+  const puffs = Array.from({ length: SNOW_PUFF_MAX }, () => { const m = new THREE.Mesh(puffGeo, puffMat); m.visible = false; scene.add(m); return { mesh: m, vx: 0, vy: 0, vz: 0, life: 0 }; });
+  let puffNext = 0;
+  /** 雪のしぶき(小さな白い粒が、ぱっと散って落ちる) */
+  function spawnSnowPuff(x, y, z, n, spread) {
+    for (let i = 0; i < n; i++) {
+      const p = puffs[puffNext]; puffNext = (puffNext + 1) % SNOW_PUFF_MAX;
+      const a = Math.random() * Math.PI * 2, sp = (0.3 + Math.random() * 0.7) * spread;
+      p.vx = Math.cos(a) * sp; p.vz = Math.sin(a) * sp; p.vy = 1.2 + Math.random() * 1.6; p.life = 0.45 + Math.random() * 0.25;
+      p.mesh.position.set(x, y, z); p.mesh.scale.setScalar(0.7 + Math.random() * 0.8); p.mesh.visible = true;
+    }
+  }
+  const snowGround = (x, z) => terrainHeightAt(x, z) + weather.getSnowDepth();
+  const snowballs = [];
+  const snowballGeo = new THREE.SphereGeometry(SNOWBALL.radius, 8, 6);
+  const snowballMat = new THREE.MeshToonMaterial({ color: 0xf6faff, gradientMap: getToonGradientMap() });
+  const _throwDir = new THREE.Vector3();
+  function throwSnowball() {
+    if (snowballs.length >= SNOWBALL.maxActive || !inventory.remove('snowball', 1)) return false;
+    camera.getWorldDirection(_throwDir);
+    const v = throwVelocity(_throwDir);
+    const mesh = new THREE.Mesh(snowballGeo, snowballMat); mesh.castShadow = true;
+    const b = { mesh, x: camera.position.x + _throwDir.x * 0.6, y: camera.position.y + _throwDir.y * 0.6 - 0.15, z: camera.position.z + _throwDir.z * 0.6, ...v, age: 0 };
+    mesh.position.set(b.x, b.y, b.z); scene.add(mesh); snowballs.push(b);
+    const s = sfx(); if (s && s.snowThrow) s.snowThrow(sfxRelative(b.x, b.y, b.z));
+    return true;
+  }
+  const snowballEnv = {
+    groundAt: snowGround,
+    obstacleAt: (x, y, z) => { if (y > terrainHeightAt(x, z) + 6) return false; for (const o of collisionObstacles) if (Math.hypot(x - o.x, z - o.z) < o.radius + SNOWBALL.radius) return true; return false; }, // 木・岩・置いた物
+    waterAt: (x, z) => dryWaterSurfaceAt(x, z),
+  };
+  function updateSnowballs(delta) {
+    for (let i = snowballs.length - 1; i >= 0; i--) {
+      const b = snowballs[i];
+      const hit = stepSnowball(b, delta, snowballEnv);
+      b.mesh.position.set(b.x, b.y, b.z);
+      if (!hit) continue;
+      if (hit !== 'timeout') {
+        spawnSnowPuff(b.x, Math.max(b.y, snowGround(b.x, b.z)), b.z, 12, hit === 'water' ? 1.0 : 2.0);
+        const s = sfx(); if (s && s.snowHit) s.snowHit(sfxRelative(b.x, b.y, b.z));
+      }
+      scene.remove(b.mesh); snowballs.splice(i, 1);
+    }
+    for (const p of puffs) {
+      if (!p.mesh.visible) continue;
+      p.life -= delta;
+      if (p.life <= 0) { p.mesh.visible = false; continue; }
+      p.vy -= 9.0 * delta; p.mesh.position.x += p.vx * delta; p.mesh.position.y += p.vy * delta; p.mesh.position.z += p.vz * delta;
+    }
+  }
+  // 雪面を集める(長押し)
+  const gather = { active: false, start: 0, x: 0, z: 0 };
+  function gatherTarget() { // 狙った雪面(届く範囲・水の上でない所)。なければ null
+    if (weather.getSnowDepth() < SNOWBALL.minDepth || !snowCapMesh.visible) return null;
+    const t = aimGroundPoint();
+    if (!t || Math.hypot(t.x - playerSnowman.group.position.x, t.z - playerSnowman.group.position.z) > SNOWBALL.reach) return null;
+    if (Number.isFinite(dryWaterSurfaceAt(t.x, t.z))) return null;
+    return t;
+  }
+  function startGather() {
+    const sel = inventory.getSelected();
+    if (sel === 'snowball') return throwSnowball(); // 雪玉を持っている時は、投げる
+    if (interaction.getFocusedKind()) return false; // 狙っている物があれば、そちらを優先
+    if (weather.getSnowDepth() < SNOWBALL.minDepth || !snowCapMesh.visible) return false;
+    const t = gatherTarget(); if (!t) return false;
+    if (!canGather({ depth: weather.getSnowDepth(), selected: sel })) { showPlaceNotice(tr('notice.snowNeedEmptyHand')); return false; }
+    gather.active = true; gather.start = performance.now(); gather.x = t.x; gather.z = t.z;
+    return true;
+  }
+  function stopGather() { gather.active = false; }
+  function collectSnow(x, z) {
+    if (!inventory.canAdd('snowball', 1)) { showPlaceNotice(tr('notice.bagFull')); stopGather(); return; }
+    inventory.add('snowball', 1);
+    const id = snowDents.add(x, z, SNOWBALL.dentRadius); snowDents.release(id, clock.elapsedTime); // へこませて、すぐ埋まり始める
+    spawnSnowPuff(x, snowGround(x, z) + 0.05, z, 8, 1.2);
+    const s = sfx(); if (s && s.snowGather) s.snowGather(sfxRelative(x, snowGround(x, z), z));
+    debugLog.log('snowball.gathered', { x: +x.toFixed(1), z: +z.toFixed(1) });
+  }
+  let gatherProgress = 0;
+  function updateGather() {
+    gatherProgress = 0;
+    if (!gather.active) return;
+    const t = gatherTarget();
+    if (!t || inventory.getSelected() || mode !== 'walk') { stopGather(); return; } // 目を離す・手に物を持つ・雪が消えたら、やめる
+    if (Math.hypot(t.x - gather.x, t.z - gather.z) > 1.0) { gather.x = t.x; gather.z = t.z; gather.start = performance.now(); } // 別の所を狙ったら、数え直す
+    const p = (performance.now() - gather.start) / (SNOWBALL.gatherSec * 1000);
+    if (p >= 1) { collectSnow(gather.x, gather.z); gather.start = performance.now(); gather.x = t.x; gather.z = t.z; gatherProgress = 0; } // 押し続ければ、続けて集まる
+    else gatherProgress = p;
+  }
+  // 持ち物の雪玉の溶け具合(雪のない暖かい時期だけ)
+  let snowballMeltTimer = 0;
+  function updateSnowballMelt(delta) {
+    const r = nextMelt({ timer: snowballMeltTimer, delta, depth: weather.getSnowDepth(), snowing: weather.getWeather() === 'snow', count: inventory.count('snowball') });
+    snowballMeltTimer = r.timer;
+    if (r.melted && inventory.remove('snowball', 1)) { showPlaceNotice(tr('notice.snowballMelted')); debugLog.log('snowball.melted', {}); }
+  }
+  function updateSnowStuff(delta) {
+    updateSnowballs(delta);
+    updateGather();
+    updateSnowballMelt(delta);
+    const t = clock.elapsedTime;
+    if (snowDents.update(t)) { // へこみを、雪面のシェーダーへ渡す
+      const list = snowDents.list(t), arr = snowDentUniform.value;
+      for (let i = 0; i < list.length && i < SNOW_DENT_MAX; i++) arr[i].set(list[i].x, list[i].z, SNOWBALL.dentRadius, list[i].amount);
+      snowDentCountUniform.value = Math.min(list.length, SNOW_DENT_MAX);
+    }
+  }
 
   interaction.register({
     kind: 'star',
@@ -4433,6 +4570,7 @@ export function initScene(mountEl, options = {}) {
     for (const pc of placedChests) pc.update(delta, { night: getTimeOfDay(gameHour) === 'night', t: clock.elapsedTime }); // v1.83
     updatePlacedFires(delta); // v1.88
     updatePlacementGuide();   // v1.90
+    updateSnowStuff(delta);   // v1.94
     updateLanterns(delta);
     updateButterfly(delta, t); // v1.78: 鼻にとまる蝶
     updateSnowmanStarReaction(delta);
@@ -4449,7 +4587,7 @@ export function initScene(mountEl, options = {}) {
     if (mode === 'walk') {
       camera.getWorldDirection(interactForwardScratch);
       interaction.update(camera.position, interactForwardScratch);
-      updateHoldRing(interaction.holdProgress()); // v1.81
+      updateHoldRing(Math.max(interaction.holdProgress(), gatherProgress)); // v1.81/v1.94: 長押しの輪(拾う・雪を集める)
     }
     syncHeldItem();
 
@@ -4652,36 +4790,22 @@ export function initScene(mountEl, options = {}) {
   }
   animate();
 
-  // v1.58(スマホのフルスクリーン): 480×270を整数倍にしか拡大しないと、縦横比の違うスマホ画面では
-  // 小さく中央に置かれて大きな余白ができる。スマホ(pointer: coarse)では、画面の縦横比に合わせて
-  // 描画バッファの幅・高さを変え、整数倍(ピクセルの粗さを保つ)で画面全体を埋める。
-  // PCは従来どおり 480×270 の整数倍(余白が出ても、ピクセル表現を優先)。
-  const coarsePointer = !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
+  // v1.93: ウィンドウの大きさ・縦横比がどんなでも、黒縁なしで画面いっぱいに表示する(PC・スマホ・全画面とも)。
+  //   描画バッファの幅・高さを、表示領域の縦横比に合わせて変え、ピクセル1つは整数ピクセルに拡大する(ピクセルの粗さは保つ)。
+  //   ふつうの16:9なら、これまでどおり(例: 1920×1080 → 480×270を4倍)。縦長・横長の窓では、見える範囲が縦や横に広がる。
   let bufW = BUFFER_WIDTH, bufH = BUFFER_HEIGHT;
   function resize() {
     const cw = mountEl.clientWidth, ch = mountEl.clientHeight;
-    if (coarsePointer && cw > 0 && ch > 0) {
-      const raw = ch / BUFFER_HEIGHT;
-      const lo = Math.max(1, Math.floor(raw)), hi = Math.max(1, Math.ceil(raw));
-      // 描画の高さが270に近くなる整数倍を選ぶ(対数距離の小さい方)
-      const s = Math.abs(Math.log(ch / lo / BUFFER_HEIGHT)) <= Math.abs(Math.log(ch / hi / BUFFER_HEIGHT)) ? lo : hi;
-      const bw = Math.max(96, Math.min(900, Math.ceil(cw / s)));
-      const bh = Math.max(120, Math.ceil(ch / s));
-      if (bw !== bufW || bh !== bufH) {
-        bufW = bw; bufH = bh;
-        renderer.setSize(bw, bh, false);
-        camera.aspect = bw / bh;
-        camera.updateProjectionMatrix();
-      }
-      const st = renderer.domElement.style;
-      st.width = `${bw * s}px`; st.height = `${bh * s}px`; st.flex = 'none';
-      return; // 端は最大 s ピクセルだけはみ出して切れる(中央寄せ)
+    if (!(cw > 0 && ch > 0)) return;
+    const { bufW: bw, bufH: bh, cssW, cssH } = computeBufferSize(cw, ch);
+    if (bw !== bufW || bh !== bufH) {
+      bufW = bw; bufH = bh;
+      renderer.setSize(bw, bh, false);
+      camera.aspect = bw / bh;
+      camera.updateProjectionMatrix();
     }
-    const scaleX = cw / BUFFER_WIDTH;
-    const scaleY = ch / BUFFER_HEIGHT;
-    const scale = Math.max(1, Math.floor(Math.min(scaleX, scaleY)));
-    renderer.domElement.style.width = `${BUFFER_WIDTH * scale}px`;
-    renderer.domElement.style.height = `${BUFFER_HEIGHT * scale}px`;
+    const st = renderer.domElement.style;
+    st.width = `${cssW}px`; st.height = `${cssH}px`; st.flex = 'none';
   }
   window.addEventListener('resize', resize);
   resize();
@@ -4903,6 +5027,7 @@ export function initScene(mountEl, options = {}) {
       collect: {
         plantStar: (x, z) => fallingStars.debugPlant(x, z),
         setCapacity: (n) => pouch.setCapacity(n),
+        snow: { dents: () => snowDents.count(), balls: () => snowballs.length, gatherNow: (x, z) => collectSnow(x, z), throwNow: () => throwSnowball(), melt: () => snowballMeltTimer },
         tentBundle: () => ({ x: +tentBundle.x.toFixed(2), z: +tentBundle.z.toFixed(2), taken: tentBundle.taken }),
         rocks: () => rockClusters.map((r, i) => ({ i, x: +r.x.toFixed(2), z: +r.z.toFixed(2), scale: +r.scale.toFixed(2), taken: !!r.taken })),
         clearings: () => clearings.map((c) => ({ x: +c.x.toFixed(1), z: +c.z.toFixed(1), rise: +c.rise.toFixed(2) })),
@@ -4964,9 +5089,10 @@ export function initScene(mountEl, options = {}) {
       if (mode !== 'walk' || emoteBrain.isBusy() || emoteState.wheelOpen) return false;
       playerSnowman.triggerActionSwing();
       firstPersonHands.triggerActionSwing();
+      if (startGather()) return true; // v1.94: 雪玉を投げる / 雪面を集める
       return interaction.press();
     },
-    interactRelease: () => interaction.release(),
+    interactRelease: () => { stopGather(); return interaction.release(); },
     canPlaceHeld, // v1.91
     getFocusedKind: () => interaction.getFocusedKind(),
     /** 開発用(コンソールから): 今すぐ星を落とす。通常のUIには出さない。 */

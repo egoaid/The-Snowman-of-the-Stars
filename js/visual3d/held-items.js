@@ -27,6 +27,7 @@ const MATERIALS = {
   tableTop: toon(0x8a5a2b),
   chestBody: toon(0x8a5a2b),
   chestBand: toon(0x3d3d3d),
+  snow: toon(0xf4f8fc, { roughness: 0.95 }),
 };
 
 function lump(geo, mat, lift) { const m = new THREE.Mesh(geo, mat); m.position.y = lift; m.castShadow = true; return m; }
@@ -67,6 +68,7 @@ const HELD_ITEM_BUILDERS = {
     g.add(base, top); g.position.y = 0.08;
     const holder = new THREE.Group(); holder.add(g); return holder;
   },
+  snowball: () => { const m = lump(new THREE.SphereGeometry(0.075, 10, 8), MATERIALS.snow, 0.07); return m; }, // v1.94
   tent: () => { // v1.92: 手に持つ、たたんだテント
     const g = createTentBundleMesh(); g.scale.setScalar(0.2); g.rotation.y = Math.PI / 2; g.position.set(0, 0.0, 0.0);
     const holder = new THREE.Group(); holder.add(g); return holder;

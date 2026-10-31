@@ -181,6 +181,26 @@
       }, 0.9);
     },
 
+    /** v1.94: 雪を集める: 「ざくっ」と、雪を握る音。 */
+    snowGather(rel = null) {
+      this._voice(rel, 0.5, (ctx, out, t) => {
+        noiseHit(ctx, out, t, { type: 'bandpass', freq: 1500, freqEnd: 800, q: 0.9, gain: 0.16, decay: 0.16 });
+        for (let i = 0; i < 3; i++) noiseHit(ctx, out, t + 0.03 + i * 0.035, { type: 'highpass', freq: rnd(2600, 4200), gain: 0.05, decay: 0.03 });
+      }, 0.8);
+    },
+    /** v1.94: 雪玉を投げる: 「ふわっ」。 */
+    snowThrow(rel = null) {
+      this._voice(rel, 0.4, (ctx, out, t) => {
+        noiseHit(ctx, out, t, { type: 'lowpass', freq: 900, freqEnd: 2400, gain: 0.1, decay: 0.12, attack: 0.02 });
+      }, 0.7);
+    },
+    /** v1.94: 雪玉が当たって飛び散る: 「ぱふっ」。 */
+    snowHit(rel = null) {
+      this._voice(rel, 0.6, (ctx, out, t) => {
+        noiseHit(ctx, out, t, { type: 'lowpass', freq: 1800, freqEnd: 600, gain: 0.2, decay: 0.2 });
+        noiseHit(ctx, out, t, { type: 'highpass', freq: 3200, gain: 0.05, decay: 0.07 });
+      }, 0.8);
+    },
     /** v1.88: 着火: 小さな「ボッ」と、ぱちぱち。 */
     fireIgnite(rel = null) {
       this._voice(rel, 1.1, (ctx, out, t) => {
