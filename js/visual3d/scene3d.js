@@ -348,10 +348,7 @@ export function initScene(mountEl, options = {}) {
       pos.setY(i, pos.getY(i) - dip);
     }
   }
-  const FIRE_MELT_DIP = 0.15; // 下の焚き火位置更新処理と必ず同じ値にする
-  const FIRE_MELT_INNER_RADIUS = 1.15; // meltedPatchMeshの半径と揃える(円盤の下がちょうどくぼみの底になる)
-  const FIRE_MELT_OUTER_RADIUS = 1.9; // ここまでで滑らかに通常の雪面へ戻る
-  carveSnowMeltCrater(snowCapGeo, fireX, fireZ, FIRE_MELT_DIP, FIRE_MELT_INNER_RADIUS, FIRE_MELT_OUTER_RADIUS);
+  // v1.89: 固定の焚き火は廃止した。雪の窪みも、もう彫らない。(carveSnowMeltCrater は、今は使っていない)
   // 2026-09(改訂4): 焚き火の位置が年間を通して1箇所固定になったため、
   // 彫り込みも1回だけでよい(以前はテント用/かまくら用の2箇所に彫って
   // いた)。彫り終わったら法線を再計算する。
@@ -530,12 +527,7 @@ export function initScene(mountEl, options = {}) {
   let campCollisionIsIgloo = false;
   setCampCollisionMode(campCollisionIsIgloo);
 
-  const { group: fireGroup, update: updateFire } = createCampfire(1.0);
-  placeOnTerrain(fireGroup, fireX, fireZ, terrainHeightAt);
-  scene.add(fireGroup);
-  const fireCollision = { x: fireX, z: fireZ, radius: 0.9 };
-  collisionObstacles.push(fireCollision);
-  worldColliders.push({ id: 'campfire', kind: 'cylinder', x: fireX, z: fireZ, y: terrainHeightAt(fireX, fireZ) + 0.2, radius: 0.45, height: 0.4 });
+  // v1.89: 固定の焚き火(見た目・当たり判定)は廃止した。焚き火は、作業台で作って置いたものだけ。
 
   // --- v1.84: テントのそばの元のチェストは廃止した(作業台で作るチェストだけにした)。 ---
   // 古い保存データに中身があれば、その場所に「置いたチェスト」として引き継ぐ(中身が消えないように)。そのための昔の位置だけ残す。
@@ -572,13 +564,6 @@ export function initScene(mountEl, options = {}) {
   // 少し下がっている)」との指摘に対応し、土色ではなく圧雪のような
   // 少し青みがかった白に変更。円盤自体も、雪面よりやや低い位置(くぼみの
   // 底)に置く(下の更新処理を参照)。
-  const meltedPatchMesh = new THREE.Mesh(
-    new THREE.CircleGeometry(1.15, 20),
-    new THREE.MeshToonMaterial({ color: 0xd8e4ec, gradientMap: getToonGradientMap() })
-  );
-  meltedPatchMesh.rotation.x = -Math.PI / 2;
-  meltedPatchMesh.visible = false;
-  scene.add(meltedPatchMesh);
 
   // --- 雪だるまキャラクター(Snowman 3D Character) ---
   // この世界の雪だるまは常に1体だけ、という設定にしている。
@@ -753,7 +738,7 @@ export function initScene(mountEl, options = {}) {
     if (a.collect) return 'collect';
     if (a.activity === 'igloo') return 'igloo';
     if (a.activity === 'flower') return 'flower';
-    if (a.target && Math.hypot(a.target.x - fireX, a.target.z - fireZ) < 4) return 'fire';
+    { const nf = nearestLitFire(a.target ? a.target.x : 0, a.target ? a.target.z : 0); if (a.target && nf && nf.d < 4) return 'fire'; }
     if (a.target && Math.hypot(a.target.x - campX, a.target.z - campZ) < 7) return 'camp';
     return 'wander';
   }
@@ -792,6 +777,21 @@ export function initScene(mountEl, options = {}) {
   function reachableCandidate(c, bridge) { return bridge || !acrossRiver(wander.pos.x, wander.pos.y, c.x, c.z); }
   /** (x,z)の、水際までの距離(m。水際の内側なら負)。 */
   function edgeAt(x, z) { const rv = distanceToRiver(x, z, riverSamplesForAvoid); return rv.distance - getWaterEdgeDistance(rv.width); }
+  /** v1.89: ついている「置いた焚き火」のうち、(x,z)にいちばん近いもの。なければ null。 */
+  function nearestLitFire(x, z) {
+    let best = null, bd = Infinity;
+    for (const it of placedItems) {
+      if (!it.fire || !it.fire.isLit()) continue;
+      const d = Math.hypot(it.x - x, it.z - z);
+      if (d < bd) { bd = d; best = it; }
+    }
+    return best ? { it: best, d: bd } : null;
+  }
+  /** v1.89: 見守りの雪だるまがくつろぐ場所の中心: ついている焚き火のそば。なければ、キャンプ(テント)のそば。 */
+  function restHub() {
+    const f = nearestLitFire(wander.pos.x, wander.pos.y);
+    return f ? { x: f.it.x, z: f.it.z } : { x: campX, z: campZ };
+  }
   /** v1.84: しまいに行くチェスト: 置いたチェストのうち、空きがあって、いまプレイヤーが開いていない、いちばん近いもの。 */
   function pickStorageChest() {
     let best = null, bd = 80;
@@ -854,7 +854,7 @@ export function initScene(mountEl, options = {}) {
     }
     const rOffset = iglooActiveState ? 0.14 : 0; // 上のかまくら行動が選ばれなかった分、他の確率帯はそのまま維持する
     // v1.78: 川辺へ行く(旧16%)を約6%に減らし、減った分を焚き火・テント・花畑・散歩へ回した
-    if (r < 0.20 + rOffset) return { target: pickRelaxSpotNear(fireX, fireZ, 1.7), restMin: 8, restMax: 16, activity: 'idle' };
+    if (r < 0.20 + rOffset) { const hub = restHub(); return { target: pickRelaxSpotNear(hub.x, hub.z, 1.7), restMin: 8, restMax: 16, activity: 'idle' }; }
     if (r < 0.26 + rOffset) return { target: pickRiverCrossingTarget(), restMin: 4, restMax: 10, activity: 'idle', crossing: true };
     if (r < 0.40 + rOffset) return { target: pickRelaxSpotNear(campX, campZ, 3.2), restMin: 5, restMax: 11, activity: 'idle' };
     const flowerTarget = r < 0.64 + rOffset ? pickFlowerPatchTarget() : null;
@@ -1191,7 +1191,7 @@ export function initScene(mountEl, options = {}) {
     };
     valid.room = (x, z) => { let m = 1e9; for (const o of collisionObstacles) m = Math.min(m, Math.hypot(x - o.x, z - o.z) - o.radius); return Math.min(m, 6); };
     let spot = findRescueSpot({ x: wander.pos.x, z: wander.pos.y, isValid: valid, minDist: 9, maxDist: 50 });
-    if (!spot) { const t = pickRelaxSpotNear(fireX, fireZ, 1.7); spot = { x: t.x, z: t.z }; } // 見つからなければ焚き火のそば
+    if (!spot) { const hub = restHub(); const t = pickRelaxSpotNear(hub.x, hub.z, 1.7); spot = { x: t.x, z: t.z }; } // 見つからなければ、ついている焚き火(なければキャンプ)のそば
     aiClimb.cancel();
     wander.hurdle = null; wander.legs = []; wander.detouring = 0; wander.turningAway = 0; wander.waiting = false; wander.routePlan = null;
     wander.collectTask = null; wander.baseTask = null; wander.jumpAssist = false;
@@ -2628,27 +2628,6 @@ export function initScene(mountEl, options = {}) {
 
     // v1.56-H4: かまくらが建った段階で、チェストはかまくらの隣の雪面の上に現れる(それまでは雪に埋もれて見えない)。
 
-    // 2026-09(改訂4): 焚き火の位置は年間を通して固定(fireX/fireZ)。
-    // 以前はかまくら設置時に別の場所へ動かしていたが、「位置が変わるのは
-    // 変」との指摘に対応し、そもそも最初からかまくらの分の余白を
-    // 確保した1箇所だけを使うようにした。
-    fireGroup.position.x = fireX;
-    fireGroup.position.z = fireZ;
-    // 2026-09(修正): 「焚き火の設置面が雪面より少し下がっている(熱で
-    // 溶けてくぼんでいる)」との指摘に対応。雪が積もっている間は、焚き火
-    // 自体の設置面を雪面よりFIRE_MELT_DIPだけ低い「くぼみの底」に置く
-    // (雪が全く無い時は通常通り地形の高さのまま)。
-    const FIRE_MELT_DIP = 0.15;
-    const fireSnowSurfaceY = terrainHeightAt(fireX, fireZ) + snowDepth;
-    fireGroup.position.y = snowDepth > 0.05 ? fireSnowSurfaceY - FIRE_MELT_DIP : fireSnowSurfaceY;
-
-    // 焚き火の熱で周りの雪が少し溶けてくぼんでいる表現(圧雪のような
-    // 明るい色の円盤を、くぼみの底の高さに重ねる簡易表現)。
-    meltedPatchMesh.visible = snowDepth > 0.05;
-    if (meltedPatchMesh.visible) {
-      meltedPatchMesh.position.set(fireX, fireSnowSurfaceY - FIRE_MELT_DIP + 0.008, fireZ);
-    }
-
     updateFootprints(delta);
 
     // --- 雪だるまの「喜び」(雪が降っている間だけ) ---
@@ -2682,7 +2661,6 @@ export function initScene(mountEl, options = {}) {
   // 環境音(バイノーラル立体音響)の統合
   // ================================================================
   // 焚き火の実座標(炎の中心あたり)
-  const fireSoundPos = fireGroup.position.clone().add(new THREE.Vector3(0, 0.2, 0));
 
   let audioOn = false;
 
@@ -2784,6 +2762,7 @@ export function initScene(mountEl, options = {}) {
     window.SoundEngine.Footsteps.step(surface);
   }
   let fireSound = null;
+  let fireSoundLevel = 0, fireSoundApplied = 0, fireAudioT = 0; // v1.89: 焚き火の音の大きさ(ついている火があれば1、なければ0へ、なめらかに)
   let riverSound = null;
   let windSound = null;
   let insectsSound = null;
@@ -2851,8 +2830,8 @@ export function initScene(mountEl, options = {}) {
     if (window.SoundEngine.Thunder) thunderSound = new window.SoundEngine.Thunder();
 
     fireSound.start();
-    fireSound.setRoar(0.5);
-    fireSound.setCrackle(0.55);
+    fireSound.setRoar(0);      // v1.89: 固定の焚き火がなくなったので、ついている火があるときだけ鳴らす
+    fireSound.setCrackle(0);
 
     riverSound.start();
     riverSound.setSize(0.4);
@@ -2935,21 +2914,28 @@ export function initScene(mountEl, options = {}) {
 
     const px = camera.position.x, py = camera.position.y, pz = camera.position.z;
 
-    // --- 焚き火: 固定の点音源 ---
+    // --- 焚き火: 置いた「ついている焚き火」のうち、いちばん近いものが点音源。ついている火がなければ、無音 ---
     {
-      // v1.88: 音は、いちばん近い「ついている火」から聞こえる(キャンプの焚き火、または置いた焚き火)
-      let sx = fireSoundPos.x, sy = fireSoundPos.y, sz = fireSoundPos.z, best = Math.hypot(sx - px, sy - py, sz - pz);
+      let near = null, best = Infinity;
       for (const it of placedItems) {
         if (!it.fire || !it.fire.isLit()) continue;
         const d = Math.hypot(it.x - px, it.mesh.position.y + 0.2 - py, it.z - pz);
-        if (d < best) { best = d; sx = it.x; sy = it.mesh.position.y + 0.2; sz = it.z; }
+        if (d < best) { best = d; near = it; }
       }
-      const dx = sx - px;
-      const dy = sy - py;
-      const dz = sz - pz;
-      const localRight = dx * _right.x + dz * _right.z;
-      const localForward = dx * _fwd.x + dz * _fwd.z;
-      fireSound.setListenerRelativePosition(localRight, dy, -localForward);
+      const tNow = clock.elapsedTime, dt = Math.min(0.25, Math.max(0, tNow - fireAudioT)); fireAudioT = tNow;
+      fireSoundLevel += ((near ? 1 : 0) - fireSoundLevel) * Math.min(1, dt * 2.0); // つく/消えるで、音もなめらかに出入りする
+      if (Math.abs(fireSoundLevel - fireSoundApplied) > 0.01 || (fireSoundLevel < 0.01 && fireSoundApplied !== 0)) {
+        if (fireSoundLevel < 0.01) fireSoundLevel = 0;
+        fireSoundApplied = fireSoundLevel;
+        fireSound.setRoar(0.5 * fireSoundLevel);
+        fireSound.setCrackle(0.55 * fireSoundLevel);
+      }
+      if (near) {
+        const dx = near.x - px, dy = near.mesh.position.y + 0.2 - py, dz = near.z - pz;
+        const localRight = dx * _right.x + dz * _right.z;
+        const localForward = dx * _fwd.x + dz * _fwd.z;
+        fireSound.setListenerRelativePosition(localRight, dy, -localForward);
+      }
     }
 
     // --- 川: 中心線上の最寄り点を疑似音源とする ---
@@ -4399,7 +4385,7 @@ export function initScene(mountEl, options = {}) {
       cameraDirector.update(delta, {
         snowman: { x: snowX, y: snowGroundY, z: snowZ },
         camp: { x: campX, y: terrainHeightAt(campX, campZ), z: campZ },
-        fire: { x: fireX, y: terrainHeightAt(fireX, fireZ), z: fireZ },
+        fire: (() => { const f = nearestLitFire(snowX, snowZ); return f ? { x: f.it.x, y: terrainHeightAt(f.it.x, f.it.z), z: f.it.z } : null; })(), // v1.89: ついている焚き火があれば、それを撮る
         flower: flowerP ? { x: flowerP.x, y: terrainHeightAt(flowerP.x, flowerP.z), z: flowerP.z } : null,
         // v1.76: 眠りの流れ(座る→あくび→寝る)を、自動カメラへ伝える
         emote: { phase: emoteBrain.cameraPhase(), sit: emotePose.sit, lie: emotePose.lie, heading: snowHeading },
@@ -4462,7 +4448,6 @@ export function initScene(mountEl, options = {}) {
       playerSnowman.group.visible = true;
     }
 
-    updateFire(t);
     if (pressField.update(t)) setGrassPressZones(pressField.list(t)); // v1.81
     updateGrass(t, snowX, snowZ); // v1.34: 雪だるまの位置を渡し、近くの草が踏まれて揺れるようにする
     if (poppyField) poppyField.update(t);

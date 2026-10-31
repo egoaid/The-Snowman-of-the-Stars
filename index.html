@@ -1501,7 +1501,7 @@
       if (!stack) return;
       const def = ITEM_DEFS[stack.id];
       if (!def) return;
-      el.textContent = def.icon;
+      if (def.iconSvg) el.innerHTML = def.iconSvg; else el.textContent = def.icon; // v1.89: 木炭は、描いた絵
       el.title = def.name;
       if (stack.count > 1) {
         const c = document.createElement('span');
@@ -1551,6 +1551,8 @@
     const invCraftTable = document.getElementById('invCraftTable');
     let tableUiOpen = false;
     const itemLabel = (id, n) => { const d = ITEM_DEFS[id]; return `${d ? d.icon : ''} ${d ? d.name : id} ×${n}`; };
+    // v1.89: 絵のあるアイテム(木炭)は、ボタンにも絵を出す。名前は textContent で入れる(HTMLとして解釈させない)
+    const labelNode = (id, n) => { const d = ITEM_DEFS[id]; const span = document.createElement('span'); if (d && d.iconSvg) { span.innerHTML = d.iconSvg; span.appendChild(document.createTextNode(` ${d.name} ×${n}`)); } else span.textContent = itemLabel(id, n); return span; };
     function renderTableList() {
       invTableWrap.style.display = tableUiOpen ? 'block' : 'none';
       if (!tableUiOpen || !sceneRefForTouch || !sceneRefForTouch.getTableCrafts) return;
@@ -1559,7 +1561,8 @@
       for (const r of list) {
         const b = document.createElement('button');
         b.type = 'button'; b.className = 'inv-craft-btn'; b.disabled = !r.canCraft;
-        b.textContent = `${r.inputs.map((i) => itemLabel(i.id, i.count)).join(' + ')}  →  ${itemLabel(r.output.id, r.output.count)}`;
+        r.inputs.forEach((i, k) => { if (k) b.appendChild(document.createTextNode(' + ')); b.appendChild(labelNode(i.id, i.count)); });
+        b.appendChild(document.createTextNode('  →  ')); b.appendChild(labelNode(r.output.id, r.output.count));
         b.title = r.name;
         b.addEventListener('click', () => { if (sceneRefForTouch.craftRecipe(r.id)) renderInventory(); else renderTableList(); });
         invTableList.appendChild(b);

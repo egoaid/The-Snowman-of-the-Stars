@@ -9,6 +9,9 @@
 
 import { t } from './i18n.js';
 
+// v1.89: 木炭の絵(絵文字に石炭に合うものがないので、黒い角ばった塊を描く)。表示側は、iconSvg があればそれを使う。
+export const COAL_ICON_SVG = '<svg viewBox="0 0 24 24" width="1em" height="1em" style="vertical-align:-0.14em" aria-hidden="true"><polygon points="3,16 7,9 13,8 15,14 11,19 5,19" fill="#2a2623"/><polygon points="7,9 13,8 12,12 8,13" fill="#4b443d"/><polygon points="12,13 17,7 22,11 21,18 15,20 13,17" fill="#34302b"/><polygon points="17,7 22,11 19,11" fill="#5e564d"/><polygon points="9,13 12,13 13,17 11,19 5,19 5,16 8,14" fill="#1d1a18"/><polygon points="14,14 21,18 15,20" fill="#1d1a18"/><polyline points="7,9 13,8" stroke="#8a8075" stroke-width="0.7" fill="none"/></svg>';
+
 export const ITEM_DEFS = {
   // 星: 流れ星が落ちたら拾える大きな星。木のてっぺんに飾ると、その木のどこにでもおもちゃを貼り付けられる。
   star:    { id: 'star',    icon: '★',  maxStack: 64, category: 'collectible', hand: 'right' },
@@ -26,7 +29,7 @@ export const ITEM_DEFS = {
   log:     { id: 'log',     icon: '🪵', maxStack: 64, category: 'resource',    hand: 'right' },
   wood:    { id: 'wood',    icon: '🟫', maxStack: 64, category: 'resource',    hand: 'right' },
   stone:   { id: 'stone',   icon: '🪨', maxStack: 64, category: 'resource',    hand: 'right' },
-  coal:    { id: 'coal',    icon: '⚫', maxStack: 64, category: 'resource',    hand: 'right' },
+  coal:    { id: 'coal',    icon: '⚫', iconSvg: COAL_ICON_SVG, maxStack: 64, category: 'resource',    hand: 'right' },
   iron:    { id: 'iron',    icon: '⛓️', maxStack: 64, category: 'resource',    hand: 'right' },
   diamond: { id: 'diamond', icon: '💎', maxStack: 64, category: 'resource',    hand: 'right' },
   // 置いて使う道具(まだ置く機能は無い。アイテムとしてだけ先に定義する)
