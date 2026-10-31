@@ -53,6 +53,7 @@ export function configureFlattening(structures) {
     z: s.z,
     radius: s.radius,
     feather: s.feather ?? s.radius,
+    strength: s.strength ?? 1, // v1.91: 平らにする強さ(1=完全に平ら、0.7=緩やかな起伏が残る)
     // 構造物ごとに、その場所自体の「自然な高さ」を平坦化の目標にする
     // (キャンプ全体で1つの高さに揃えるのではなく、構造物ごとに個別)
     height: naturalHeightAt(s.x, s.z),
@@ -74,7 +75,7 @@ function smoothstep(edge0, edge1, x) {
  * これにより、地形・水面・川底のすべてが同じ「Physical River State」を
  * 参照するようになっている。
  */
-function naturalHeightAt(x, z) {
+export function naturalHeightAt(x, z) {
   const ambient = ambientHeightAt(x, z);
   return applyRiverChannel(x, z, ambient, getRiver());
 }
@@ -112,7 +113,7 @@ export function terrainHeightAt(x, z) {
   let targetHeight = natural;
   for (const s of flattenStructures) {
     const d = Math.hypot(x - s.x, z - s.z);
-    const local = 1 - smoothstep(s.radius, s.radius + s.feather, d);
+    const local = (1 - smoothstep(s.radius, s.radius + s.feather, d)) * s.strength;
     if (local > flattenAmount) {
       flattenAmount = local;
       targetHeight = s.height;

@@ -11,7 +11,7 @@
 
 import * as THREE from 'three';
 import { OrbitControls } from '../../vendor/OrbitControls.js'; // v1.57: CDNをやめて同梱(three.js r160のもの)
-import { buildTerrainMesh, terrainHeightAt, TERRAIN_SIZE, configureFlattening } from './terrain.js';
+import { buildTerrainMesh, terrainHeightAt, naturalHeightAt, TERRAIN_SIZE, configureFlattening } from './terrain.js';
 import { ambientHeightAt, configureAmbientSeed } from './terrain-noise.js';
 import { getWaterSurfaceAt } from './river.js';
 import { createCameraGroundGuard, createDomeOcclusionGuard } from './camera-ground.js';
@@ -27,7 +27,8 @@ import { createSeasonSystem, getSeasonLabel } from './season.js';
 import { createPineTree, createFallenTree, placeOnTerrain, setLeafTint, setLeafSnowBulk, createBroadleafTree, setBroadleafTint, applyBroadleafDefoliation, setBroadleafShapeParams } from './tree.js';
 import { createLeafFallSystem, getSheddingIntensity } from './leaf-fall.js';
 import { createRockCluster, placeRockOnTerrain } from './rocks.js';
-import { createTent, getTentHeight } from './tent.js';
+import { createTent } from './tent.js';
+import { createTentBundleMesh, TENT_BUNDLE } from './tent-bundle.js';
 import { createIgloo, WALL_THICKNESS as IGLOO_WALL_THICKNESS } from './igloo.js';
 import { createCampfire } from './campfire.js';
 import { buildMountainScenery, buildHorizonFill, setMountainBrightness } from './mountains3d.js';
@@ -68,6 +69,7 @@ import { createPlacementGuide } from './placement-guide.js';
 import { t as tr } from '../i18n.js';
 import { createPressField } from './press-field.js';
 import { createCoalField } from './coal-field.js';
+import { pickClearings, CLEARING } from './clearings.js';
 import { fireAction, nextWet, pickWetLimit } from '../fire-rules.js';
 import { createCraftingTableMesh, CRAFTING_TABLE } from './crafting-table.js';
 import { createEquipment, EQUIP_SLOTS } from '../equipment.js';
@@ -275,9 +277,20 @@ export function initScene(mountEl, options = {}) {
   // 指摘に対応し、テント側の平坦化半径を、かまくら(壁厚込みの外側の面
   // 約3.76m)を確実に覆う大きさへ広げた(以前は2.8mしか無く、かまくらの
   // 縁が平坦化のfeather区間=まだ自然な起伏が残る範囲に掛かっていた)。
+  // v1.91: 地形生成で、テント・かまくら・焚き火・チェスト・作業台を置ける「ひらけた場所」を作る。
+  //   もともと穏やかな所を数か所選び、完全には平らにせず(strength<1)、緩やかな起伏を残す。川の谷・世界の端・大木・キャンプからは離す。
+  //   キャンプの足元も、同じ強さに揃える(固定の焚き火は廃止したので、その足元の平坦化もなくした)。
+  const clearingRiver = getRiver();
+  const clearings = pickClearings({
+    rng: makeRng(worldGen ? deriveSeed(worldGen.seed, 'clearings') : 5151),
+    count: 5, range: PLAYABLE_RADIUS * 0.85, naturalHeightAt,
+    riverEdgeDistanceAt: (x, z) => { const { distance, width } = distanceToRiver(x, z, clearingRiver.centerline); return distance - width / 2; },
+    isBlocked: (x, z) => Math.hypot(x - bigTreeX, z - bigTreeZ) < 12,
+    existing: [{ x: campX, z: campZ }],
+  });
   configureFlattening([
-    { x: campX, z: campZ, radius: iglooOuterRadiusPlanned + 0.3, feather: 2.0 }, // テント/かまくらの足元
-    { x: fireX, z: fireZ, radius: 1.2, feather: 1.4 },  // 焚き火の周り
+    { x: campX, z: campZ, radius: iglooOuterRadiusPlanned + 0.3, feather: 2.0, strength: CLEARING.strength }, // キャンプの足元
+    ...clearings.map((c) => ({ x: c.x, z: c.z, radius: CLEARING.radius, feather: CLEARING.feather, strength: CLEARING.strength })), // ひらけた場所
   ]);
 
 
@@ -487,13 +500,7 @@ export function initScene(mountEl, options = {}) {
   // --- キャンプ(テント・焚き火。大木の根元、川からは離れた場所) ---
   const campY = terrainHeightAt(campX, campZ);
 
-  const tent = createTent(1.5); // 視点の目線の高さ(1.7m)から見て小さく見えすぎていたため拡大
-  const TENT_HEIGHT = getTentHeight(1.5); // 2026-09: かまくら切り替えのタイミング判定に使う(テントが埋もれる高さ)
-  placeOnTerrain(tent, campX, campZ, terrainHeightAt);
-  tent.rotation.y = 0.35;
-  scene.add(tent);
-  // v1.49: テントの物理用コライダー = 断面五角形(壁+屋根)の角柱。屋根の傾斜に丸太が載る/滑り落ちる。
-  worldColliders.push({ id: 'tent', kind: 'prism', x: campX, z: campZ, y: tent.position.y, halfWidth: 1.1 * 1.5, wallH: 1.35 * 1.5 * 0.34, apexH: 1.35 * 1.5, halfLength: 2.3 * 1.5 / 2, yaw: tent.rotation.y });
+  // v1.92: 固定のテントは廃止した。テントは、たたんだ状態で地形に落ちていて、拾って、ゆるやかな所に置いて使う。
   // 2026-09(改訂2): 「かまくらの中に雪だるまが歩いて入れない」バグの
   // 根本原因への対応。以前はここで衝突判定の円(半径2.0)を一度だけ
   // 登録し、テント・かまくらの両方でそのまま使い回していた。テントは
@@ -510,8 +517,7 @@ export function initScene(mountEl, options = {}) {
     }
     campCollisionEntries = [];
     if (!isIgloo) {
-      const e = { x: campX, z: campZ, radius: 2.0 };
-      campCollisionEntries.push(e);
+      // v1.92: 固定のテントがなくなったので、全周をふさぐ円はもう要らない
     } else {
       // ドームの入口方向(igloo.jsのDOORWAY_HALF_ANGLE_RADと同じ隙間)を
       // 避けて、外壁に沿って柱状の衝突判定を並べる。隣同士が重なる
@@ -1611,6 +1617,8 @@ export function initScene(mountEl, options = {}) {
     // 込みのかまくら外周(iglooOuterRadiusPlanned)を確実に上回る半径に。
     { x: campX, z: campZ, radius: iglooOuterRadiusPlanned + 1.3 },
     { x: bigTreeX, z: bigTreeZ, radius: 3 },
+    // v1.91: ひらけた場所には、木や岩を置かない(置き場所として空けておく)。草は生える。
+    ...clearings.map((c) => ({ x: c.x, z: c.z, radius: CLEARING.radius - 0.5, clearing: true })),
   ];
 
   /**
@@ -1985,7 +1993,7 @@ export function initScene(mountEl, options = {}) {
   if (leaves) scene.add(leaves);
 
   // --- 草(風で揺れる。川・キャンプ・木の幹は避ける) ---
-  const grassAvoid = avoidZones.map((z) => ({ x: z.x, z: z.z, radius: z.radius + 0.5 }));
+  const grassAvoid = avoidZones.filter((z) => !z.clearing).map((z) => ({ x: z.x, z: z.z, radius: z.radius + 0.5 })); // v1.91: ひらけた場所にも草は生える
   // Phase 3(2026-09): 面積比(約2倍)ほどは増やさず、控えめに増量する
   // (InstancedMeshなのでGPU負荷は小さいが、配置時の川・avoidゾーンとの
   // 距離判定コストがあるため青天井には増やさない。全体の密度としては
@@ -2506,6 +2514,7 @@ export function initScene(mountEl, options = {}) {
     const snowCoverage = weather.getSnowCoverage();
     const snowDepth = weather.getSnowDepth();
     coalField.setSnowDepth(snowDepth); // v1.85: 雪が積もっている間、木炭は埋まって見えない
+    if (!tentBundle.taken) placeTentBundle(snowDepth); // v1.92
     const rime = weather.getRimeIntensity();
     terrain.material.color.copy(terrainColorCurrent).lerp(SNOW_WHITE, snowCoverage * 0.8);
     // 樹氷(2〜3m付近)の時は、通常の積雪による色混ざりより強く白くする
@@ -2611,14 +2620,8 @@ export function initScene(mountEl, options = {}) {
     // 積雪で埋もれて見えなくなった時点で設置して」との指摘に対応。
     // 以前は5m(埋没の最終段階)まで待っていたが、正しくはテントの高さ
     // (TENT_HEIGHT)で判定する。
-    if (!iglooActiveState && snowDepth >= TENT_HEIGHT + 0.05) iglooActiveState = true;
-    else if (iglooActiveState && snowDepth < TENT_HEIGHT - 0.3) iglooActiveState = false;
-    if (iglooActiveState !== campCollisionIsIgloo) {
-      campCollisionIsIgloo = iglooActiveState;
-      setCampCollisionMode(campCollisionIsIgloo);
-    }
-    tent.visible = !iglooActiveState;
-    iglooGroup.visible = iglooActiveState;
+    // v1.92: 「テントが雪に埋まったら、かまくらが自動で建つ」仕組みは廃止した。かまくらは、次の段階で、雪玉から作る置けるアイテムにする。
+    iglooGroup.visible = iglooActiveState; // (いまは、常に false)
     if (iglooActiveState) {
       // かまくら自体は常に雪面の上に位置させる(積雪が続いても埋まらない)
       iglooGroup.position.y = terrainHeightAt(campX, campZ) + snowDepth;
@@ -3299,10 +3302,9 @@ export function initScene(mountEl, options = {}) {
   // 動的な丸太の近くにある間だけ入る(何も動いていない時のコストはゼロのまま)。
   for (const c of worldColliders) physics.addStaticCollider(c);
   const igloo = { id: 'igloo', kind: 'cylinder', x: campX, z: campZ, y: campY + iglooOuterRadius * 0.45, radius: iglooOuterRadius * 0.9, height: iglooOuterRadius * 0.9 };
-  const tentCollider = worldColliders.find((c) => c.id === 'tent');
   onCampPhysicsModeChange = (isIgloo) => {
     if (isIgloo) { physics.removeStaticCollider('tent'); physics.addStaticCollider(igloo); }
-    else { physics.removeStaticCollider('igloo'); physics.addStaticCollider(tentCollider); }
+    else { physics.removeStaticCollider('igloo'); }
   };
   if (campCollisionIsIgloo) onCampPhysicsModeChange(true);
   const logSystem = createFallenLogSystem({ fallenLogs, physics, burialCandidates, groundAt: snowGroundAt, onSettled: (log) => onLogSettled(log) });
@@ -3360,7 +3362,7 @@ export function initScene(mountEl, options = {}) {
     const id = String(cid || '');
     if (id.startsWith('tree')) return 'tree';
     if (id.startsWith('chest')) return 'chest';
-    if (id === 'tent' || id === 'igloo') return 'tent';
+    if (id === 'igloo' || String(id).startsWith('tent')) return 'tent';
     return 'rock'; // 岩・焚き火の石
   }
   const pendingLogPlace = new Map(); // physicsId -> 離した時刻
@@ -3733,6 +3735,8 @@ export function initScene(mountEl, options = {}) {
     crafting_table: { footprint: CRAFTING_TABLE.footprint, press: CRAFTING_TABLE.pressRadius, build: createCraftingTableMesh, width: CRAFTING_TABLE.width, depth: CRAFTING_TABLE.depth, slope: 'max', maxRise: 0.6, lookY: 0.5, grab: 0.7 },
     // v1.83: 置けるチェスト(基地のチェストと同じ見た目・27スロット)。斜面では、いちばん低い角に合わせて、高い側は地面に少し埋める。
     // v1.87: 置ける焚き火(組んだ薪と石の輪。火は、まだ消えている)。石の輪は、斜面で高い側を地面に埋める。
+    // v1.92: 置けるテント。ゆるやかな斜面でも置ける(高い側を地面に埋める)。物理(丸太が屋根に載る)の当たり判定つき。
+    tent: { footprint: 2.4, press: 2.5, build: () => createTent(1.5), width: 3.3, depth: 3.45, slope: 'min', maxRise: 0.9, lookY: 0.7, grab: 1.9, collider: true },
     campfire: { footprint: 0.7, press: 0.78, isFire: true, width: 1.0, depth: 1.0, slope: 'min', maxRise: 0.6, lookY: 0.25, grab: 0.8 },
     chest: { footprint: 0.58, press: 0.68, isChest: true, width: 0.95, depth: 0.6, slope: 'min', maxRise: 0.6, lookY: 0.3, grab: 0.75 },
   };
@@ -3821,6 +3825,10 @@ export function initScene(mountEl, options = {}) {
       it.chest = placedChest; placedChests.push(placedChest);
       if (opts && opts.chest) placedChest.restore(opts.chest);
     }
+    if (solid && solid.collider) { // v1.92: テントの物理コライダー(断面五角形の角柱。屋根の傾斜に丸太が載る/滑り落ちる)
+      it.colliderId = 'placed-' + it.id;
+      physics.addStaticCollider({ id: it.colliderId, kind: 'prism', x, z, y: mesh.position.y, halfWidth: 1.1 * 1.5, wallH: 1.35 * 1.5 * 0.34, apexH: 1.35 * 1.5, halfLength: 2.3 * 1.5 / 2, yaw: mesh.rotation.y });
+    }
     if (solid) {
       it.pressId = pressField.add(x, z, solid.press);                 // 下の草がペシャンコになる
       it.obstacle = { x, z, radius: solid.footprint * 0.9 };           // 歩いて通り抜けられない
@@ -3837,13 +3845,14 @@ export function initScene(mountEl, options = {}) {
     const tableUi = !!(solid && it.itemId === 'crafting_table' && options.onTableUi);
     const chestUi = !!(it.chest && options.onChestUi);
     const fireItem = !!it.fire; // v1.87/88: 焚き火は、タップで着火・消火、長押しで拾う
+    const tentItem = it.itemId === 'tent'; // v1.92: テントは、長押しで、たたんで拾う(タップでは、何も起きない)
     it.iid = interaction.register({
       kind: 'placed',
       getPosition: () => ({ x: it.x, y: it.mesh.position.y + (it.itemId === 'star_torch' ? 0.6 : solid ? solid.lookY : 0.2), z: it.z }), // v1.74: 松明は背が高いので、少し上を狙える
       radius: solid ? solid.grab : 0.45,
-      canInteract: () => ((tableUi || chestUi || fireItem) ? true : inventory.canAdd(it.itemId, 1)),
-      onInteract: () => { if (tableUi) options.onTableUi(); else if (chestUi) { uiChest = it.chest; options.onChestUi(); } else if (fireItem) useFire(it); else pickUp(); },
-      ...((tableUi || chestUi || fireItem) ? { onHold: pickUp, holdSec: 0.6 } : {}),
+      canInteract: () => ((tableUi || chestUi || fireItem || tentItem) ? true : inventory.canAdd(it.itemId, 1)),
+      onInteract: () => { if (tableUi) options.onTableUi(); else if (chestUi) { uiChest = it.chest; options.onChestUi(); } else if (fireItem) useFire(it); else if (!tentItem) pickUp(); },
+      ...((tableUi || chestUi || fireItem || tentItem) ? { onHold: pickUp, holdSec: 0.6 } : {}),
     });
     placedItems.push(it);
     if (!opts.silent) { const s = sfx(); if (s) s.itemPlace(itemId, sfxRelative(x, terrainHeightAt(x, z) + 0.1, z)); }
@@ -3852,6 +3861,7 @@ export function initScene(mountEl, options = {}) {
   function removePlacedItem(it) {
     const i = placedItems.indexOf(it); if (i >= 0) placedItems.splice(i, 1);
     interaction.unregister(it.iid); scene.remove(it.mesh);
+    if (it.colliderId) physics.removeStaticCollider(it.colliderId); // v1.92
     if (it.fire) { const k3 = placedFires.indexOf(it.fire); if (k3 >= 0) placedFires.splice(k3, 1); } // v1.87
     if (it.chest) { const k2 = placedChests.indexOf(it.chest); if (k2 >= 0) placedChests.splice(k2, 1); it.chest.dispose(); } // v1.83
     if (it.pressId) pressField.release(it.pressId, clock.elapsedTime); // v1.81: 拾うと、草は10秒かけて立ち上がる
@@ -3873,11 +3883,16 @@ export function initScene(mountEl, options = {}) {
     return null;
   }
   /** aim=true(右クリック)なら、狙った地面に置く(マイクラのように)。狙えなければ、足元の前に置く。 */
-  function placeHeldItem(aim = false) {
-    if (emoteBrain.isBusy() || emoteState.wheelOpen) return null; // v1.73
+  /** v1.91: いま手に持っている物を、置けるか(スマホの「置く」ボタンを出すかどうか)。 */
+  function canPlaceHeld() {
+    if (mode !== 'walk' || emoteBrain.isBusy() || emoteState.wheelOpen) return false;
     const id = inventory.getSelected();
     const def = id && getItemDef(id);
-    if (!def || (def.category === 'placeable' && !SOLID_PLACED[id]) || !buildHeldItem(id)) return null;
+    return !!(def && !(def.category === 'placeable' && !SOLID_PLACED[id]) && buildHeldItem(id));
+  }
+  function placeHeldItem(aim = false) {
+    if (!canPlaceHeld()) return null; // v1.73/v1.91
+    const id = inventory.getSelected();
     const yaw = playerSnowman.group.rotation.y;
     const target = aim ? aimGroundPoint() : null;
     const px = target ? target.x : playerSnowman.group.position.x + Math.sin(yaw) * 1.1;
@@ -4003,6 +4018,33 @@ export function initScene(mountEl, options = {}) {
       },
     });
   }
+
+  // --- v1.92: 地形に落ちている「たたんだテント」。キャンプの跡地(最初のひらけた場所)に1つ。長押しで拾う。拾ったら、ゆるやかな所に置ける。 ---
+  const tentBundle = { x: campX + 1.7, z: campZ - 1.1, yaw: 0.55, taken: false, mesh: createTentBundleMesh(), iid: null };
+  tentBundle.mesh.rotation.y = tentBundle.yaw;
+  scene.add(tentBundle.mesh);
+  function placeTentBundle(snowDepth) { // 雪が積もっても、雪面の上に乗っている
+    tentBundle.mesh.position.set(tentBundle.x, terrainHeightAt(tentBundle.x, tentBundle.z) + Math.max(0, snowDepth - 0.05), tentBundle.z);
+  }
+  placeTentBundle(0);
+  function takeTentBundle() {
+    if (tentBundle.taken) return false;
+    tentBundle.taken = true; scene.remove(tentBundle.mesh); interaction.unregister(tentBundle.iid);
+    return true;
+  }
+  tentBundle.iid = interaction.register({
+    kind: 'tentBundle',
+    getPosition: () => ({ x: tentBundle.x, y: tentBundle.mesh.position.y + TENT_BUNDLE.radius, z: tentBundle.z }),
+    radius: 0.9,
+    canInteract: () => !tentBundle.taken,
+    onHold: () => {
+      if (tentBundle.taken) return;
+      if (!inventory.canAdd('tent', 1)) { showPlaceNotice(tr('notice.bagFull')); return; }
+      const s = sfx(); if (s) s.itemPickup('tent', sfxRelative(tentBundle.x, tentBundle.mesh.position.y + 0.2, tentBundle.z));
+      takeTentBundle(); inventory.add('tent', 1);
+      debugLog.log('tent.collected', {});
+    },
+  });
 
   interaction.register({
     kind: 'star',
@@ -4667,6 +4709,7 @@ export function initScene(mountEl, options = {}) {
       placed: placedItems.slice(0, 400).map((it) => ({ id: it.itemId, x: r3(it.x), z: r3(it.z), yaw: r3(it.mesh.rotation.y), ...(it.chest ? { chest: it.chest.storage.serialize() } : {}), ...(it.fire && it.fire.isLit() ? { lit: true } : {}) })),
       logs: logs.slice(0, 300),
       shards: shardSystem.serialize(), // v1.69: 星のかけら・月のかけらを貼った倒木と、接着した塊(倒木の番号で)
+      tentBundleTaken: tentBundle.taken, // v1.92: 落ちているテントを拾ったか
       rockTaken: rockClusters.map((r, i) => (r.taken ? i : -1)).filter((i) => i >= 0), // v1.86: 回収した岩
       coalTaken: coalField.pieces.filter((q) => q.taken).map((q) => q.index), // v1.85: 回収した木炭
       moonTaken: moonBuried.map((m, i) => (moonStones.getLanded().some((s) => s.id === m.id) ? -1 : i)).filter((i) => i >= 0), // v1.69: 拾われた、埋まっていた月の石
@@ -4704,6 +4747,7 @@ export function initScene(mountEl, options = {}) {
       syncLogObstacles();
     });
     guard(() => { if (st.shards) shardSystem.restore(st.shards); }); // v1.69: 倒木の位置を戻したあとに、かけらと接着を戻す
+    guard(() => { if (st.tentBundleTaken) takeTentBundle(); }); // v1.92
     guard(() => { for (const i of Array.isArray(st.rockTaken) ? st.rockTaken : []) removeRock(i); }); // v1.86
     guard(() => { for (const i of Array.isArray(st.coalTaken) ? st.coalTaken : []) { if (coalField.take(i)) interaction.unregister(coalField.pieces[i].iid); } }); // v1.85
     guard(() => { for (const i of Array.isArray(st.moonTaken) ? st.moonTaken : []) { const m = moonBuried[i]; if (m) moonStones.take(m.id); } }); // v1.69
@@ -4859,7 +4903,9 @@ export function initScene(mountEl, options = {}) {
       collect: {
         plantStar: (x, z) => fallingStars.debugPlant(x, z),
         setCapacity: (n) => pouch.setCapacity(n),
+        tentBundle: () => ({ x: +tentBundle.x.toFixed(2), z: +tentBundle.z.toFixed(2), taken: tentBundle.taken }),
         rocks: () => rockClusters.map((r, i) => ({ i, x: +r.x.toFixed(2), z: +r.z.toFixed(2), scale: +r.scale.toFixed(2), taken: !!r.taken })),
+        clearings: () => clearings.map((c) => ({ x: +c.x.toFixed(1), z: +c.z.toFixed(1), rise: +c.rise.toFixed(2) })),
         coalPieces: () => coalField.pieces.map((q) => ({ i: q.index, x: +q.x.toFixed(2), z: +q.z.toFixed(2), taken: q.taken })),
         chestPos: () => { const it = placedItems.find((q) => q.chest); if (!it) return null; const st = chestStandOf(it); return { x: it.x, z: it.z, standX: st.x, standZ: st.z }; },
         info: () => ({
@@ -4921,6 +4967,7 @@ export function initScene(mountEl, options = {}) {
       return interaction.press();
     },
     interactRelease: () => interaction.release(),
+    canPlaceHeld, // v1.91
     getFocusedKind: () => interaction.getFocusedKind(),
     /** 開発用(コンソールから): 今すぐ星を落とす。通常のUIには出さない。 */
     /**

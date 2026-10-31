@@ -34,6 +34,7 @@ export const ITEM_DEFS = {
   diamond: { id: 'diamond', icon: '💎', maxStack: 64, category: 'resource',    hand: 'right' },
   // 置いて使う道具(まだ置く機能は無い。アイテムとしてだけ先に定義する)
   crafting_table: { id: 'crafting_table', icon: '🛠️', maxStack: 16, category: 'placeable', hand: 'right' },
+  tent: { id: 'tent', icon: '⛺', maxStack: 4, category: 'placeable', hand: 'right' }, // v1.92: たたんだテント。地形に落ちている
   campfire: { id: 'campfire', icon: '🔥', maxStack: 8, category: 'placeable', hand: 'right' }, // v1.87: 作業台で、丸太・小石・木炭から作る
   // v1.56: ハロウィンのジャック・オー・ランタン。手に持てて、置くと光り、頭の装備スロットに入れると雪だるまの頭になる。
   jack_o_lantern:  { id: 'jack_o_lantern',  icon: '🎃', maxStack: 16, category: 'wearable', equip: 'head', hand: 'right' },

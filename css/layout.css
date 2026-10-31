@@ -948,6 +948,7 @@ html.i18n-pending #titleScreen, html.i18n-pending #settingsPanel { visibility: h
 #emoteWheel .emote-lbl { font-size: 14px; font-weight: bold; }
 /* スマホ: エモートのボタンは、👝の上(2段目) */
 #touchBtnEmote { right: 40px; top: -154px; font-size: 24px; display: none; }
+#touchBtnPlace { right: 118px; top: -154px; font-size: 24px; display: none; } /* v1.91: 置く(スマホ) */
 @media (max-height: 420px) {
   #emoteWheel .emote-ring { transform: scale(0.72); }
 }

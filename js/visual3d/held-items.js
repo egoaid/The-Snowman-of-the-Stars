@@ -12,6 +12,7 @@ import { getItemDef } from '../items.js';
 import { REMNANT_BUILDERS } from './remnants-visual.js';
 import { createJackOLanternMesh } from './lantern.js';
 import { createHeldStarTorch } from './star-torch.js'; // v1.74
+import { createTentBundleMesh } from './tent-bundle.js'; // v1.92
 
 const toon = (color, extra = {}) => new THREE.MeshStandardMaterial({ color, roughness: 0.85, metalness: 0, ...extra });
 const STAR_HOLD_MATERIAL = new THREE.MeshBasicMaterial({ color: 0xffd700, fog: false });
@@ -64,6 +65,10 @@ const HELD_ITEM_BUILDERS = {
     const top = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.03, 0.18), MATERIALS.tableTop);
     top.position.y = 0.065;
     g.add(base, top); g.position.y = 0.08;
+    const holder = new THREE.Group(); holder.add(g); return holder;
+  },
+  tent: () => { // v1.92: 手に持つ、たたんだテント
+    const g = createTentBundleMesh(); g.scale.setScalar(0.2); g.rotation.y = Math.PI / 2; g.position.set(0, 0.0, 0.0);
     const holder = new THREE.Group(); holder.add(g); return holder;
   },
   campfire: () => { // 手に持つ焚き火: 組んだ薪の小さな束と、石が2つ

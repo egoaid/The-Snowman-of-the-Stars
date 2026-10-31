@@ -522,6 +522,7 @@
       <div id="touchBtnE" class="touch-btn" title="Inventory" data-i18n-title="touch.inventory">👝</div>
       <div id="touchBtnAction" class="touch-btn" title="Action" data-i18n-title="touch.action">✦</div>
       <div id="touchBtnView" class="touch-btn" title="Switch view (first / third person)" data-i18n-title="touch.view">📷</div>
+      <div id="touchBtnPlace" class="touch-btn" title="Place" data-i18n-title="touch.place">📍</div>
       <div id="touchBtnEmote" class="touch-btn" title="Emotes (sit / sleep)" data-i18n-title="touch.emote">🪑</div>
     </div>
   </div>
@@ -1679,6 +1680,15 @@
     }
     emoteWheel.addEventListener('click', (e) => { if (e.target === emoteWheel) closeEmoteWheel(); }); // ホイールの外を押したら閉じる
     touchBtnEmote.addEventListener('touchstart', (e) => { e.preventDefault(); toggleEmoteWheel(); }, { passive: false });
+    // v1.91: スマホの「置く」ボタン。手に持った物を、置く場所の枠(緑)のところに置く。置ける物を持っている時だけ出る。
+    const touchBtnPlace = document.getElementById('touchBtnPlace');
+    touchBtnPlace.addEventListener('touchstart', (e) => { e.preventDefault(); touchBtnPlace.classList.add('active'); if (sceneRefForTouch && sceneRefForTouch.placeHeldItem) sceneRefForTouch.placeHeldItem(true); }, { passive: false });
+    touchBtnPlace.addEventListener('touchend', () => touchBtnPlace.classList.remove('active'));
+    touchBtnPlace.addEventListener('touchcancel', () => touchBtnPlace.classList.remove('active'));
+    setInterval(() => {
+      const show = isTouchDevice && uiWalking && !isInventoryOpen() && !isEmoteWheelOpen() && !!(sceneRefForTouch && sceneRefForTouch.canPlaceHeld && sceneRefForTouch.canPlaceHeld());
+      touchBtnPlace.style.display = show ? 'flex' : 'none';
+    }, 250);
     document.addEventListener('keydown', (e) => {
       const tag = (document.activeElement && document.activeElement.tagName) || '';
       if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
