@@ -78,3 +78,28 @@ export function findFreePlacement(p) {
   }
   return null;
 }
+
+// ---- v1.90: 設置面の表示(置く前の枠)と、置けるかどうかの判定 ----
+
+/** 位置(x,z)・半径 r の円の中の、地面の高さの差(最大-最小)。中心・内側の輪・外周の輪を調べる。 */
+export function footprintRise(heightAt, x, z, r) {
+  let lo = Infinity, hi = -Infinity;
+  const take = (px, pz) => { const h = heightAt(px, pz); if (h < lo) lo = h; if (h > hi) hi = h; };
+  take(x, z);
+  for (const k of [0.5, 1]) for (let i = 0; i < 8; i++) { const a = (i / 8) * Math.PI * 2; take(x + Math.cos(a) * r * k, z + Math.sin(a) * r * k); }
+  return hi - lo;
+}
+
+/**
+ * 「ここに置けるか」。置く場所を勝手にずらさず、狙った位置そのものが置けるかを返す(画面の枠の色と、置く操作の両方で使う)。
+ * @returns {{ok:boolean, reason:null|'blocked'|'obstacle'|'item'|'flowers'|'steep', rise:number}}
+ *   reason: blocked=水の中・世界の外 / obstacle=木・岩などと重なる / item=置いた物と重なる / flowers=お花畑の上 / steep=傾きが急すぎる
+ */
+export function evaluatePlacement({ x, z, radius, obstacles = [], placed = [], isBlocked = null, onFlowers = null, heightAt = null, maxRise = Infinity }) {
+  const ov = overlapAt(x, z, radius, { obstacles, placed, isBlocked });
+  const rise = heightAt ? footprintRise(heightAt, x, z, radius) : 0;
+  if (ov) return { ok: false, reason: ov, rise };
+  if (onFlowers && onFlowers(x, z, radius)) return { ok: false, reason: 'flowers', rise };
+  if (rise > maxRise) return { ok: false, reason: 'steep', rise };
+  return { ok: true, reason: null, rise };
+}

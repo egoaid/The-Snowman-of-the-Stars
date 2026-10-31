@@ -1701,7 +1701,7 @@
       if (e.code === 'KeyQ') { // v1.56: 手に持っている物を1個、前に置く
         if (e.repeat) return;
         if (!sceneRefForTouch || sceneRefForTouch.getMode() !== 'walk' || isInventoryOpen() || isEmoteWheelOpen()) return;
-        sceneRefForTouch.placeHeldItem();
+        sceneRefForTouch.placeHeldItem(true); // v1.90: Qも、右クリックと同じ場所(枠が出ている所)に置く
         return;
       }
       if (e.code === 'KeyE') {

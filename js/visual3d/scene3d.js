@@ -63,7 +63,8 @@ import { createFallenLogSystem, levelQuaternion, logBuryHeight, logMinClearance 
 import { createCollectibleRegistry, COLLECTIBLE_KINDS } from '../collectibles.js';
 import { createPouch } from '../pouch.js';
 import { createBaseChest } from './chest.js'; // 置いたチェストの見た目と中身(v1.84: 世界に最初からあるチェストは廃止)
-import { findFreePlacement } from '../placement.js';
+import { findFreePlacement, evaluatePlacement } from '../placement.js';
+import { createPlacementGuide } from './placement-guide.js';
 import { t as tr } from '../i18n.js';
 import { createPressField } from './press-field.js';
 import { createCoalField } from './coal-field.js';
@@ -3729,11 +3730,11 @@ export function initScene(mountEl, options = {}) {
   const LANTERN_SNOW_SINK = LANTERN_REST_LIFT - 0.09;        // 雪面に置いた時は、中心が雪面の+0.09m(底の約7割が雪に埋まる)
   // v1.81: 置くと草を潰し、歩いて通り抜けられない大きな物(作業台。チェストは次の段階で足す)
   const SOLID_PLACED = {
-    crafting_table: { footprint: CRAFTING_TABLE.footprint, press: CRAFTING_TABLE.pressRadius, build: createCraftingTableMesh, width: CRAFTING_TABLE.width, depth: CRAFTING_TABLE.depth, slope: 'max', lookY: 0.5, grab: 0.7 },
+    crafting_table: { footprint: CRAFTING_TABLE.footprint, press: CRAFTING_TABLE.pressRadius, build: createCraftingTableMesh, width: CRAFTING_TABLE.width, depth: CRAFTING_TABLE.depth, slope: 'max', maxRise: 0.6, lookY: 0.5, grab: 0.7 },
     // v1.83: 置けるチェスト(基地のチェストと同じ見た目・27スロット)。斜面では、いちばん低い角に合わせて、高い側は地面に少し埋める。
     // v1.87: 置ける焚き火(組んだ薪と石の輪。火は、まだ消えている)。石の輪は、斜面で高い側を地面に埋める。
-    campfire: { footprint: 0.7, press: 0.78, isFire: true, width: 1.0, depth: 1.0, slope: 'min', lookY: 0.25, grab: 0.8 },
-    chest: { footprint: 0.58, press: 0.68, isChest: true, width: 0.95, depth: 0.6, slope: 'min', lookY: 0.3, grab: 0.75 },
+    campfire: { footprint: 0.7, press: 0.78, isFire: true, width: 1.0, depth: 1.0, slope: 'min', maxRise: 0.6, lookY: 0.25, grab: 0.8 },
+    chest: { footprint: 0.58, press: 0.68, isChest: true, width: 0.95, depth: 0.6, slope: 'min', maxRise: 0.6, lookY: 0.3, grab: 0.75 },
   };
   // v1.81: 長押しの進みを、画面の中心に小さな輪で見せる(拾うまでの約0.6秒)
   let holdRingEl = null;
@@ -3883,12 +3884,42 @@ export function initScene(mountEl, options = {}) {
     const pz = target ? target.z : playerSnowman.group.position.z + Math.cos(yaw) * 1.1;
     const solidDef = SOLID_PLACED[id];
     const yawPlace = solidDef ? yaw + Math.PI : yaw; // 作業台の正面は、置いた人のほうを向く
-    const spot = resolvePlacement(px, pz, placeRadiusOf(id)); // 水の中・遊べる範囲の外には置かない。重なるなら、いちばん近い空き位置へずらす
-    if (!spot) return null;
-    // v1.81: お花畑の上には置けない(草・枯れ葉の上は置ける)。雪で花が埋まっている間は、花が見えないので置ける
-    if (solidDef && poppyField && poppyField.group.visible && poppyField.isOnFlowers(spot.x, spot.z, solidDef.footprint)) { showPlaceNotice(tr('notice.noPlaceFlowers')); return null; }
+    // v1.90: 枠(設置面の表示)と同じ判定。置く場所を勝手にずらさず、枠が緑の所にだけ置く(赤い所では置けない)
+    const ev = evaluateHeld(id, px, pz);
+    if (!ev.ok) { showPlaceNotice(tr('notice.place.' + ev.reason)); return null; }
     if (!inventory.remove(id, 1)) return null;
-    return addPlacedItem(id, spot.x, spot.z, yawPlace, { exact: true });
+    return addPlacedItem(id, px, pz, yawPlace, { exact: true });
+  }
+  /** v1.90: 手に持った物を、(x,z)に置けるか(水・世界の外・重なり・お花畑・傾き)。枠の色と、置く操作の、両方で使う。 */
+  function evaluateHeld(id, x, z) {
+    const solid = SOLID_PLACED[id];
+    return evaluatePlacement({
+      x, z, radius: placeRadiusOf(id),
+      obstacles: placementObstacles(), placed: placedFootprints(),
+      isBlocked: (px, pz) => Number.isFinite(dryWaterSurfaceAt(px, pz)) || Math.hypot(px, pz) > PLAYABLE_RADIUS, // 雪が川を覆っていれば、その上にも置ける
+      onFlowers: solid && poppyField && poppyField.group.visible ? (px, pz, r) => poppyField.isOnFlowers(px, pz, r) : null, // 雪で花が埋まっている間は、置ける
+      heightAt: terrainHeightAt, maxRise: solid && solid.maxRise ? solid.maxRise : Infinity,
+    });
+  }
+  // --- v1.90: 設置面の表示。置ける物を持っている間、置く場所に「必要な範囲」の枠を出す(緑=置ける / 赤=置けない) ---
+  const placementGuide = createPlacementGuide(scene);
+  function guideItemId() {
+    const id = inventory.getSelected();
+    const def = id && getItemDef(id);
+    if (!def) return null;
+    if (!(SOLID_PLACED[id] || id === 'star_torch' || id === 'jack_o_lantern' || def.category === 'placeable')) return null; // 小さな素材には出さない
+    return buildHeldItem(id) ? id : null;
+  }
+  function updatePlacementGuide() {
+    const id = (mode === 'walk' && !inventoryOpen && !emoteState.wheelOpen && !emoteBrain.isBusy()) ? guideItemId() : null;
+    if (!id) { placementGuide.hide(); return; }
+    const yaw = playerSnowman.group.rotation.y;
+    const target = aimGroundPoint();
+    const px = target ? target.x : playerSnowman.group.position.x + Math.sin(yaw) * 1.1;
+    const pz = target ? target.z : playerSnowman.group.position.z + Math.cos(yaw) * 1.1;
+    const ev = evaluateHeld(id, px, pz);
+    const snow = weather.getSnowDepth();
+    placementGuide.show(px, pz, placeRadiusOf(id), ev.ok, (x, z) => terrainHeightAt(x, z) + snow);
   }
   // --- v1.88: 置いた焚き火の着火・消火 ---
   //   着火: 星の松明を持って、消えている焚き火をクリック(松明は減らない)。雨の中では、つかない。
@@ -4359,6 +4390,7 @@ export function initScene(mountEl, options = {}) {
     for (const pf of placedFires) pf.update(clock.elapsedTime); // v1.87
     for (const pc of placedChests) pc.update(delta, { night: getTimeOfDay(gameHour) === 'night', t: clock.elapsedTime }); // v1.83
     updatePlacedFires(delta); // v1.88
+    updatePlacementGuide();   // v1.90
     updateLanterns(delta);
     updateButterfly(delta, t); // v1.78: 鼻にとまる蝶
     updateSnowmanStarReaction(delta);
