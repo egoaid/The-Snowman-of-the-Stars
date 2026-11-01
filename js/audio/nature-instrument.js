@@ -20,7 +20,9 @@
   const SUSTAINED = { flower: true, insect: true }; // 押している間、鳴り続ける
   const midiToFreq = (m) => 440 * Math.pow(2, (m - 69) / 12);
 
-  let ctx = null, bus = null, noiseBuf = null, reverbIn = null;
+  let ctx = null, bus = null, noiseBuf = null, reverbIn = null, shaper = null, gate = null, stutterTimer = null;
+  let condDirty = false; // 音声の準備ができる前に決まった条件を、準備ができたあとで反映する
+  const cond = { gain: 1, drive: 0, dropout: 0 }; // 電池の状態による劣化(music/battery.js の degradation)。gain 0 = 電池切れで、鳴らない
   const active = []; // { midi, source, endAt, release }
 
   function ensure() {
@@ -30,7 +32,8 @@
     bus = ctx.createGain(); bus.gain.value = 0.9;
     const comp = ctx.createDynamicsCompressor(); // 和音を弾いても割れないように
     comp.threshold.value = -14; comp.ratio.value = 4; comp.attack.value = 0.004; comp.release.value = 0.2;
-    bus.connect(comp); comp.connect(SoundEngine.getSfxBus());
+    shaper = ctx.createWaveShaper(); gate = ctx.createGain(); // 電池が少ない時: 歪み(shaper)と、音の途切れ(gate)
+    bus.connect(shaper); shaper.connect(gate); gate.connect(comp); comp.connect(SoundEngine.getSfxBus());
     // 残響: 約2.4秒で消える、少し暗い響き(石の洞窟や、水辺の空間のような)。ノイズが指数的に減衰する波形を、その場で作る。
     const len = Math.floor(ctx.sampleRate * 2.6), ir = ctx.createBuffer(2, len, ctx.sampleRate);
     for (let ch = 0; ch < 2; ch++) {
@@ -153,10 +156,35 @@
   const NatureInstrument = {
     SOURCES: Object.keys(VOICES),
     volume: 0.9,
-    setVolume(v) { this.volume = Math.max(0, Math.min(1.5, +v || 0)); if (bus) bus.gain.setTargetAtTime(this.volume, ctx.currentTime, 0.03); },
+    /**
+     * v1.99: 電池の状態による劣化。gain=音量の倍率(0なら鳴らない) / drive=歪み(0〜1) / dropout=音が途切れる確率(0〜1)。
+     * 電池が少ない時は、小さく・歪んで・ぷつぷつ途切れる。なくなったら、鳴らない。
+     */
+    setCondition(c) {
+      cond.gain = Math.max(0, +c.gain || 0); cond.drive = Math.max(0, Math.min(1, +c.drive || 0)); cond.dropout = Math.max(0, Math.min(1, +c.dropout || 0));
+      if (!ensure()) { condDirty = true; return; }
+      condDirty = false;
+      bus.gain.setTargetAtTime(this.volume * cond.gain, ctx.currentTime, 0.03);
+      if (cond.drive < 0.02) shaper.curve = null; else { // 歪みの量が変わったら、カーブを作り直す(ソフトクリップ)
+        const k = 4 + cond.drive * 60, n = 512, curve = new Float32Array(n);
+        for (let i = 0; i < n; i++) { const x = (i / (n - 1)) * 2 - 1; curve[i] = ((1 + k) * x) / (1 + k * Math.abs(x)); }
+        shaper.curve = curve;
+      }
+      if (cond.dropout > 0 && cond.gain > 0 && !stutterTimer && typeof setInterval === 'function') { // ときどき、一瞬、音が切れる
+        stutterTimer = setInterval(() => {
+          if (!(cond.dropout > 0 && cond.gain > 0)) { clearInterval(stutterTimer); stutterTimer = null; gate.gain.setValueAtTime(1, ctx.currentTime); return; }
+          if (Math.random() < cond.dropout * 0.6) { const t = ctx.currentTime; gate.gain.setValueAtTime(0.0, t); gate.gain.setValueAtTime(1, t + 0.035 + Math.random() * 0.1); }
+        }, 110);
+      } else if (!(cond.dropout > 0) && stutterTimer) { clearInterval(stutterTimer); stutterTimer = null; gate.gain.setValueAtTime(1, ctx.currentTime); }
+    },
+    getCondition: () => ({ ...cond }),
+    setVolume(v) { this.volume = Math.max(0, Math.min(1.5, +v || 0)); if (bus) bus.gain.setTargetAtTime(this.volume * cond.gain, ctx.currentTime, 0.03); },
     /** 鍵盤を押した。source は 'tree' 'river' 'flower' 'insect' 'snow' 'star' 'stone'。 */
     noteOn(source, midi, velocity = 0.8) {
       if (!VOICES[source] || !ensure()) return false;
+      if (condDirty) this.setCondition({ ...cond });
+      if (cond.gain <= 0) return false; // 電池がない・なくなった: 鳴らない
+      if (cond.dropout > 0 && Math.random() < cond.dropout * 0.35) return false; // 電池が少ない: ときどき、鍵盤を押しても鳴らない
       if (ctx.state === 'suspended' && ctx.resume) ctx.resume();
       const now = ctx.currentTime + 0.004;
       this.noteOff(midi, true); // 同じ鍵盤の押し直し: 前の音は、ふわっと止める

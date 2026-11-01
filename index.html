@@ -486,9 +486,20 @@
     <div class="music-tools">
       <button id="musicMidiBtn" type="button" data-i18n="music.midiConnect">Connect a MIDI keyboard</button>
       <span id="musicMidiStatus" class="music-midi-status"></span>
+      <span id="musicBattery" class="music-battery"></span>
       <span class="music-oct"><button id="musicOctDown" type="button" aria-label="Octave down" data-i18n-aria-label="music.octDown">◀</button><span id="musicOctave"></span><button id="musicOctUp" type="button" aria-label="Octave up" data-i18n-aria-label="music.octUp">▶</button></span>
     </div>
-    <div id="musicKeys" class="music-keys"></div>
+    <div id="musicKb" class="music-kb dead">
+      <div class="kb-left">
+        <div class="kb-wheels"><i class="kb-wheel"></i><i class="kb-wheel"></i></div>
+        <div class="kb-shift"></div>
+        <div class="kb-oct"><span class="kb-led"></span><span class="kb-led"></span></div>
+      </div>
+      <div class="kb-main">
+        <div class="kb-legend"></div>
+        <div id="musicKeys" class="music-keys"></div>
+      </div>
+    </div>
     <div class="music-hint" data-i18n="music.hint">Keys: Z S X D C V G B H N J M / Q 2 W 3 E R 5 T 6 Y 7 U I · ← → octave · P / Esc: close</div>
   </div>
   <div id="inventoryPanel" role="dialog" aria-label="Inventory" data-i18n-aria-label="inv.aria">
@@ -1704,7 +1715,12 @@ import { createMusicPanel } from './js/music/piano-panel.js'; // v1.97: 演奏�
       root: document.getElementById('musicPanel'),
       instrument: window.SoundEngine.NatureInstrument,
       getAutoSource: () => (sceneRefForTouch && sceneRefForTouch.getMusicSource ? sceneRefForTouch.getMusicSource() : 'insect'),
-      canOpen: () => !!sceneRefForTouch && sceneRefForTouch.getMode() === 'walk' && !isInventoryOpen() && !isEmoteWheelOpen(),
+      getPower: () => (sceneRefForTouch && sceneRefForTouch.getMusicPower ? sceneRefForTouch.getMusicPower() : { state: 'none', fraction: 0 }),
+      canOpen: () => !!sceneRefForTouch && sceneRefForTouch.getMode() === 'walk' && !isInventoryOpen() && !isEmoteWheelOpen() && sceneRefForTouch.prepareMusicOpen(), // v1.99: キーボードと電池が必要
+      onPress: (m) => { if (sceneRefForTouch && sceneRefForTouch.musicNotePress) sceneRefForTouch.musicNotePress(m); },
+      onRelease: (m) => { if (sceneRefForTouch && sceneRefForTouch.musicNoteRelease) sceneRefForTouch.musicNoteRelease(m); },
+      onBaseChange: (b) => { if (sceneRefForTouch && sceneRefForTouch.setMusicBase) sceneRefForTouch.setMusicBase(b); },
+      onSource: (src) => { if (sceneRefForTouch && sceneRefForTouch.setMusicSource) sceneRefForTouch.setMusicSource(src); },
       onOpenChange: (o) => { if (sceneRefForTouch && sceneRefForTouch.setMusicPanelOpen) sceneRefForTouch.setMusicPanelOpen(o); },
     });
     window.__musicPanel = musicPanel;

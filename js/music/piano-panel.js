@@ -6,18 +6,18 @@ import { SOURCES, SOURCE_ICON, keyToMidi, isNoteKey, isBlackKey, noteName, OCTAV
 import { createMidiInput } from './midi-input.js';
 import { t } from '../i18n.js';
 
-export function createMusicPanel({ root, instrument, getAutoSource = () => 'insect', onOpenChange = () => {}, canOpen = () => true }) {
+export function createMusicPanel({ root, instrument, getAutoSource = () => 'insect', getPower = () => ({ state: 'ok', fraction: 1 }), onOpenChange = () => {}, canOpen = () => true, onPress = () => {}, onRelease = () => {}, onBaseChange = () => {}, onSource = () => {} }) {
   const $ = (sel) => root.querySelector(sel);
   const keysEl = $('#musicKeys'), srcEl = $('#musicSources'), statusEl = $('#musicStatus'), midiBtn = $('#musicMidiBtn'), midiStatus = $('#musicMidiStatus');
-  const octLabel = $('#musicOctave');
-  let open = false, selected = 'auto', octave = 0, timer = null;
+  const octLabel = $('#musicOctave'), kbEl = $('#musicKb'), batEl = $('#musicBattery');
+  let open = false, selected = 'auto', octave = 0, timer = null, lastSource = null;
   const down = new Map(); // 押している鍵盤: 入力元(key:コード / ptr:id / midi)→ノート
 
   const currentSource = () => (selected === 'auto' ? getAutoSource() : selected);
 
   // ---- 音を鳴らす/止める(どの入力からでも、ここを通る) ----
-  function press(midi, vel = 0.8) { instrument.noteOn(currentSource(), midi, vel); const el = keysEl.querySelector(`[data-midi="${midi}"]`); if (el) el.classList.add('down'); }
-  function release(midi) { instrument.noteOff(midi); const el = keysEl.querySelector(`[data-midi="${midi}"]`); if (el && ![...down.values()].includes(midi)) el.classList.remove('down'); }
+  function press(midi, vel = 0.8) { instrument.noteOn(currentSource(), midi, vel); onPress(midi); const el = keysEl.querySelector(`[data-midi="${midi}"]`); if (el) el.classList.add('down'); }
+  function release(midi) { instrument.noteOff(midi); onRelease(midi); const el = keysEl.querySelector(`[data-midi="${midi}"]`); if (el && ![...down.values()].includes(midi)) el.classList.remove('down'); }
 
   // ---- 鍵盤(画面): C〜C の2オクターブ+1音。PCキーの文字を鍵盤に表示する ----
   function buildKeys() {
@@ -28,9 +28,9 @@ export function createMusicPanel({ root, instrument, getAutoSource = () => 'inse
     }
     let whiteIndex = 0;
     const whites = [];
-    for (let m = base; m <= base + 24; m++) if (!isBlackKey(m)) whites.push(m);
+    for (let m = base; m <= base + 36; m++) if (!isBlackKey(m)) whites.push(m); // 37鍵(C〜C 3オクターブ)。世界に置かれているキーボードと同じ
     const W = 100 / whites.length;
-    for (let m = base; m <= base + 24; m++) {
+    for (let m = base; m <= base + 36; m++) {
       const el = document.createElement('div');
       el.className = 'mkey ' + (isBlackKey(m) ? 'black' : 'white'); el.dataset.midi = m; el.title = noteName(m);
       if (isBlackKey(m)) el.style.left = `${(whiteIndex - 0.3) * W}%`; else { el.style.left = `${whiteIndex * W}%`; el.style.width = `${W}%`; whiteIndex++; }
@@ -38,7 +38,8 @@ export function createMusicPanel({ root, instrument, getAutoSource = () => 'inse
       if (labels[m]) { const s = document.createElement('span'); s.className = 'mlbl'; s.textContent = labels[m]; el.appendChild(s); }
       keysEl.appendChild(el);
     }
-    octLabel.textContent = `${noteName(base)}–${noteName(base + 24)}`;
+    octLabel.textContent = `${noteName(base)}–${noteName(base + 36)}`;
+    onBaseChange(base);
   }
   // 画面の鍵盤を、指・マウスで弾く(複数の指でも弾ける)
   keysEl.addEventListener('pointerdown', (e) => {
@@ -64,6 +65,11 @@ export function createMusicPanel({ root, instrument, getAutoSource = () => 'inse
   function syncStatus() {
     for (const b of srcEl.querySelectorAll('.msrc')) b.classList.toggle('on', b.dataset.src === selected);
     const cur = currentSource();
+    if (cur !== lastSource) { lastSource = cur; onSource(cur); } // いま演奏している自然物(MIDIケーブルのつなぎ先)
+    const pw = getPower(); // 電池: 本体が光る(ok) / 点滅(low) / 光らない(dead・none)。CSS が見た目を決める
+    kbEl.classList.toggle('on', pw.state === 'ok'); kbEl.classList.toggle('low', pw.state === 'low'); kbEl.classList.toggle('dead', pw.state === 'dead' || pw.state === 'none');
+    const pct = Math.round(pw.fraction * 100);
+    batEl.textContent = `🔋 ${t(`music.batteryState.${pw.state === 'none' ? 'dead' : pw.state}`, { pct })}`; batEl.className = 'music-battery ' + (pw.state === 'low' ? 'low' : pw.state === 'dead' || pw.state === 'none' ? 'dead' : '');
     statusEl.textContent = selected === 'auto' ? t('music.nowAuto', { src: t(`music.src.${cur}`) }) : t('music.now', { src: t(`music.src.${cur}`) });
   }
 
@@ -112,7 +118,7 @@ export function createMusicPanel({ root, instrument, getAutoSource = () => 'inse
     if (open || !canOpen()) return false;
     open = true; root.classList.add('open'); root.setAttribute('aria-hidden', 'false');
     buildSources(); buildKeys(); syncStatus();
-    timer = setInterval(syncStatus, 400); // 歩き回って、近くの自然物が変わった時の表示
+    timer = setInterval(syncStatus, 300); // 歩き回って、近くの自然物が変わった時・電池の残りの表示
     onOpenChange(true); return true;
   }
   function close() {

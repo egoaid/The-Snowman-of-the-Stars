@@ -982,9 +982,9 @@ html.i18n-pending #titleScreen, html.i18n-pending #settingsPanel { visibility: h
 #musicPanel .music-tools button { padding: 4px 9px; color: #fff; background: rgba(255, 255, 255, 0.12); border: 1px solid rgba(255, 255, 255, 0.28); border-radius: 6px; font: 12px system-ui, sans-serif; cursor: pointer; }
 #musicPanel .music-midi-status { font-size: 11px; opacity: 0.85; flex: 1; min-width: 80px; }
 #musicPanel .music-oct { display: flex; align-items: center; gap: 6px; font-size: 12px; margin-left: auto; }
-#musicPanel .music-keys { position: relative; height: 128px; background: #0d111b; border-radius: 6px; overflow: hidden; touch-action: none; }
+#musicPanel .music-keys { position: relative; height: 118px; touch-action: none; }
 #musicPanel .mkey { position: absolute; top: 0; box-sizing: border-box; display: flex; align-items: flex-end; justify-content: center; }
-#musicPanel .mkey.white { height: 100%; background: #f5f3ec; border: 1px solid #8a8a86; border-radius: 0 0 4px 4px; color: #55524a; }
+#musicPanel .mkey.white { height: 100%; background: #f4f1e8; border: 1px solid #7f8a8c; border-radius: 0 0 4px 4px; color: #55524a; }
 #musicPanel .mkey.black { height: 62%; background: #1d1f26; border: 1px solid #000; border-radius: 0 0 3px 3px; color: #b8b6ae; z-index: 2; }
 #musicPanel .mkey.white.down { background: #ffe9a8; }
 #musicPanel .mkey.black.down { background: #6a5a2a; }
@@ -992,4 +992,39 @@ html.i18n-pending #titleScreen, html.i18n-pending #settingsPanel { visibility: h
 #musicPanel .music-hint { margin-top: 6px; font-size: 11px; opacity: 0.7; }
 #touchBtnMusic { right: 196px; top: -154px; font-size: 24px; display: none; }
 @media (max-height: 420px) { #musicPanel .music-keys { height: 84px; } #musicPanel .music-hint { display: none; } #musicPanel .music-sources { margin: 4px 0; } }
+
+/* ---- v1.99: 画面の鍵盤も、世界に置かれているキーボードと同じデザイン(スケルトンブルーの本体・ホイール・紫のボタン・光る本体) ---- */
+#musicPanel .music-kb {
+  --kb-glow: 0; position: relative; display: flex; gap: 6px; padding: 8px 10px 9px 8px; border-radius: 10px 10px 14px 14px; overflow: hidden;
+  background: linear-gradient(160deg, rgba(40, 168, 196, 0.82), rgba(18, 108, 140, 0.84));
+  border: 1px solid rgba(190, 245, 255, 0.55); box-shadow: inset 0 0 18px rgba(255, 255, 255, 0.12), 0 2px 10px rgba(0, 0, 0, 0.5);
+  transition: box-shadow 0.4s, filter 0.4s;
+}
+#musicPanel .music-kb::before { /* スケルトンの、うっすら透ける内部のライン */
+  content: ''; position: absolute; inset: 0; pointer-events: none; opacity: 0.18;
+  background: repeating-linear-gradient(115deg, transparent 0 28px, rgba(255, 255, 255, 0.5) 28px 29px), radial-gradient(circle at 18% 22%, rgba(255, 255, 255, 0.5) 0 2px, transparent 3px);
+}
+#musicPanel .music-kb.on { box-shadow: inset 0 0 26px rgba(120, 245, 255, 0.55), 0 0 22px 4px rgba(76, 236, 255, 0.55); filter: saturate(1.25) brightness(1.18); }
+#musicPanel .music-kb.low { animation: kbblink 0.7s steps(1, end) infinite; }
+@keyframes kbblink {
+  0%, 100% { box-shadow: inset 0 0 26px rgba(120, 245, 255, 0.55), 0 0 22px 4px rgba(76, 236, 255, 0.55); filter: saturate(1.25) brightness(1.18); }
+  35%, 60% { box-shadow: inset 0 0 6px rgba(120, 245, 255, 0.1), 0 2px 10px rgba(0, 0, 0, 0.5); filter: none; }
+  72% { box-shadow: inset 0 0 20px rgba(120, 245, 255, 0.45), 0 0 14px 2px rgba(76, 236, 255, 0.4); filter: saturate(1.1) brightness(1.1); }
+}
+#musicPanel .music-kb.dead { filter: saturate(0.7) brightness(0.8); }
+#musicPanel .kb-left { flex: 0 0 62px; display: flex; flex-direction: column; align-items: center; gap: 8px; padding-top: 2px; z-index: 1; }
+#musicPanel .kb-wheels { display: flex; gap: 6px; }
+#musicPanel .kb-wheel { display: block; width: 22px; height: 46px; border-radius: 6px; border: 1px solid rgba(60, 50, 30, 0.5); box-shadow: inset 0 0 6px rgba(0, 0, 0, 0.35);
+  background: repeating-linear-gradient(0deg, #ece5cf 0 3px, #cfc8b0 3px 4px); }
+#musicPanel .kb-shift { width: 24px; height: 24px; border-radius: 50%; background: radial-gradient(circle at 35% 30%, #d6c9fb, #a794e8); border: 1px solid rgba(70, 50, 120, 0.6); }
+#musicPanel .kb-oct { display: flex; gap: 14px; margin-top: 2px; }
+#musicPanel .kb-led { width: 7px; height: 7px; border-radius: 50%; background: #4a1010; }
+#musicPanel .music-kb.on .kb-led, #musicPanel .music-kb.low .kb-led { background: #ff3b30; box-shadow: 0 0 6px 2px rgba(255, 59, 48, 0.7); }
+#musicPanel .kb-main { flex: 1; min-width: 0; z-index: 1; }
+#musicPanel .kb-legend { height: 16px; margin: 0 0 4px; border-radius: 3px; opacity: 0.55;
+  background: repeating-linear-gradient(90deg, rgba(235, 250, 255, 0.8) 0 8px, transparent 8px 17px) bottom / 100% 2px no-repeat, linear-gradient(rgba(235, 250, 255, 0.55), rgba(235, 250, 255, 0.55)) 8% 25% / 34% 1px no-repeat, linear-gradient(rgba(235, 250, 255, 0.55), rgba(235, 250, 255, 0.55)) 8% 55% / 24% 1px no-repeat, linear-gradient(rgba(235, 250, 255, 0.55), rgba(235, 250, 255, 0.55)) 70% 35% / 20% 1px no-repeat; }
+#musicPanel .music-battery { font-size: 12px; opacity: 0.95; }
+#musicPanel .music-battery.low { color: #ffb38a; } #musicPanel .music-battery.dead { color: #ff8f8f; }
+@media (max-height: 420px) { #musicPanel .music-keys { height: 70px; } #musicPanel .kb-legend { display: none; } #musicPanel .kb-left { flex-basis: 52px; } #musicPanel .kb-wheel { height: 34px; } }
+@media (max-width: 560px) { #musicPanel .kb-left { flex-basis: 44px; } #musicPanel .kb-wheel { width: 16px; } }
 

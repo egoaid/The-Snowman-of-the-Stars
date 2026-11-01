@@ -13,6 +13,8 @@ import { REMNANT_BUILDERS } from './remnants-visual.js';
 import { createJackOLanternMesh } from './lantern.js';
 import { createHeldStarTorch } from './star-torch.js'; // v1.74
 import { createTentBundleMesh } from './tent-bundle.js'; // v1.92
+import { createMidiKeyboard } from './midi-keyboard.js'; // v1.99
+import { createCopperOreMesh } from './copper-ore.js'; // v1.99
 
 const toon = (color, extra = {}) => new THREE.MeshStandardMaterial({ color, roughness: 0.85, metalness: 0, ...extra });
 const STAR_HOLD_MATERIAL = new THREE.MeshBasicMaterial({ color: 0xffd700, fog: false });
@@ -97,6 +99,19 @@ const HELD_ITEM_BUILDERS = {
     g.add(body, band); g.position.y = 0.08;
     const holder = new THREE.Group(); holder.add(g); return holder;
   },
+  // v1.99: MIDIキーボード・電池・銅鉱石
+  midi_keyboard: () => { const kb = createMidiKeyboard(); const g = kb.group; g.scale.setScalar(0.34); g.rotation.set(0.25, 0.5, 0); g.position.y = 0.1; const holder = new THREE.Group(); holder.add(g); return holder; },
+  battery: () => {
+    const g = new THREE.Group(); const m = new THREE.MeshStandardMaterial({ color: 0xd9822b, roughness: 0.5 }), cap = new THREE.MeshStandardMaterial({ color: 0xc8c8c8, roughness: 0.3, metalness: 0.6 });
+    for (let i = 0; i < 3; i++) { const b = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, 0.1, 10), m); b.position.set((i - 1) * 0.046, 0, 0); const c = new THREE.Mesh(new THREE.CylinderGeometry(0.009, 0.009, 0.012, 8), cap); c.position.set((i - 1) * 0.046, 0.055, 0); g.add(b, c); }
+    g.position.y = 0.08; g.rotation.z = 0.4; const holder = new THREE.Group(); holder.add(g); return holder;
+  },
+  battery_spent: () => {
+    const g = new THREE.Group(); const m = new THREE.MeshStandardMaterial({ color: 0x6d6a66, roughness: 0.7 }), cap = new THREE.MeshStandardMaterial({ color: 0x8a8a8a, roughness: 0.5, metalness: 0.4 });
+    for (let i = 0; i < 3; i++) { const b = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, 0.1, 10), m); b.position.set((i - 1) * 0.046, 0, 0); const c = new THREE.Mesh(new THREE.CylinderGeometry(0.009, 0.009, 0.012, 8), cap); c.position.set((i - 1) * 0.046, 0.055, 0); g.add(b, c); }
+    g.position.y = 0.08; g.rotation.z = 0.4; const holder = new THREE.Group(); holder.add(g); return holder;
+  },
+  copper_ore: () => { const m = createCopperOreMesh(0.075, 3); m.position.y = 0.055; const holder = new THREE.Group(); holder.add(m); return holder; },
   stone: () => { const m = lump(new THREE.DodecahedronGeometry(0.085, 0), MATERIALS.stone, 0.06); m.scale.set(1, 0.85, 0.95); return m; },
   coal: () => { const m = lump(new THREE.DodecahedronGeometry(0.075, 0), MATERIALS.coal, 0.055); m.scale.set(1, 0.9, 1.05); return m; },
   iron: () => { const m = lump(new THREE.DodecahedronGeometry(0.078, 0), MATERIALS.iron, 0.055); m.scale.set(1.05, 0.85, 0.95); return m; },

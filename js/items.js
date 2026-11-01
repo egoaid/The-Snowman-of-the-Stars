@@ -15,6 +15,9 @@ export const COAL_ICON_SVG = '<svg viewBox="0 0 24 24" width="1em" height="1em" 
 // v1.94: 雪玉の絵(白い球に、うすい青い影とハイライト)
 export const SNOWBALL_ICON_SVG = '<svg viewBox="0 0 24 24" width="1em" height="1em" style="vertical-align:-0.14em" aria-hidden="true"><circle cx="12" cy="12.5" r="8.6" fill="#dfeaf6"/><path d="M12 21.1a8.6 8.6 0 0 0 8.2-11.4c-1.5 4.6-5.3 8.4-9.9 9.9a8.5 8.5 0 0 0 1.7 1.5z" fill="#b9cde3"/><ellipse cx="9" cy="8.8" rx="3.1" ry="2.1" fill="#ffffff" transform="rotate(-30 9 8.8)"/><circle cx="15.6" cy="15.2" r="0.9" fill="#ffffff"/></svg>';
 
+// v1.99: 銅鉱石(暗い灰色の岩に、青緑の鉱脈)の絵
+export const COPPER_ICON_SVG = '<svg viewBox="0 0 24 24" width="1em" height="1em" style="vertical-align:-0.14em" aria-hidden="true"><polygon points="3,16 6,9 12,7 16,10 15,17 8,19" fill="#4b4e53"/><polygon points="3,16 6,9 8,12 6,17" fill="#3a3d41"/><path d="M7 14 L11 10 L13 11 L9 16 Z" fill="#2fc3a8"/><path d="M12 15 L15 12 L16 13 L13 17 Z" fill="#35d4b8"/></svg>';
+
 export const ITEM_DEFS = {
   // 星: 流れ星が落ちたら拾える大きな星。木のてっぺんに飾ると、その木のどこにでもおもちゃを貼り付けられる。
   star:    { id: 'star',    icon: '★',  maxStack: 64, category: 'collectible', hand: 'right' },
@@ -49,6 +52,11 @@ export const ITEM_DEFS = {
   colored_pencils: { id: 'colored_pencils', icon: '✏️', maxStack: 16, category: 'material', hand: 'right' },
   small_toy:       { id: 'small_toy',       icon: '🧸', maxStack: 16, category: 'material', hand: 'right' },
   twig:    { id: 'twig',    icon: '🌿', maxStack: 64, category: 'material', hand: 'right' },
+  // v1.99: MIDIキーボード(内蔵音源なし。世界の自然物の音を奏でるための入力装置)と、その電池・材料
+  midi_keyboard: { id: 'midi_keyboard', icon: '🎹', maxStack: 1, category: 'utility', hand: 'right' },
+  battery:       { id: 'battery',       icon: '🔋', maxStack: 16, category: 'material', hand: 'right' }, // 単3乾電池6本ぶんのセット
+  battery_spent: { id: 'battery_spent', icon: '🪫', maxStack: 16, category: 'material', hand: 'right' }, // 使い終わった電池(月のかけらで再充電)
+  copper_ore:    { id: 'copper_ore',    icon: '🪨', iconSvg: COPPER_ICON_SVG, maxStack: 64, category: 'resource', hand: 'right' },
   chest:   { id: 'chest',   icon: '🧰', maxStack: 16, category: 'placeable', hand: 'right' },
 };
 

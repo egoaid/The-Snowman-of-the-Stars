@@ -77,6 +77,10 @@ import { fireAction, fireStrength } from '../fire-rules.js';
 import { GAME_DAY_REAL_SEC } from '../snow-melt.js';
 import { findHit, hitSway, stepSway, newSway, torchFlickerMul, fireDipMul } from '../snowball-targets.js';
 import { pickNatureSource } from '../music/notes.js';
+import { createBattery, degradation, planInsert, PLAY_GRACE_SEC } from '../music/battery.js';
+import { createMidiKeyboard } from './midi-keyboard.js';
+import { createMidiCable } from './midi-cable.js';
+import { createCopperOreField } from './copper-ore.js';
 import { STORM, isUnderCanopy, shelterSpot, createRainOnset, rollShelter, pickShelterStay, createStrikePlanner, shockPhase, shockPose, SHOCK_TOTAL } from '../storm-events.js';
 import { createCraftingTableMesh, CRAFTING_TABLE } from './crafting-table.js';
 import { createEquipment, EQUIP_SLOTS } from '../equipment.js';
@@ -2563,6 +2567,8 @@ export function initScene(mountEl, options = {}) {
     // --- 積雪(色の変化。降っている間ゆっくり白さが増す) ---
     const snowCoverage = weather.getSnowCoverage();
     const snowDepth = weather.getSnowDepth();
+    copperField.setSnowDepth(snowDepth); // v1.99
+    if (!kbPickup.taken) placeKbPickup(snowDepth); // v1.99
     coalField.setSnowDepth(snowDepth); // v1.85: 雪が積もっている間、木炭は埋まって見えない
     if (!tentBundle.taken) placeTentBundle(snowDepth); // v1.92
     const rime = weather.getRimeIntensity();
@@ -4125,6 +4131,129 @@ export function initScene(mountEl, options = {}) {
     });
   }
 
+  // --- v1.99: 銅鉱石。岩場・斜面・川辺の岩のそばに、ごく少なく落ちている。拾うだけ(木炭と一緒に、電池の材料) ---
+  const copperField = createCopperOreField({
+    scene, terrainHeightAt, range: PLAYABLE_RADIUS, rocks: rockClusters,
+    rng: makeRng(worldGen ? deriveSeed(worldGen.seed, 'copper') : 5151),
+    bankDistanceAt: (x, z) => { const { distance, width } = distanceToRiver(x, z, riverSamplesForAvoid); return distance - getWaterEdgeDistance(width); },
+    isBlocked: (x, z) => {
+      if (Math.hypot(x, z) > PLAYABLE_RADIUS) return true;
+      const { distance, width } = distanceToRiver(x, z, riverSamplesForAvoid);
+      if (distance < getWaterEdgeDistance(width) + 0.25) return true;
+      for (let i = 0; i < 2; i++) { const zone = avoidZones[i]; if (Math.hypot(x - zone.x, z - zone.z) < zone.radius + 1.5) return true; }
+      for (const t of livingTreePositions) if (Math.hypot(x - t.x, z - t.z) < t.scale * 0.35 + 0.6) return true;
+      for (const rk of rockClusters) if (Math.hypot(x - rk.x, z - rk.z) < rk.scale * 0.9) return true; // 岩の上には置かない(そばには置く)
+      for (const c of coalField.pieces) if (Math.hypot(x - c.x, z - c.z) < 1.2) return true;
+      return false;
+    },
+  });
+  for (const cp of copperField.pieces) {
+    cp.iid = interaction.register({
+      kind: 'copperOre',
+      getPosition: () => ({ x: cp.x, y: cp.y + 0.12, z: cp.z }),
+      radius: 0.5,
+      canInteract: () => !cp.taken && !copperField.isHidden(),
+      onHold: () => {
+        if (cp.taken) return;
+        if (!inventory.canAdd('copper_ore', 1)) { showPlaceNotice(tr('notice.bagFull')); return; }
+        const s = sfx(); if (s) s.itemPickup('stone', sfxRelative(cp.x, cp.y + 0.1, cp.z));
+        copperField.take(cp.index); interaction.unregister(cp.iid); inventory.add('copper_ore', 1);
+        debugLog.log('copper.collected', { index: cp.index });
+      },
+    });
+  }
+
+  // ================================================================
+  // v1.99: MIDIキーボード(世界に1つ。大木の根もとにある)・電池・MIDIケーブル
+  //   キーボードは内蔵音源を持たない。電池を入れると本体が光り、近くの自然物とMIDIケーブルでつないで、その音を奏でる。
+  //   電池は、弾いている現実の時間で約2時間。少なくなると光が点滅し、音が小さく・歪んで・途切れる。なくなると光らず、鳴らない。
+  // ================================================================
+  const KB_SCALE = 1.5;
+  const kbBattery = createBattery();
+  const kbPickup = { x: 0, z: 0, yaw: 0, taken: false, kb: createMidiKeyboard(), iid: null };
+  { const a = Math.atan2(campFromTreeDir.z, campFromTreeDir.x) + 2.4, r = STORM.trunkRadius + 0.8; kbPickup.x = bigTreeX + Math.cos(a) * r; kbPickup.z = bigTreeZ + Math.sin(a) * r; kbPickup.yaw = a + 1.1; }
+  kbPickup.kb.group.scale.setScalar(KB_SCALE); kbPickup.kb.group.rotation.y = kbPickup.yaw; scene.add(kbPickup.kb.group);
+  function placeKbPickup(snowDepth) { kbPickup.kb.group.position.set(kbPickup.x, terrainHeightAt(kbPickup.x, kbPickup.z) + Math.max(0, snowDepth - 0.05) + 0.02, kbPickup.z); }
+  placeKbPickup(0);
+  function takeKbPickup() { if (kbPickup.taken) return false; kbPickup.taken = true; scene.remove(kbPickup.kb.group); interaction.unregister(kbPickup.iid); return true; }
+  kbPickup.iid = interaction.register({
+    kind: 'midiKeyboard',
+    getPosition: () => ({ x: kbPickup.x, y: kbPickup.kb.group.position.y + 0.2, z: kbPickup.z }),
+    radius: 1.0,
+    canInteract: () => !kbPickup.taken,
+    onHold: () => {
+      if (kbPickup.taken) return;
+      if (!inventory.canAdd('midi_keyboard', 1)) { showPlaceNotice(tr('notice.bagFull')); return; }
+      const s = sfx(); if (s) s.itemPickup('tent', sfxRelative(kbPickup.x, kbPickup.kb.group.position.y + 0.1, kbPickup.z));
+      takeKbPickup(); inventory.add('midi_keyboard', 1);
+      debugLog.log('midiKeyboard.collected', {});
+    },
+  });
+
+  // 演奏中: キーボードを、前の地面に置く。鍵盤が沈み、本体が光り、近くの自然物とケーブルでつながる。
+  const playKb = createMidiKeyboard(); playKb.group.scale.setScalar(KB_SCALE); playKb.group.visible = false; scene.add(playKb.group);
+  const kbCable = createMidiCable({ scene, groundAt: terrainHeightAt });
+  const musicRt = { lastNoteAt: -99, held: new Set(), source: 'insect', condKey: '', targetAt: -1, anchor: new THREE.Vector3() };
+  const musicInstrument = () => (window.SoundEngine && window.SoundEngine.NatureInstrument) || null;
+  const musicPower = () => ({ state: kbBattery.state(), fraction: kbBattery.fraction() });
+  /** Pキー: 開く前の確認。キーボードを持っていて、電池が入っている(なければ、持っている電池を入れる)時だけ、開ける。 */
+  function prepareMusicOpen() {
+    if (inventory.count('midi_keyboard') < 1) { showPlaceNotice(tr('music.needKeyboard')); return false; }
+    const plan = planInsert({ batteryCount: inventory.count('battery'), state: kbBattery.state() });
+    if (plan.action === 'need') { showPlaceNotice(tr('music.needBattery')); return false; }
+    if (plan.action === 'insert') {
+      inventory.remove('battery', 1, { silent: true }); kbBattery.insert();
+      const s = sfx(); if (s) s.itemPickup('tent'); // 電池を入れた、小さな「カチッ」
+      showPlaceNotice(tr('music.batteryInserted'));
+      debugLog.log('music.batteryInserted', {});
+    }
+    return true;
+  }
+  function placePlayKb() {
+    const d = new THREE.Vector3(); camera.getWorldDirection(d); d.y = 0; if (d.lengthSq() < 1e-4) d.set(0, 0, -1); d.normalize();
+    const p = playerSnowman.group.position, x = p.x + d.x * 2.4, z = p.z + d.z * 2.4;
+    playKb.group.position.set(x, terrainHeightAt(x, z) + Math.max(0, weather.getSnowDepth() - 0.05) + 0.02, z);
+    playKb.group.rotation.y = Math.atan2(-d.x, -d.z); // 鍵盤の手前が、こちらを向く
+    playKb.group.visible = true; playKb.group.updateMatrixWorld(true);
+  }
+  function getMusicTarget(source) { // 演奏している自然物の、ケーブルをつなぐ場所
+    const p = playerSnowman.group.position, px = p.x, pz = p.z;
+    const ground = (x, z, up = 0.1) => ({ x, y: terrainHeightAt(x, z) + up, z });
+    if (source === 'river') { try { const nr = nearestRiverPoint(px, pz, riverSamplesForAvoid); const w = dryWaterSurfaceAt(nr.x, nr.z); return { x: nr.x, y: Number.isFinite(w) ? w : terrainHeightAt(nr.x, nr.z), z: nr.z }; } catch (e) { return null; } }
+    if (source === 'tree' || source === 'stone') {
+      let best = null, bd = 1e9;
+      for (const c of worldColliders) { if ((source === 'stone') !== c.id.startsWith('rock')) continue; const d = Math.hypot(px - c.x, pz - c.z); if (d < bd) { bd = d; best = c; } }
+      if (!best) return null;
+      const dx = px - best.x, dz = pz - best.z, L = Math.hypot(dx, dz) || 1; return ground(best.x + (dx / L) * best.radius, best.z + (dz / L) * best.radius, 0.3);
+    }
+    if (source === 'star') { let best = null, bd = 1e9; for (const it of placedItems) if (it.itemId === 'star_torch') { const d = Math.hypot(px - it.x, pz - it.z); if (d < bd) { bd = d; best = it; } } return best ? { x: best.x, y: best.mesh.position.y + 0.3, z: best.z } : null; }
+    if (source === 'flower' && poppyField) { let best = null, bd = 1e9; for (const c of poppyField.patchCenters) { const d = Math.hypot(px - c.x, pz - c.z); if (d < bd) { bd = d; best = c; } } return best ? ground(best.x, best.z, 0.15) : null; }
+    const d = new THREE.Vector3(); camera.getWorldDirection(d); d.y = 0; d.normalize(); // 虫・雪: 足もとの草むら・雪面へ、ななめ前
+    const side = source === 'snow' ? -1 : 1, x = px + d.x * 3.2 - d.z * side * 1.2, z = pz + d.z * 3.2 + d.x * side * 1.2;
+    return ground(x, z, 0.05);
+  }
+  function updateMusic(delta) {
+    const open = musicState.panelOpen, now = clock.elapsedTime;
+    // 電池: 弾いている間(最後の音から10秒まで)だけ、現実の時間で減る
+    const playing = open && (musicRt.held.size > 0 || now - musicRt.lastNoteAt < PLAY_GRACE_SEC);
+    const ev = kbBattery.tick(delta, playing);
+    if (ev === 'low') showPlaceNotice(tr('music.batteryLow'));
+    else if (ev === 'dead') { // なくなった電池は、使い終わった電池として持ち物へ戻る
+      kbBattery.eject(); if (inventory.canAdd('battery_spent', 1)) inventory.add('battery_spent', 1);
+      showPlaceNotice(tr('music.batteryDead')); const ni = musicInstrument(); if (ni) ni.allOff();
+      debugLog.log('music.batteryDead', {});
+    }
+    const st = kbBattery.state(), fr = kbBattery.fraction(), key = st + ':' + Math.round(fr * 50);
+    if (key !== musicRt.condKey) { musicRt.condKey = key; const ni = musicInstrument(); if (ni && ni.setCondition) ni.setCondition(degradation(fr, st)); } // 音量・歪み・途切れ
+    if (!open) return;
+    playKb.tick(st, now); // 光る(電池が入っている間)/点滅(少ない)/光らない(なくなった)
+    if (now - musicRt.targetAt > 0.25) { // ケーブル: キーボードと、演奏している自然物をつなぐ
+      musicRt.targetAt = now;
+      const tg = getMusicTarget(musicRt.source); playKb.cableAnchor.getWorldPosition(musicRt.anchor);
+      if (tg && Math.hypot(tg.x - musicRt.anchor.x, tg.z - musicRt.anchor.z) < 18) kbCable.set(musicRt.anchor, tg); else kbCable.hide();
+    }
+  }
+
   // --- v1.92: 地形に落ちている「たたんだテント」。キャンプの跡地(最初のひらけた場所)に1つ。長押しで拾う。拾ったら、ゆるやかな所に置ける。 ---
   const tentBundle = { x: campX + 1.7, z: campZ - 1.1, yaw: 0.55, taken: false, mesh: createTentBundleMesh(), iid: null };
   tentBundle.mesh.rotation.y = tentBundle.yaw;
@@ -4695,7 +4824,7 @@ export function initScene(mountEl, options = {}) {
     const want = !!open && mode === 'walk' && !inventoryOpen && !emoteState.wheelOpen;
     if (want === musicState.panelOpen) return musicState.panelOpen;
     musicState.panelOpen = want;
-    if (want) walk.releasePointerForUi(); else walk.endUiRelease(mode === 'walk');
+    if (want) { walk.releasePointerForUi(); placePlayKb(); musicRt.targetAt = -1; } else { walk.endUiRelease(mode === 'walk'); playKb.group.visible = false; playKb.releaseAll(); musicRt.held.clear(); kbCable.hide(); }
     return want;
   }
   /** いま立っている場所の近くにある自然物 → 演奏する音('river' 'tree' 'flower' 'insect' 'snow' 'star' 'stone') */
@@ -4844,6 +4973,7 @@ export function initScene(mountEl, options = {}) {
     updatePlacementGuide();   // v1.90
     updateSnowStuff(delta);   // v1.94
     updateStormEvents(delta); // v1.96: 雨宿り・落雷・感電
+    updateMusic(delta);       // v1.99: 電池・光・MIDIケーブル
     updateLanterns(delta);
     updateButterfly(delta, t); // v1.78: 鼻にとまる蝶
     updateSnowmanStarReaction(delta);
@@ -5110,7 +5240,8 @@ export function initScene(mountEl, options = {}) {
       placed: placedItems.slice(0, 400).map((it) => ({ id: it.itemId, x: r3(it.x), z: r3(it.z), yaw: r3(it.mesh.rotation.y), ...(it.chest ? { chest: it.chest.storage.serialize() } : {}), ...(it.fire && it.fire.isLit() ? { lit: true } : {}), ...(it.igloo && it.melt > 0 ? { melt: +it.melt.toFixed(3) } : {}) })),
       logs: logs.slice(0, 300),
       shards: shardSystem.serialize(), // v1.69: 星のかけら・月のかけらを貼った倒木と、接着した塊(倒木の番号で)
-      tentBundleTaken: tentBundle.taken, // v1.92: 落ちているテントを拾ったか
+      tentBundleTaken: tentBundle.taken, // v1.92
+      music: { kbTaken: kbPickup.taken, battery: kbBattery.serialize(), copperTaken: copperField.pieces.filter((q) => q.taken).map((q) => q.index) }, // v1.99: 落ちているテントを拾ったか
       rockTaken: rockClusters.map((r, i) => (r.taken ? i : -1)).filter((i) => i >= 0), // v1.86: 回収した岩
       coalTaken: coalField.pieces.filter((q) => q.taken).map((q) => q.index), // v1.85: 回収した木炭
       moonTaken: moonBuried.map((m, i) => (moonStones.getLanded().some((s) => s.id === m.id) ? -1 : i)).filter((i) => i >= 0), // v1.69: 拾われた、埋まっていた月の石
@@ -5149,6 +5280,12 @@ export function initScene(mountEl, options = {}) {
     });
     guard(() => { if (st.shards) shardSystem.restore(st.shards); }); // v1.69: 倒木の位置を戻したあとに、かけらと接着を戻す
     guard(() => { if (st.tentBundleTaken) takeTentBundle(); }); // v1.92
+    guard(() => { // v1.99: キーボード・電池・銅鉱石
+      const m = st.music; if (!m || typeof m !== 'object') return;
+      if (m.kbTaken) takeKbPickup();
+      kbBattery.restore(m.battery);
+      for (const i of Array.isArray(m.copperTaken) ? m.copperTaken : []) { if (copperField.take(i)) interaction.unregister(copperField.pieces[i].iid); }
+    });
     guard(() => { for (const i of Array.isArray(st.rockTaken) ? st.rockTaken : []) removeRock(i); }); // v1.86
     guard(() => { for (const i of Array.isArray(st.coalTaken) ? st.coalTaken : []) { if (coalField.take(i)) interaction.unregister(coalField.pieces[i].iid); } }); // v1.85
     guard(() => { for (const i of Array.isArray(st.moonTaken) ? st.moonTaken : []) { const m = moonBuried[i]; if (m) moonStones.take(m.id); } }); // v1.69
@@ -5227,6 +5364,15 @@ export function initScene(mountEl, options = {}) {
     debugEmoteConfig: (patch) => Object.assign(emoteBrain.config, patch || {}), // 検証用: 待ち時間などを短くする
     setEmoteWheelOpen,
     setMusicPanelOpen, getMusicSource, // v1.97: 演奏パネル
+    prepareMusicOpen, getMusicPower: musicPower, // v1.99: キーボード・電池
+    musicNotePress: (m) => { musicRt.held.add(m); musicRt.lastNoteAt = clock.elapsedTime; playKb.setKeyDown(m, true); },
+    musicNoteRelease: (m) => { musicRt.held.delete(m); playKb.setKeyDown(m, false); },
+    setMusicBase: (b) => playKb.setBase(b), setMusicSource: (src) => { musicRt.source = src; musicRt.targetAt = -1; },
+    debugMusic: { // 検証用
+      giveKit: () => { inventory.add('midi_keyboard', 1); inventory.add('battery', 2); inventory.add('coal', 4); inventory.add('copper_ore', 2); return true; },
+      state: () => ({ ...musicPower(), pickupTaken: kbPickup.taken, pickup: { x: +kbPickup.x.toFixed(2), z: +kbPickup.z.toFixed(2) }, copper: copperField.pieces.map((p) => ({ x: +p.x.toFixed(1), z: +p.z.toFixed(1), taken: p.taken })), cable: kbCable.isVisible() }),
+      setCharge: (f) => kbBattery.restore({ inserted: true, charge: f }),
+    },
     isEmoteWheelOpen: () => emoteState.wheelOpen,
     // v1.46: 編集(観察)モード。歩行モード中は入れない。
     toggleEditMode: () => { if (mode === 'walk') return false; return editMode.toggle(); },
