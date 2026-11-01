@@ -5,7 +5,8 @@
  * 使い方: NatureInstrument.noteOn(source, midi, velocity01) / noteOff(midi) / allOff()
  *   ・押している間だけ鳴る音(花・虫)と、鳴らしたら自然に消える音(それ以外)がある。
  *   ・同時に鳴らせる数は20。超えたら、いちばん古い音から止める。
- *   ・川の音は、サイン波ではなく「ノイズ+共鳴フィルタ」で作る(サイン波は電子音に聞こえるため。river.js と同じ考え方)。
+ *   ・川は「石が落ちたポチャン」、石は「石の棒を叩いたゴーン」。どちらも、残響(リバーブ)が気持ちよく響く(自然物ごとに、残響の量が違う)。
+ *   ・水の音は、サイン波だけにしない(電子音に聞こえるため)。ノイズ+共鳴フィルタに、ごく弱い低い響きを足す。
  */
 (function () {
   'use strict';
@@ -13,11 +14,13 @@
 
   const MAX_VOICES = 20;
   // 自然物ごとに、鍵盤の音を何倍の高さで鳴らすか(その音色が気持ちよく聞こえる高さへ)
-  const FREQ_MUL = { tree: 1, river: 4, flower: 2, insect: 4, snow: 2, star: 4, stone: 1 };
+  const FREQ_MUL = { tree: 1, river: 3, flower: 2, insect: 4, snow: 2, star: 4, stone: 1 };
+  // 自然物ごとの、残響(リバーブ)の量。川は「ポチャン」の余韻、石は「ゴーン」の長い響きを、しっかり出す。
+  const REVERB_SEND = { tree: 0.12, river: 0.5, flower: 0.3, insect: 0.06, snow: 0.25, star: 0.3, stone: 0.8 };
   const SUSTAINED = { flower: true, insect: true }; // 押している間、鳴り続ける
   const midiToFreq = (m) => 440 * Math.pow(2, (m - 69) / 12);
 
-  let ctx = null, bus = null, noiseBuf = null;
+  let ctx = null, bus = null, noiseBuf = null, reverbIn = null;
   const active = []; // { midi, source, endAt, release }
 
   function ensure() {
@@ -28,6 +31,15 @@
     const comp = ctx.createDynamicsCompressor(); // 和音を弾いても割れないように
     comp.threshold.value = -14; comp.ratio.value = 4; comp.attack.value = 0.004; comp.release.value = 0.2;
     bus.connect(comp); comp.connect(SoundEngine.getSfxBus());
+    // 残響: 約2.4秒で消える、少し暗い響き(石の洞窟や、水辺の空間のような)。ノイズが指数的に減衰する波形を、その場で作る。
+    const len = Math.floor(ctx.sampleRate * 2.6), ir = ctx.createBuffer(2, len, ctx.sampleRate);
+    for (let ch = 0; ch < 2; ch++) {
+      const d = ir.getChannelData(ch); let y = 0;
+      for (let i = 0; i < len; i++) { y += ((Math.random() * 2 - 1) - y) * 0.32; d[i] = y * Math.exp(-i / (ctx.sampleRate * 0.5)) * (i < 200 ? i / 200 : 1); }
+    }
+    reverbIn = ctx.createGain(); const conv = ctx.createConvolver(); conv.buffer = ir;
+    const wet = ctx.createGain(); wet.gain.value = 0.9;
+    reverbIn.connect(conv); conv.connect(wet); wet.connect(bus);
     noiseBuf = ctx.createBuffer(1, Math.floor(ctx.sampleRate * 0.5), ctx.sampleRate);
     const d = noiseBuf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
     return true;
@@ -71,13 +83,18 @@
       const cg = gainEnv(t, 0.1 * vel, 0.001, 0.025); click.connect(cg); cg.connect(out); noiseSrc(t, 0.05, click);
       return { endAt: end, release: null };
     },
-    // 川: 水滴。ノイズを共鳴フィルタに通して、ぽちゃっと鳴らす。少しだけ音程が上がる(泡のように)。
+    // 川: 石が水に落ちた「ポチャン」。落ちる音(チャ)→水中の低い「ポ」→泡の余韻。残響が、水辺に広がる。
     river(f, t, vel, out) {
-      let end = t;
+      let end = t + 1.2;
+      const body = ctx.createOscillator(); body.type = 'sine'; // 水中の「ポ」: 石が沈む低い響き(ごく短く、ノイズの水音に混ぜる)
+      body.frequency.setValueAtTime(f * 0.45, t); body.frequency.exponentialRampToValueAtTime(f * 0.3, t + 0.14);
+      const bg = gainEnv(t + 0.012, 0.42 * vel, 0.006, 0.2); body.connect(bg); bg.connect(out); body.start(t); body.stop(t + 0.3);
+      const hit = ctx.createBiquadFilter(); hit.type = 'lowpass'; hit.frequency.setValueAtTime(3200, t); hit.frequency.exponentialRampToValueAtTime(500, t + 0.07); // 「チャ」: 落ちて水を割る音
+      const hg = gainEnv(t, 0.55 * vel, 0.001, 0.07); hit.connect(hg); hg.connect(out); noiseSrc(t, 0.09, hit);
       for (const [mul, q, amp] of [[1, 90, 1], [2.02, 70, 0.45]]) {
         const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = q;
-        bp.frequency.setValueAtTime(f * mul * 0.88, t); bp.frequency.exponentialRampToValueAtTime(f * mul, t + 0.05);
-        const g = gainEnv(t, 5.5 * vel * amp, 0.002, 0.34); bp.connect(g); g.connect(out); noiseSrc(t, 0.05, bp); end = Math.max(end, t + 0.4);
+        bp.frequency.setValueAtTime(f * mul * 0.8, t); bp.frequency.exponentialRampToValueAtTime(f * mul, t + 0.07); // 泡のように、少し音程が上がる
+        const g = gainEnv(t + 0.02, 4.2 * vel * amp, 0.004, 0.42); bp.connect(g); g.connect(out); noiseSrc(t + 0.02, 0.05, bp);
       }
       const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 2400;
       const sg = gainEnv(t, 0.07 * vel, 0.001, 0.05); hp.connect(sg); sg.connect(out); noiseSrc(t, 0.06, hp); // 水が弾ける小さな音
@@ -120,15 +137,16 @@
       const e2 = partialsHit(f, t + 0.19, vel, parts, 1.6, 0.06, out);
       return { endAt: Math.max(e1, e2), release: null };
     },
-    // 石: 石を叩いた打楽器。カッという硬い音と、音程のある鈍い響き。
+    // 石: 石の棒を叩いた「ゴーン」。硬く叩く音のあと、重い響きが、残響の中で長く伸びる。
+    //   わずかにずれた2本の基音がうなり(ゴーン…ゴーン…)を作り、石の棒らしい、割り切れない倍音が重なる。
     stone(f, t, vel, out) {
-      const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = f * 2; bp.Q.value = 7;
-      const g = gainEnv(t, 1.3 * vel, 0.001, 0.12); bp.connect(g); g.connect(out); noiseSrc(t, 0.14, bp);
-      const th = ctx.createOscillator(); th.type = 'sine'; th.frequency.setValueAtTime(f * 0.5, t); th.frequency.exponentialRampToValueAtTime(f * 0.2, t + 0.12);
-      const tg = gainEnv(t, 0.4 * vel, 0.002, 0.16); th.connect(tg); tg.connect(out); th.start(t); th.stop(t + 0.22);
-      const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 3000;
-      const cg = gainEnv(t, 0.2 * vel, 0.001, 0.02); hp.connect(cg); cg.connect(out); noiseSrc(t, 0.04, hp);
-      return { endAt: t + 0.32, release: null };
+      const parts = [{ ratio: 1, amp: 1, decay: 1 }, { ratio: 1.004, amp: 0.8, decay: 0.95 }, { ratio: 2.76, amp: 0.42, decay: 0.5 }, { ratio: 5.4, amp: 0.16, decay: 0.26 }, { ratio: 8.93, amp: 0.06, decay: 0.14 }];
+      const end = partialsHit(f, t, vel, parts, 2.8, 0.3, out);
+      const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = Math.min(5000, f * 2.6); bp.Q.value = 5;
+      const g = gainEnv(t, 1.1 * vel, 0.001, 0.1); bp.connect(g); g.connect(out); noiseSrc(t, 0.12, bp); // 叩いた「コッ」
+      const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 3500;
+      const cg = gainEnv(t, 0.14 * vel, 0.001, 0.02); hp.connect(cg); cg.connect(out); noiseSrc(t, 0.04, hp);
+      return { endAt: end, release: null };
     },
   };
 
@@ -145,7 +163,9 @@
       this._prune(now);
       while (active.length >= MAX_VOICES) this._stop(active.shift(), now);
       const vel = Math.max(0.15, Math.min(1, Math.pow(velocity, 1.2)));
-      const v = VOICES[source](midiToFreq(midi) * FREQ_MUL[source], now, vel, bus);
+      const mix = ctx.createGain(); mix.connect(bus); // この音の出口: そのまま(ドライ)と、残響へ送る分
+      const send = ctx.createGain(); send.gain.value = REVERB_SEND[source] || 0; mix.connect(send); send.connect(reverbIn);
+      const v = VOICES[source](midiToFreq(midi) * FREQ_MUL[source], now, vel, mix);
       active.push({ midi, source, endAt: v.endAt, release: v.release });
       return true;
     },
