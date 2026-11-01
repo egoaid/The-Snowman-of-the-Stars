@@ -770,7 +770,7 @@ export function createSnowmanCharacter(scale = 1) {
 
   // --- v1.96: 感電(落雷)の見た目。storm-events.js の shockPose() の値を、scene3d.js が毎フレーム渡す。 ---
   //   glow: 体が光る / jitter: ビリビリ震える / stiff: 固まる(腕・体の揺れを止める) / startled: びっくりした顔(目が丸く、口が大きく開く) / lie: 倒れる
-  const shock = { glow: 0, jitter: 0, stiff: 0, startled: 0, lie: 0 };
+  const shock = { glow: 0, jitter: 0, stiff: 0, startled: 0, lie: 0, leg: 0, arms: 0 }; // leg: 片足を上げる / arms: 腕を前へ上げる
   const shockGlowMat = new THREE.MeshBasicMaterial({ color: 0xbfe8ff, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, fog: false });
   const bodyGlow = new THREE.Mesh(body.geometry, shockGlowMat); bodyGlow.scale.setScalar(1.07); bodyGlow.visible = false; body.add(bodyGlow);
   const headGlow = new THREE.Mesh(head.geometry, shockGlowMat); headGlow.scale.setScalar(1.07); headGlow.visible = false; head.add(headGlow);
@@ -832,6 +832,9 @@ export function createSnowmanCharacter(scale = 1) {
     if (shock.stiff > 0.001) { // v1.96: 固まる。腕の振りが止まる
       rightArm.rotation.x *= 1 - shock.stiff; leftArm.rotation.x *= 1 - shock.stiff;
     }
+    if (shock.arms > 0.001) { // 腕を前へ上げて、びっくり
+      rightArm.rotation.x += shock.arms * ACTION_SWING_ANGLE * 1.1; leftArm.rotation.x += shock.arms * ACTION_SWING_ANGLE * 1.1;
+    }
 
     // 足の交互運動(2つの丸い雪玉を前後に振り子運動させる、可愛らしい歩き方)
     state.walkPhase += delta * (4.2 * Math.max(state.walkBlend, 0.15));
@@ -871,6 +874,9 @@ export function createSnowmanCharacter(scale = 1) {
     leftFoot.position.z += footFwd;
     rightFoot.rotation.y = -0.32 * sitK;
     leftFoot.rotation.y = 0.32 * sitK;
+    if (shock.leg > 0.001) { // 片足立ち: 左足を持ち上げて、前へ出す
+      leftFoot.position.y += shock.leg * bodyRadius * 0.6; leftFoot.position.z += shock.leg * bodyRadius * 0.3;
+    }
     feetGroup.rotation.x = lieAngle;
     feetGroup.position.set(0, -lieLift * Math.cos(lieAngle), -lieLift * Math.sin(lieAngle));
     // 頭: あくびで上を向き、とろんとするとゆっくりうなずく。寝転ぶと少し下げて、地面にめり込まず浮かないようにする。
@@ -882,7 +888,7 @@ export function createSnowmanCharacter(scale = 1) {
     // 対して加算する(呼び出し側は毎フレーム地形の高さでposition.yを
     // 設定し直す前提なので、ここでは単純に+=でよい)。
     group.position.y += hopHeight + lieLift;
-    group.rotation.z = stumbleTilt * (1 - lieK);
+    group.rotation.z = stumbleTilt * (1 - lieK) + shock.leg * 0.14 * (1 - lieK); // 片足立ち: 立っている足のほうへ、体が少し傾く
     group.rotation.x = stumbleLean * (1 - lieK) - lieAngle;
 
     updateBlink(delta);
@@ -930,7 +936,7 @@ export function createSnowmanCharacter(scale = 1) {
     /** v1.96: 感電の見た目(storm-events.js の shockPose())。null か {} で、ふだんに戻す。 */
     setShock(p) {
       shock.glow = (p && +p.glow) || 0; shock.jitter = (p && +p.jitter) || 0; shock.stiff = (p && +p.stiff) || 0;
-      shock.startled = (p && +p.startled) || 0; shock.lie = (p && +p.lie) || 0;
+      shock.startled = (p && +p.startled) || 0; shock.lie = (p && +p.lie) || 0; shock.leg = (p && +p.leg) || 0; shock.arms = (p && +p.arms) || 0;
     },
     setMouthOpen(amount) { state.mouthOverride = amount === null || amount === undefined ? null : Math.max(0, Math.min(1, amount)); },
     setIntensity(amount) { state.intensity = Math.max(0, Math.min(1, amount)); },

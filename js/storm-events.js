@@ -91,15 +91,18 @@ export function shockPhase(age) {
  */
 export function shockPose(age) {
   const ph = shockPhase(age);
-  const pose = { phase: ph, glow: 0, jitter: 0, stiff: 0, startled: 0, lie: 0, walkable: false, fleeSpeedMul: 0 };
+  const pose = { phase: ph, glow: 0, jitter: 0, stiff: 0, startled: 0, lie: 0, leg: 0, arms: 0, walkable: false, fleeSpeedMul: 0 };
   if (ph === 'zap') {
     pose.glow = 0.6 + 0.4 * Math.abs(Math.sin(age * 30)); pose.jitter = 1; pose.stiff = smooth(age / 0.25); pose.startled = smooth(age / 0.3);
+    pose.leg = smooth(age / 0.35); pose.arms = smooth(age / 0.25); // 片足を上げて、腕を前へ上げる(びっくりの定番ポーズ)
   } else if (ph === 'frozen') {
     const u = (age - T_FROZEN) / T.frozen;
     pose.glow = 0.35 * (1 - u) + 0.1; pose.jitter = 0.25 * (1 - u); pose.stiff = 1; pose.startled = 1;
+    pose.leg = 0.88 + 0.12 * Math.sin((age - T_FROZEN) * 9); pose.arms = 1; // 片足立ちで、ぐらぐら固まる
   } else if (ph === 'fall') {
     const u = smooth((age - T_FALL) / T.fall);
     pose.lie = u; pose.stiff = 1 - u * 0.6; pose.startled = 1 - u * 0.4; pose.glow = 0.1 * (1 - u);
+    pose.leg = Math.max(0, 1 - u * 4); pose.arms = 1 - u; // バランスを崩して、足を下ろしながら倒れる
   } else if (ph === 'down') {
     pose.lie = 1; pose.startled = 0.35 * (1 - (age - T_DOWN) / T.down); pose.jitter = 0.05 * Math.max(0, 1 - (age - T_DOWN) / 1.0);
   } else if (ph === 'rise') {
