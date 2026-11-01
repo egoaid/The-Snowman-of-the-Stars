@@ -76,6 +76,7 @@ import { SNOWBALL, canGather, nextMelt, throwVelocity, stepSnowball } from '../s
 import { fireAction, fireStrength } from '../fire-rules.js';
 import { GAME_DAY_REAL_SEC } from '../snow-melt.js';
 import { findHit, hitSway, stepSway, newSway, torchFlickerMul, fireDipMul } from '../snowball-targets.js';
+import { pickNatureSource } from '../music/notes.js';
 import { STORM, isUnderCanopy, shelterSpot, createRainOnset, rollShelter, pickShelterStay, createStrikePlanner, shockPhase, shockPose, SHOCK_TOTAL } from '../storm-events.js';
 import { createCraftingTableMesh, CRAFTING_TABLE } from './crafting-table.js';
 import { createEquipment, EQUIP_SLOTS } from '../equipment.js';
@@ -4684,12 +4685,37 @@ export function initScene(mountEl, options = {}) {
     });
     if (mode === 'walk') {
       // 歩行モード: 座っている間・ホイールを開いている間は、歩けない。歩こうとしたら立つ(寝ていたら、起きて座ってから)
-      walk.setFrozen(inventoryOpen || emoteState.wheelOpen || emoteBrain.isBusy());
-      if (emoteBrain.isBusy() && !emoteState.wheelOpen && !inventoryOpen && walk.hasMoveInput()) emoteBrain.request('stand');
+      walk.setFrozen(inventoryOpen || emoteState.wheelOpen || musicState.panelOpen || emoteBrain.isBusy()); // v1.97: 演奏パネルを開いている間も、歩かない
+      if (emoteBrain.isBusy() && !emoteState.wheelOpen && !inventoryOpen && !musicState.panelOpen && walk.hasMoveInput()) emoteBrain.request('stand');
     }
   }
+  // --- v1.97: 演奏パネル(Pキー/🎹)。開いている間は歩かない。音は、近くの自然物に合わせる(music/notes.js の pickNatureSource) ---
+  const musicState = { panelOpen: false };
+  function setMusicPanelOpen(open) {
+    const want = !!open && mode === 'walk' && !inventoryOpen && !emoteState.wheelOpen;
+    if (want === musicState.panelOpen) return musicState.panelOpen;
+    musicState.panelOpen = want;
+    if (want) walk.releasePointerForUi(); else walk.endUiRelease(mode === 'walk');
+    return want;
+  }
+  /** いま立っている場所の近くにある自然物 → 演奏する音('river' 'tree' 'flower' 'insect' 'snow' 'star' 'stone') */
+  function getMusicSource() {
+    const p = playerSnowman.group.position, x = p.x, z = p.z;
+    let riverDist = Infinity, treeDist = Infinity, rockDist = Infinity, torchDist = Infinity;
+    try { riverDist = Math.max(0, nearestRiverPoint(x, z, riverSamplesForAvoid).distance); } catch (e) { /* 川がなければ無限遠 */ }
+    for (const c of worldColliders) {
+      const d = Math.hypot(x - c.x, z - c.z) - c.radius;
+      if (c.id.startsWith('rock')) { if (d < rockDist) rockDist = d; } else if (d < treeDist) treeDist = d;
+    }
+    for (const it of placedItems) if (it.itemId === 'star_torch') torchDist = Math.min(torchDist, Math.hypot(x - it.x, z - it.z));
+    return pickNatureSource({
+      riverDist, treeDist, rockDist, torchDist,
+      onFlowers: !!(poppyField && poppyField.isOnFlowers(x, z, 1.5)),
+      snowDepth: weather.getSnowDepth(), winter: season.getSeason ? season.getSeason() === 'winter' : false,
+    });
+  }
   function setEmoteWheelOpen(open) {
-    const want = !!open && mode === 'walk' && !inventoryOpen;
+    const want = !!open && mode === 'walk' && !inventoryOpen && !musicState.panelOpen;
     if (want === emoteState.wheelOpen) return emoteState.wheelOpen;
     emoteState.wheelOpen = want;
     if (want) walk.releasePointerForUi(); // マウスでえらべるように(歩行モードは抜けない)
@@ -5200,6 +5226,7 @@ export function initScene(mountEl, options = {}) {
     debugButterflyConfig: (patch) => Object.assign(BUTTERFLY_EVENT, patch || {}), // 検証用: 確率・時間帯などを変える
     debugEmoteConfig: (patch) => Object.assign(emoteBrain.config, patch || {}), // 検証用: 待ち時間などを短くする
     setEmoteWheelOpen,
+    setMusicPanelOpen, getMusicSource, // v1.97: 演奏パネル
     isEmoteWheelOpen: () => emoteState.wheelOpen,
     // v1.46: 編集(観察)モード。歩行モード中は入れない。
     toggleEditMode: () => { if (mode === 'walk') return false; return editMode.toggle(); },

@@ -475,6 +475,22 @@
       <div class="emote-center"><div class="emote-title" data-i18n="emote.title">Emotes</div><div class="emote-hint" data-i18n="emote.hint">Click to choose · B / Esc: close</div></div>
     </div>
   </div>
+  <!-- v1.97: 演奏パネル(Pキー/スマホは🎹)。画面の鍵盤・PCキーボード・外部MIDIキーボードで、近くの自然物の音を演奏する。歩行モードの間だけ開ける。 -->
+  <div id="musicPanel" role="dialog" aria-label="Play music" data-i18n-aria-label="music.aria" aria-hidden="true">
+    <div class="music-head">
+      <div class="music-title" data-i18n="music.title">🎹 Play the world</div>
+      <div id="musicStatus" class="music-status"></div>
+      <button id="musicCloseX" class="inv-x" type="button" aria-label="Close" data-i18n-aria-label="common.close">✕</button>
+    </div>
+    <div id="musicSources" class="music-sources"></div>
+    <div class="music-tools">
+      <button id="musicMidiBtn" type="button" data-i18n="music.midiConnect">Connect a MIDI keyboard</button>
+      <span id="musicMidiStatus" class="music-midi-status"></span>
+      <span class="music-oct"><button id="musicOctDown" type="button" aria-label="Octave down" data-i18n-aria-label="music.octDown">◀</button><span id="musicOctave"></span><button id="musicOctUp" type="button" aria-label="Octave up" data-i18n-aria-label="music.octUp">▶</button></span>
+    </div>
+    <div id="musicKeys" class="music-keys"></div>
+    <div class="music-hint" data-i18n="music.hint">Keys: Z S X D C V G B H N J M / Q 2 W 3 E R 5 T 6 Y 7 U I · ← → octave · P / Esc: close</div>
+  </div>
   <div id="inventoryPanel" role="dialog" aria-label="Inventory" data-i18n-aria-label="inv.aria">
     <div class="inv-head">
       <div class="inv-title" data-i18n="inv.title">👝 Inventory</div>
@@ -523,6 +539,7 @@
       <div id="touchBtnAction" class="touch-btn" title="Action" data-i18n-title="touch.action">✦</div>
       <div id="touchBtnView" class="touch-btn" title="Switch view (first / third person)" data-i18n-title="touch.view">📷</div>
       <div id="touchBtnPlace" class="touch-btn" title="Place" data-i18n-title="touch.place">📍</div>
+      <div id="touchBtnMusic" class="touch-btn" title="Play music" data-i18n-title="touch.music">🎹</div>
       <div id="touchBtnEmote" class="touch-btn" title="Emotes (sit / sleep)" data-i18n-title="touch.emote">🪑</div>
     </div>
   </div>
@@ -564,6 +581,7 @@
   <script src="js/audio/footsteps.js"></script>
   <script src="js/audio/bees.js"></script>
   <script src="js/audio/star-bells.js"></script>
+<script src="js/audio/nature-instrument.js"></script>
   <script src="js/audio/gather-sounds.js"></script>
   <script src="js/audio/ui-sounds.js"></script>
   <script src="js/audio/sfx.js"></script>
@@ -582,6 +600,7 @@
     import { clearCachesAndReload } from './js/app-update.js';
     import { createTitleFlow } from './js/title-flow.js';
     import { t as tr, initI18n, onLangChange } from './js/i18n.js'; // v1.72: 日本語/英語。tr('キー', {差し込み})
+import { createMusicPanel } from './js/music/piano-panel.js'; // v1.97: 演奏パネル
 
     // v1.57: 管理者・保存・ワールドの判定は main() の中で行う(読み込み時の外側では何もしない)。
     //   ADMIN の初期値 true は、main() が正しい値に置き換えるまでの仮の値。デバッグ表示は、CSS側で「管理者になるまで隠す」。
@@ -1623,7 +1642,7 @@
     });
 
     function openInventory() {
-      if (!sceneRefForTouch) return;
+      if (!sceneRefForTouch || (window.__musicPanel && window.__musicPanel.isOpen())) return; // v1.97: 演奏中は開かない
       if (!sceneRefForTouch.setInventoryOpen(true)) return;
       inventoryPanel.style.display = 'block';
       invSplitBtn.style.display = isTouchDevice ? 'block' : 'none';
@@ -1658,7 +1677,7 @@
       }
     }
     function openEmoteWheel() {
-      if (!sceneRefForTouch || sceneRefForTouch.getMode() !== 'walk' || isInventoryOpen() || isEmoteWheelOpen()) return;
+      if (!sceneRefForTouch || sceneRefForTouch.getMode() !== 'walk' || isInventoryOpen() || isEmoteWheelOpen() || (window.__musicPanel && window.__musicPanel.isOpen())) return;
       if (!sceneRefForTouch.setEmoteWheelOpen(true)) return;
       emoteWheel.classList.add('open');
       emoteWheel.setAttribute('aria-hidden', 'false');
@@ -1680,6 +1699,25 @@
     }
     emoteWheel.addEventListener('click', (e) => { if (e.target === emoteWheel) closeEmoteWheel(); }); // ホイールの外を押したら閉じる
     touchBtnEmote.addEventListener('touchstart', (e) => { e.preventDefault(); toggleEmoteWheel(); }, { passive: false });
+    // --- v1.97: 演奏パネル(Pキー/スマホは🎹)。近くの自然物(川・木・花・雪・星の灯り・石・虫)の音を、鍵盤で演奏する ---
+    const musicPanel = createMusicPanel({
+      root: document.getElementById('musicPanel'),
+      instrument: window.SoundEngine.NatureInstrument,
+      getAutoSource: () => (sceneRefForTouch && sceneRefForTouch.getMusicSource ? sceneRefForTouch.getMusicSource() : 'insect'),
+      canOpen: () => !!sceneRefForTouch && sceneRefForTouch.getMode() === 'walk' && !isInventoryOpen() && !isEmoteWheelOpen(),
+      onOpenChange: (o) => { if (sceneRefForTouch && sceneRefForTouch.setMusicPanelOpen) sceneRefForTouch.setMusicPanelOpen(o); },
+    });
+    window.__musicPanel = musicPanel;
+    onLangChange(() => musicPanel.rebuild());
+    document.addEventListener('keydown', (e) => {
+      if (e.code !== 'KeyP' || e.repeat || musicPanel.isOpen()) return; // 開いている間の P(閉じる)は、パネルが受け取る
+      const tag = (document.activeElement && document.activeElement.tagName) || '';
+      if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
+      if (!sceneRefForTouch || sceneRefForTouch.getMode() !== 'walk') return;
+      e.preventDefault(); musicPanel.open();
+    });
+    const touchBtnMusic = document.getElementById('touchBtnMusic');
+    touchBtnMusic.addEventListener('touchstart', (e) => { e.preventDefault(); musicPanel.toggle(); }, { passive: false });
     // v1.91: スマホの「置く」ボタン。手に持った物を、置く場所の枠(緑)のところに置く。置ける物を持っている時だけ出る。
     const touchBtnPlace = document.getElementById('touchBtnPlace');
     touchBtnPlace.addEventListener('touchstart', (e) => { e.preventDefault(); touchBtnPlace.classList.add('active'); if (sceneRefForTouch && sceneRefForTouch.placeHeldItem) sceneRefForTouch.placeHeldItem(true); }, { passive: false });
@@ -1794,6 +1832,8 @@
       walkExitBtn.style.display = isTouchDevice && uiWalking ? 'flex' : 'none';
       touchBtnAction.style.display = isTouchDevice && uiWalking ? 'flex' : 'none';
       touchBtnEmote.style.display = isTouchDevice && uiWalking ? 'flex' : 'none'; // v1.73
+      document.getElementById('touchBtnMusic').style.display = isTouchDevice && uiWalking ? 'flex' : 'none'; // v1.97
+      if (!uiWalking && window.__musicPanel && window.__musicPanel.isOpen()) window.__musicPanel.close(); // 歩行モードでなくなったら、演奏パネルは閉じる
       hotbarBar.style.display = uiWalking ? 'flex' : 'none';
       if (uiWalking) renderHotbar();
       applyUiVisibility();

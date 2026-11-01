@@ -960,3 +960,36 @@ html.i18n-pending #titleScreen, html.i18n-pending #settingsPanel { visibility: h
 }
 #inventoryPanel .inv-craft-btn:hover:not(:disabled) { background: #7a5230; border-color: #ffe9a8; }
 #inventoryPanel .inv-craft-btn:disabled { opacity: 0.45; cursor: default; }
+
+/* ============================================================
+   v1.97: 演奏パネル(Pキー/スマホは🎹)。画面の下に出して、風景を隠しすぎない。
+   ============================================================ */
+#musicPanel {
+  position: fixed; left: 50%; bottom: 12px; transform: translateX(-50%); z-index: 30; display: none;
+  width: min(760px, 96vw); box-sizing: border-box; padding: 10px 12px 8px;
+  background: rgba(18, 24, 38, 0.86); color: #fff; border: 1px solid rgba(255, 255, 255, 0.28); border-radius: 12px;
+  font: 13px/1.4 system-ui, sans-serif; user-select: none; -webkit-user-select: none; touch-action: none;
+}
+#musicPanel.open { display: block; }
+#musicPanel .music-head { display: flex; align-items: center; gap: 10px; }
+#musicPanel .music-title { font: bold 15px/1.2 system-ui, sans-serif; white-space: nowrap; }
+#musicPanel .music-status { flex: 1; opacity: 0.85; font-size: 12px; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#musicPanel .music-sources { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+#musicPanel .msrc { display: flex; align-items: center; gap: 4px; padding: 5px 9px; color: #fff; background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.25); border-radius: 999px; font: 12px system-ui, sans-serif; cursor: pointer; }
+#musicPanel .msrc.on { background: rgba(255, 233, 168, 0.28); border-color: #ffe9a8; }
+#musicPanel .mico { font-size: 16px; line-height: 1; }
+#musicPanel .music-tools { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
+#musicPanel .music-tools button { padding: 4px 9px; color: #fff; background: rgba(255, 255, 255, 0.12); border: 1px solid rgba(255, 255, 255, 0.28); border-radius: 6px; font: 12px system-ui, sans-serif; cursor: pointer; }
+#musicPanel .music-midi-status { font-size: 11px; opacity: 0.85; flex: 1; min-width: 80px; }
+#musicPanel .music-oct { display: flex; align-items: center; gap: 6px; font-size: 12px; margin-left: auto; }
+#musicPanel .music-keys { position: relative; height: 128px; background: #0d111b; border-radius: 6px; overflow: hidden; touch-action: none; }
+#musicPanel .mkey { position: absolute; top: 0; box-sizing: border-box; display: flex; align-items: flex-end; justify-content: center; }
+#musicPanel .mkey.white { height: 100%; background: #f5f3ec; border: 1px solid #8a8a86; border-radius: 0 0 4px 4px; color: #55524a; }
+#musicPanel .mkey.black { height: 62%; background: #1d1f26; border: 1px solid #000; border-radius: 0 0 3px 3px; color: #b8b6ae; z-index: 2; }
+#musicPanel .mkey.white.down { background: #ffe9a8; }
+#musicPanel .mkey.black.down { background: #6a5a2a; }
+#musicPanel .mlbl { font-size: 10px; padding-bottom: 3px; pointer-events: none; }
+#musicPanel .music-hint { margin-top: 6px; font-size: 11px; opacity: 0.7; }
+#touchBtnMusic { right: 196px; top: -154px; font-size: 24px; display: none; }
+@media (max-height: 420px) { #musicPanel .music-keys { height: 84px; } #musicPanel .music-hint { display: none; } #musicPanel .music-sources { margin: 4px 0; } }
+
