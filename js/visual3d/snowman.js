@@ -679,6 +679,7 @@ export function createSnowmanCharacter(scale = 1) {
     // v1.73: あくびは大きく開ける。眠っている間は、息に合わせてほんの少し開ける
     if (emote.yawn > 0.01) openAmount = Math.max(openAmount, emote.yawn);
     else if (emote.eyesClosed > 0.8) openAmount = 0.07 + 0.06 * (0.5 + 0.5 * Math.sin(emote.breathPhase * 1.6));
+    if (shock.startled > 0.01) openAmount = Math.max(openAmount, 0.35 + 0.6 * shock.startled); // v1.96: びっくりして、口が大きく開く
     openAmount = Math.max(0, Math.min(1, openAmount));
     if (openAmount < 0.04) {
       closedMouthGroup.visible = true;
@@ -767,7 +768,17 @@ export function createSnowmanCharacter(scale = 1) {
     if (covered) { closedMouthGroup.visible = false; openMouth.visible = false; }
   }
 
+  // --- v1.96: 感電(落雷)の見た目。storm-events.js の shockPose() の値を、scene3d.js が毎フレーム渡す。 ---
+  //   glow: 体が光る / jitter: ビリビリ震える / stiff: 固まる(腕・体の揺れを止める) / startled: びっくりした顔(目が丸く、口が大きく開く) / lie: 倒れる
+  const shock = { glow: 0, jitter: 0, stiff: 0, startled: 0, lie: 0 };
+  const shockGlowMat = new THREE.MeshBasicMaterial({ color: 0xbfe8ff, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, fog: false });
+  const bodyGlow = new THREE.Mesh(body.geometry, shockGlowMat); bodyGlow.scale.setScalar(1.07); bodyGlow.visible = false; body.add(bodyGlow);
+  const headGlow = new THREE.Mesh(head.geometry, shockGlowMat); headGlow.scale.setScalar(1.07); headGlow.visible = false; head.add(headGlow);
+  const eyeBaseX = eyeLeft.scale.x, eyeBaseZ = eyeLeft.scale.z;
+
   function update(delta, t) {
+    const lieBackup = emote.lie; // v1.96: 感電で倒れている間は、寝る姿勢と同じ「倒れる」見た目を使う(終わったら戻す)
+    if (shock.lie > emote.lie) emote.lie = shock.lie;
     // 雪が降っている間などは、実際の発声強度に関わらず最低限の
     // 「はしゃぎ」を上乗せする(頭の揺れ・腕振り・頬の赤みに反映)。
     const effIntensity = state.joyful ? Math.max(state.intensity, 0.3) : state.intensity;
@@ -818,6 +829,9 @@ export function createSnowmanCharacter(scale = 1) {
     leftArm.rotation.x = (armSwingBase * 1.2 + armSwingWalk) * armCalm + armLie;
     rightArm.rotation.z = leftArmBaseZ + armRest - stumbleFlail * state.stumbleDir;
     leftArm.rotation.z = rightArmBaseZ - armRest + stumbleFlail * state.stumbleDir;
+    if (shock.stiff > 0.001) { // v1.96: 固まる。腕の振りが止まる
+      rightArm.rotation.x *= 1 - shock.stiff; leftArm.rotation.x *= 1 - shock.stiff;
+    }
 
     // 足の交互運動(2つの丸い雪玉を前後に振り子運動させる、可愛らしい歩き方)
     state.walkPhase += delta * (4.2 * Math.max(state.walkBlend, 0.15));
@@ -877,6 +891,20 @@ export function createSnowmanCharacter(scale = 1) {
 
     blushLeft.material.opacity = effIntensity * 0.35;
     blushRight.material.opacity = effIntensity * 0.35;
+
+    // v1.96: 感電: びっくりした目・ビリビリ・光
+    if (shock.startled > 0.001) {
+      const sc = 1 + 0.4 * shock.startled;
+      eyeLeft.scale.x = eyeRight.scale.x = eyeBaseX * sc; eyeLeft.scale.z = eyeRight.scale.z = eyeBaseZ * sc;
+      eyeLeft.scale.y = eyeRight.scale.y = 1 + 0.35 * shock.startled; // まばたきを止めて、目をまんまるに
+    } else { eyeLeft.scale.x = eyeRight.scale.x = eyeBaseX; eyeLeft.scale.z = eyeRight.scale.z = eyeBaseZ; }
+    const jt = shock.jitter;
+    rollPivot.position.x = jt > 0.001 ? (Math.random() - 0.5) * 0.05 * jt : 0;
+    rollPivot.position.z = jt > 0.001 ? (Math.random() - 0.5) * 0.05 * jt : 0;
+    hatGroup.rotation.z = jt > 0.001 ? (Math.random() - 0.5) * 0.3 * jt : 0;
+    shockGlowMat.opacity = shock.glow * 0.6;
+    bodyGlow.visible = headGlow.visible = shock.glow > 0.01;
+    emote.lie = lieBackup;
   }
 
   return {
@@ -899,6 +927,11 @@ export function createSnowmanCharacter(scale = 1) {
     getHeadCover: () => headCoverKind,
     /** v1.44: 地面からの高さ(m)。ジャンプ中の伸び縮み・付属品の慣性に使う(毎フレーム渡す)。 */
     setJumpHeight(h) { jump.h = Math.max(0, +h || 0); },
+    /** v1.96: 感電の見た目(storm-events.js の shockPose())。null か {} で、ふだんに戻す。 */
+    setShock(p) {
+      shock.glow = (p && +p.glow) || 0; shock.jitter = (p && +p.jitter) || 0; shock.stiff = (p && +p.stiff) || 0;
+      shock.startled = (p && +p.startled) || 0; shock.lie = (p && +p.lie) || 0;
+    },
     setMouthOpen(amount) { state.mouthOverride = amount === null || amount === undefined ? null : Math.max(0, Math.min(1, amount)); },
     setIntensity(amount) { state.intensity = Math.max(0, Math.min(1, amount)); },
     /** 雪が降っている時などに呼ぶ。trueの間、小さくぴょんぴょん喜ぶ。 */

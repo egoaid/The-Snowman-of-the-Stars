@@ -123,6 +123,16 @@
       this._bell(now + 0.28, f, 0.07, 1.2);
     },
 
+    /** v1.96: 雪玉が星の松明に当たった瞬間の鐘。音程は、そのたびにランダム(ペンタトニックの中から、ときどき1オクターブ下)。 */
+    playHit() {
+      if (!this.ensureStarted()) return;
+      const ctx = SoundEngine.getContext();
+      const now = ctx.currentTime + 0.005;
+      const f = pick(MID.concat(HIGH)) * (Math.random() < 0.3 ? 0.5 : 1);
+      this._bell(now, f, 0.4, 2.4);
+      this._bell(now + 0.21, f * (Math.random() < 0.5 ? 1 : 1.5), 0.09, 1.4); // 小さなこだま
+    },
+
     /** 回収: 明るい2音とかすかなきらめき。 */
     playCollect() {
       if (!this.ensureStarted()) return;

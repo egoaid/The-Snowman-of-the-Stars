@@ -47,7 +47,7 @@ import { createTraversal, createVerticalState, createClimbController, createTrav
 import { createStagnationWatchdog, createRepeatDetector, blockerSignature, findRescueSpot, hopPoint } from './wander-watchdog.js';
 import { createFallingStarSystem, pickStarLandingSpot } from './falling-star.js';
 import { getRecipe, recipeInputs, RECIPES, pebblesFromRock, ROCK_COLLECT_MAX_SCALE } from '../recipes.js'; // v1.69 / v1.74(recipeInputs)
-import { createStarTorchMesh, tickStarTorch, setStarTorchFar, STAR_TORCH } from './star-torch.js';
+import { createStarTorchMesh, tickStarTorch, setStarTorchFar, setStarTorchTilt, setStarTorchFlicker, STAR_TORCH } from './star-torch.js';
 import { createButterflyVisit } from './butterfly-visit.js'; // v1.78: 寝ている雪だるまの鼻に蝶がとまる
 import { createActivityLog } from './activity-log.js'; // v1.80: 活動ログ(歩いた経路と出来事を記録して、あとで解析する) // v1.74: 星の松明
 import { createDebugLog } from './debug-log.js'; // v1.69: 動作確認用のログ(JSONで書き出せる)
@@ -73,7 +73,10 @@ import { pickClearings, CLEARING } from './clearings.js';
 import { computeBufferSize } from './buffer-size.js';
 import { iglooMeltStep, iglooScale, iglooIsSolid } from '../igloo-rules.js';
 import { SNOWBALL, canGather, nextMelt, throwVelocity, stepSnowball } from '../snowball.js';
-import { fireAction, nextWet, pickWetLimit } from '../fire-rules.js';
+import { fireAction, fireStrength } from '../fire-rules.js';
+import { GAME_DAY_REAL_SEC } from '../snow-melt.js';
+import { findHit, hitSway, stepSway, newSway, torchFlickerMul, fireDipMul } from '../snowball-targets.js';
+import { STORM, isUnderCanopy, shelterSpot, createRainOnset, rollShelter, pickShelterStay, createStrikePlanner, shockPhase, shockPose, SHOCK_TOTAL } from '../storm-events.js';
 import { createCraftingTableMesh, CRAFTING_TABLE } from './crafting-table.js';
 import { createEquipment, EQUIP_SLOTS } from '../equipment.js';
 import { createJackOLanternMesh, createLanternLightPool } from './lantern.js';
@@ -675,6 +678,14 @@ export function initScene(mountEl, options = {}) {
     turnHeadingTarget: 0,
   };
 
+  // --- v1.96: 雨宿り・感電(見守りモードだけ)。きまりは storm-events.js。 ---
+  const treeCanopy = { x: bigTreeX, z: bigTreeZ, radius: bigTreeBuilt.canopyRadius };
+  const shelterInterest = { active: false, timer: -1 }; // timer>=0: 動き出すまでの秒数
+  const fleeNow = { pending: false };
+  const shockState = { active: false, age: 0, fled: false };
+  const leafCover = () => 1 - (season.getBroadleafDefoliation ? season.getBroadleafDefoliation() : 0); // 木の葉が茂っている割合(秋〜冬は少ない)
+  const snowmanUnderTree = () => isUnderCanopy(wander.pos.x, wander.pos.y, { x: treeCanopy.x, z: treeCanopy.z, radius: treeCanopy.radius * leafCover() });
+
   /**
    * 「対象の近くでくつろぐ/佇む」場所を、固定座標ではなくその都度、
    * 現在地から見た対象の手前側(近い側)に計算する。
@@ -834,6 +845,22 @@ export function initScene(mountEl, options = {}) {
   const chestStandOf = (it) => ({ x: it.x + Math.sin(it.mesh.rotation.y) * 1.15, z: it.z + Math.cos(it.mesh.rotation.y) * 1.15 }); // しまう時に立つ場所(正面)
   function pickNextWanderActivityRaw() {
     if (forcedRestActivity) { const a = forcedRestActivity; forcedRestActivity = null; return a; }
+    // v1.96: 感電のあと: 木から離れて、遠くへ逃げる(いちばん遠い候補へ)
+    if (fleeNow.pending) {
+      fleeNow.pending = false;
+      let best = null, bd = -1;
+      for (let i = 0; i < 7; i++) { const c = pickWanderTarget(); const d = Math.hypot(c.x - treeCanopy.x, c.z - treeCanopy.z); if (d > bd) { bd = d; best = c; } }
+      if (best) return { target: { x: best.x, z: best.z }, restMin: 2, restMax: 5, activity: 'idle' };
+    }
+    // v1.96: 雨宿り: 大きな木の樹冠の下へ行って、しばらく過ごす(雨の中でも、そのあとは、ふつうに動く)
+    if (shelterInterest.active) {
+      shelterInterest.active = false;
+      if (leafCover() > 0.5 && !snowmanUnderTree()) {
+        const sp = shelterSpot(treeCanopy, { x: wander.pos.x, z: wander.pos.y });
+        const stay = pickShelterStay();
+        return { target: { x: sp.x, z: sp.z }, restMin: stay, restMax: stay + 12, activity: 'idle' };
+      }
+    }
     // v1.38: 落ちてきた星が気になっている時は、そちらへ向かう(星が先に消えていたら忘れる)
     // v1.54: ポーチが満杯なら、探索をやめてテントのチェストへ帰る(チェストが満杯なら、そのまま持ち歩く)
     if (pouch.isFull() && !pouch.isEmpty()) { // v1.84: いちばん近い、空きのある「置いたチェスト」へしまいに行く(無ければ、そのまま持ち歩く)
@@ -1572,7 +1599,7 @@ export function initScene(mountEl, options = {}) {
     }
     // 丸太へ跳び乗る時は、空中で勢いよく前へ出る(歩く速さのままだと、跳び上がっても幹の手前に降りてしまう)
     if (nonWalkVertical.grounded) wander.jumpAssist = false;
-    const step = Math.min(dist, WANDER_SPEED * (wander.jumpAssist ? AI_JUMP_FORWARD_BOOST : 1) * delta);
+    const step = Math.min(dist, WANDER_SPEED * (wander.speedMul || 1) * (wander.jumpAssist ? AI_JUMP_FORWARD_BOOST : 1) * delta); // v1.96: 感電のあとは、速く逃げる(speedMul)
     let seekX = dx / dist, seekZ = dz / dist;
     // フェーズC: 進行方向のすぐ先に障害物があれば、目的地方向とブレンド
     // して少し避ける。避けきれない(左右どちらも塞がっている等)場合は
@@ -2678,7 +2705,7 @@ export function initScene(mountEl, options = {}) {
   // ゲーム内時計: マインクラフトと同じ体感速度(ゲーム内1時間 ≈ 現実50秒、
   // つまりゲーム内1日 ≈ 現実20分)で進む。起動時は現実の現在時刻に同期する。
   let gameHour = options.hourOverride ?? (new Date().getHours() + new Date().getMinutes() / 60);
-  const GAME_HOURS_PER_REAL_SECOND = 1 / 50;
+  const GAME_HOURS_PER_REAL_SECOND = 24 / GAME_DAY_REAL_SEC; // v1.96: 昼夜1周=現実1200秒(雪解けの「1日」と同じ長さ。snow-melt.js)
   let lastCreatureBucket = null;
 
   applyTimeOfDay(gameHour);
@@ -4023,12 +4050,14 @@ export function initScene(mountEl, options = {}) {
     }
   }
   function updatePlacedFires(delta) {
-    const rain = weather.getRainIntensity();
+    // v1.96: 雨では、焚き火は消えない。雨の間は勢いと光が少し弱まり、止むと元に戻る。雪玉が当たると、一瞬消えかかって、すぐ戻る。
+    const target = fireStrength(weather.getRainIntensity());
     for (const it of placedItems) {
-      if (!it.fire || !it.fire.isLit()) continue;
-      it.wet = nextWet(it.wet || 0, delta, rain);
-      if (!it.wetLimit) it.wetLimit = pickWetLimit();
-      if (it.wet > it.wetLimit) setFireLit(it, false, 'rain');
+      if (!it.fire) continue;
+      it.rainK = (it.rainK === undefined ? target : it.rainK) + (target - (it.rainK === undefined ? target : it.rainK)) * Math.min(1, delta * 0.6);
+      it.fireHitAge = (it.fireHitAge === undefined ? 99 : it.fireHitAge) + delta;
+      it.fireK = it.rainK * fireDipMul(it.fireHitAge);
+      it.fire.setStrength(it.fireK);
     }
   }
   const lanternEmitters = [];
@@ -4043,12 +4072,18 @@ export function initScene(mountEl, options = {}) {
     for (const it of placedItems) {
       if (it.itemId !== 'star_torch') continue;
       tickStarTorch(it.mesh, clock.elapsedTime);
-      lanternEmitters.push({ x: it.x, y: it.mesh.position.y + STAR_TORCH.height + 0.1, z: it.z, intensity: STAR_TORCH.intensity, distance: STAR_TORCH.distance, color: STAR_TORCH.color, torch: it });
+      let fl = 1; // v1.96: 雪玉が当たると、軸がしなって「ぶるん」と戻り、光が少し点滅する
+      if (it.sway) {
+        stepSway(it.sway, delta); setStarTorchTilt(it.mesh, it.sway.ax, it.sway.az);
+        it.torchAge = (it.torchAge === undefined ? 99 : it.torchAge) + delta; fl = torchFlickerMul(it.torchAge); setStarTorchFlicker(it.mesh, fl);
+        if (it.torchAge > 3 && it.sway.ax === 0 && it.sway.az === 0) { it.sway = null; setStarTorchTilt(it.mesh, 0, 0); setStarTorchFlicker(it.mesh, 1); }
+      }
+      lanternEmitters.push({ x: it.x, y: it.mesh.position.y + STAR_TORCH.height + 0.1, z: it.z, intensity: STAR_TORCH.intensity * fl, distance: STAR_TORCH.distance, color: STAR_TORCH.color, torch: it });
     }
     // v1.95: 置いたかまくらの蝋燭も、光の枠を分け合う(溶けて小さくなるほど、弱くなる)
     for (const it of placedItems) if (it.igloo && it.melt < 0.85) lanternEmitters.push({ x: it.x + Math.sin(it.mesh.rotation.y) * 0.6, y: it.mesh.position.y + 0.7, z: it.z + Math.cos(it.mesh.rotation.y) * 0.6, intensity: 1.8 * (1 - it.melt), distance: 13, color: 0xffb066 });
     // v1.88: ついている焚き火も、光の枠を分け合う(カメラに近い順)
-    for (const it of placedItems) if (it.fire && it.fire.isLit()) lanternEmitters.push({ x: it.x, y: it.mesh.position.y + 0.55, z: it.z, intensity: 3.2, distance: 10, color: 0xff9a4a });
+    for (const it of placedItems) if (it.fire && it.fire.isLit()) lanternEmitters.push({ x: it.x, y: it.mesh.position.y + 0.55, z: it.z, intensity: 3.2 * (it.fireK === undefined ? 1 : it.fireK), distance: 10 * (0.85 + 0.15 * (it.fireK === undefined ? 1 : it.fireK)), color: 0xff9a4a }); // v1.96: 雨・雪玉で弱まる
     if (head === 'jack_o_lantern') { playerSnowman.headGroup.getWorldPosition(_lanternHeadPos); lanternEmitters.push({ x: _lanternHeadPos.x, y: _lanternHeadPos.y, z: _lanternHeadPos.z, ...LANTERN_WORN }); }
     lanternLights.update(lanternEmitters, camera.position.x, camera.position.y, camera.position.z, clock.elapsedTime);
     // v1.75: 光の枠から外れた(遠い)松明にも、見た目だけの光のにじみを出す。枠をもらえた松明は、本物の光が周りを照らす
@@ -4148,28 +4183,114 @@ export function initScene(mountEl, options = {}) {
     const s = sfx(); if (s && s.snowThrow) s.snowThrow(sfxRelative(b.x, b.y, b.z));
     return true;
   }
+  // --- v1.96: 雪玉の当たり判定と、当たった物ごとの反応 ---
+  //   当たる物: 木の幹と葉・岩・かまくら(入口は通り抜けられる)・置いた物ぜんぶ・焚き火・星の松明・たたんだテント。かまくらは傷つかない。
+  //   反応: 川=チャポン+水飛沫+波紋 / 草・花=少し倒れて約3秒で戻る / 焚き火=一瞬消えかかって戻る / 星の松明=しなって「ぶるん」+光の点滅+鐘(音程ランダム) / 蝶・蜂=必ずよける
+  const snowShapes = [];
+  const snowTapGrass = createPressField({ max: 14, restoreSec: 3 });
+  const snowTapFlowers = createPressField({ max: 8, restoreSec: 3 });
+  const bigLeaf = { rPer: bigTreeBuilt.canopyRadius / 2.2, topPer: bigTreeBuilt.canopyTop / 2.2 }; // 木の葉の茂みの大きさ(スケール1あたり)
+  function rebuildSnowballShapes() {
+    snowShapes.length = 0;
+    for (const c of worldColliders) snowShapes.push({ shape: 'cyl', kind: c.id.startsWith('rock') ? 'rock' : 'trunk', x: c.x, z: c.z, y0: c.y - c.height / 2, y1: c.y + c.height / 2, r: c.radius });
+    if (leafCover() > 0.3) { // 葉が茂っている間は、木の葉の茂みにも当たる
+      for (const tr of livingTreePositions) {
+        const r = bigLeaf.rPer * tr.scale * 0.8, g = terrainHeightAt(tr.x, tr.z);
+        snowShapes.push({ shape: 'sphere', kind: 'leaves', x: tr.x, z: tr.z, cy: g + bigLeaf.topPer * tr.scale - r, r });
+      }
+    }
+    for (const it of placedItems) {
+      const y0 = it.mesh.position.y;
+      if (it.igloo) { // かまくら: 殻に当たる。入口からは入れる。溶けて固体でなくなったら当たらない
+        if (iglooIsSolid(it.melt)) { const R = it.igloo.outerRadius * iglooScale(it.melt); snowShapes.push({ shape: 'dome', kind: 'igloo', x: it.x, z: it.z, baseY: y0, r: R, innerR: R * 0.8, doorYaw: it.mesh.rotation.y, doorHalf: it.igloo.doorwayHalfAngle, doorH: R * 0.6, ref: it }); }
+        continue;
+      }
+      if (it.fire) { snowShapes.push({ shape: 'cyl', kind: it.fire.isLit() ? 'fire' : 'solid', x: it.x, z: it.z, y0, y1: y0 + 0.95, r: 0.5, ref: it }); continue; }
+      if (it.itemId === 'star_torch') { snowShapes.push({ shape: 'cyl', kind: 'torch', x: it.x, z: it.z, y0, y1: y0 + 1.35, r: 0.17, ref: it }); continue; }
+      const solid = SOLID_PLACED[it.itemId];
+      const h = it.itemId === 'tent' ? 1.9 : it.chest ? 0.85 : it.itemId === 'crafting_table' ? 1.0 : 0.5;
+      snowShapes.push({ shape: 'cyl', kind: 'solid', x: it.x, z: it.z, y0, y1: y0 + h, r: solid ? solid.footprint * 0.9 : 0.3, ref: it });
+    }
+    if (!tentBundle.taken) snowShapes.push({ shape: 'cyl', kind: 'solid', x: tentBundle.x, z: tentBundle.z, y0: tentBundle.mesh.position.y, y1: tentBundle.mesh.position.y + 0.5, r: 0.6 });
+  }
   const snowballEnv = {
     groundAt: snowGround,
-    obstacleAt: (x, y, z) => { if (y > terrainHeightAt(x, z) + 6) return false; for (const o of collisionObstacles) if (Math.hypot(x - o.x, z - o.z) < o.radius + SNOWBALL.radius) return true; return false; }, // 木・岩・置いた物
+    hitAt: (x, y, z) => findHit(snowShapes, x, y, z, SNOWBALL.radius),
+    obstacleAt: (x, y, z) => { if (y > terrainHeightAt(x, z) + 2.2) return false; for (const o of collisionObstacles) if (Math.hypot(x - o.x, z - o.z) < o.radius + SNOWBALL.radius) return true; return false; }, // 形のない置いた物・倒木などの、低い所の予備の判定
     waterAt: (x, z) => dryWaterSurfaceAt(x, z),
   };
+  // 水飛沫(川に落ちた時の、青白い粒)
+  const SPLASH_MAX = 40;
+  const splashGeo = new THREE.BoxGeometry(0.05, 0.05, 0.05);
+  const splashMat = new THREE.MeshBasicMaterial({ color: 0xd6ecff });
+  const splashDrops = Array.from({ length: SPLASH_MAX }, () => { const m = new THREE.Mesh(splashGeo, splashMat); m.visible = false; scene.add(m); return { mesh: m, vx: 0, vy: 0, vz: 0, life: 0 }; });
+  let splashNext = 0;
+  function spawnWaterSplash(x, y, z, n) {
+    for (let i = 0; i < n; i++) {
+      const p = splashDrops[splashNext]; splashNext = (splashNext + 1) % SPLASH_MAX;
+      const a = Math.random() * Math.PI * 2, sp = 0.3 + Math.random() * 1.1;
+      p.vx = Math.cos(a) * sp; p.vz = Math.sin(a) * sp; p.vy = 2.4 + Math.random() * 2.6; p.life = 0.55 + Math.random() * 0.35;
+      p.mesh.position.set(x, y, z); p.mesh.scale.setScalar(0.7 + Math.random() * 0.9); p.mesh.visible = true;
+    }
+  }
+  function snowballHitKind(b, hit) { return hit === 'water' ? 'water' : hit === 'ground' ? 'ground' : (b.hit && b.hit.kind) || 'solid'; }
+  /** 当たった物ごとの反応 */
+  function onSnowballHit(b, hit) {
+    const kind = snowballHitKind(b, hit), x = b.x, z = b.z, s = sfx();
+    const rel = sfxRelative(b.x, b.y, b.z);
+    if (kind === 'water') { // 川: チャポン・水飛沫・波紋
+      const wy = Number.isFinite(snowballEnv.waterAt(x, z)) ? snowballEnv.waterAt(x, z) : b.y;
+      spawnWaterSplash(x, wy + 0.05, z, 16);
+      let tx = 0, tz = 0; try { const nr = nearestRiverPoint(x, z, riverSamplesForAvoid); tx = nr.tangentX || 0; tz = nr.tangentZ || 0; } catch (e) { /* 向きがなくても波紋は出る */ }
+      spawnWaterRipple(x, z, tx, tz); spawnWaterRipple(x + (Math.random() - 0.5) * 0.25, z + (Math.random() - 0.5) * 0.25, tx, tz);
+      if (s && s.waterPlop) s.waterPlop(rel);
+      return;
+    }
+    spawnSnowPuff(x, Math.max(b.y, snowGround(x, z)), z, 12, kind === 'ground' ? 2.0 : 2.0);
+    if (s && s.snowHit) s.snowHit(rel);
+    if (kind === 'ground') { // 草・花: 当たった所が少し倒れて、約3秒で元に戻る
+      const sd = weather.getSnowDepth();
+      if (sd < 0.5) {
+        const id = snowTapGrass.add(x, z, 0.9); snowTapGrass.release(id, clock.elapsedTime);
+        const fid = snowTapFlowers.add(x, z, 1.1); snowTapFlowers.release(fid, clock.elapsedTime);
+      }
+      return;
+    }
+    const ref = b.hit && b.hit.ref;
+    if (kind === 'fire' && ref) { ref.fireHitAge = 0; return; } // 焚き火: 一瞬消えかかる(すぐ戻る)
+    if (kind === 'torch' && ref) { // 星の松明: しなって「ぶるん」。光が点滅。鐘が鳴る(音程はランダム)
+      const sp = Math.hypot(b.vx, b.vz) || 1, wx = b.vx / sp, wz = b.vz / sp, yaw = ref.mesh.rotation.y;
+      ref.sway = ref.sway || newSway();
+      hitSway(ref.sway, Math.cos(yaw) * wx - Math.sin(yaw) * wz, Math.sin(yaw) * wx + Math.cos(yaw) * wz);
+      ref.torchAge = 0;
+      const bells = starBells(); if (bells) { bells.setListenerRelativePosition(rel.x, rel.y, rel.z); bells.playHit(); }
+    }
+    // かまくら・木・岩・置いた物: 傷つかず、雪玉が砕けて散るだけ
+  }
   function updateSnowballs(delta) {
+    if (snowballs.length) rebuildSnowballShapes();
     for (let i = snowballs.length - 1; i >= 0; i--) {
       const b = snowballs[i];
+      b.hit = null;
       const hit = stepSnowball(b, delta, snowballEnv);
       b.mesh.position.set(b.x, b.y, b.z);
       if (!hit) continue;
-      if (hit !== 'timeout') {
-        spawnSnowPuff(b.x, Math.max(b.y, snowGround(b.x, b.z)), b.z, 12, hit === 'water' ? 1.0 : 2.0);
-        const s = sfx(); if (s && s.snowHit) s.snowHit(sfxRelative(b.x, b.y, b.z));
-      }
+      if (hit !== 'timeout') onSnowballHit(b, hit);
       scene.remove(b.mesh); snowballs.splice(i, 1);
     }
+    // 蝶・蜂は、飛んでくる雪玉を、必ずよける
+    if (pollinators && pollinators.setThreats) pollinators.setThreats(snowballs.map((b) => ({ x: b.x, y: b.y, z: b.z, v: { x: b.vx, y: b.vy, z: b.vz } })));
     for (const p of puffs) {
       if (!p.mesh.visible) continue;
       p.life -= delta;
       if (p.life <= 0) { p.mesh.visible = false; continue; }
       p.vy -= 9.0 * delta; p.mesh.position.x += p.vx * delta; p.mesh.position.y += p.vy * delta; p.mesh.position.z += p.vz * delta;
+    }
+    for (const p of splashDrops) {
+      if (!p.mesh.visible) continue;
+      p.life -= delta;
+      if (p.life <= 0) { p.mesh.visible = false; continue; }
+      p.vy -= 9.8 * delta; p.mesh.position.x += p.vx * delta; p.mesh.position.y += p.vy * delta; p.mesh.position.z += p.vz * delta;
     }
   }
   // 雪面を集める(長押し)
@@ -4218,6 +4339,83 @@ export function initScene(mountEl, options = {}) {
     snowballMeltTimer = r.timer;
     if (r.melted && inventory.remove('snowball', 1)) { showPlaceNotice(tr('notice.snowballMelted')); debugLog.log('snowball.melted', {}); }
   }
+  // ================================================================
+  // v1.96: 雨宿り・落雷・感電(見守りモードだけ)。きまりは storm-events.js。
+  //   雨が降りはじめると、時々、大きな木の下で雨宿りする(樹冠の下は雨が降らない)。
+  //   雷雨の夜に、約25%の確率で、その夜に1回だけ、一番大きな木へ落ちる。その木の下にいたら感電する。
+  // ================================================================
+  const rainOnset = createRainOnset();
+  const strikePlanner = createStrikePlanner();
+  const umbrella = { bottomY: null, cover: -1 };
+  function updateRainUmbrella() {
+    if (umbrella.bottomY === null) { // 大木の樹冠の底(ここより下には、雨が降らない)
+      bigTree.updateMatrixWorld(true);
+      const bb = new THREE.Box3(); for (const m of bigTreeBuilt.canopyBlobs) bb.expandByObject(m);
+      umbrella.bottomY = bb.min.y + (bb.max.y - bb.min.y) * 0.35;
+    }
+    const cover = Math.round(leafCover() * 20) / 20;
+    if (cover !== umbrella.cover) { // 葉が減る(秋〜冬)ほど、傘は小さくなる
+      umbrella.cover = cover;
+      weather.setRainShelters(cover > 0.3 ? [{ x: treeCanopy.x, z: treeCanopy.z, radius: treeCanopy.radius * STORM.underFactor * cover, bottomY: umbrella.bottomY }] : []);
+    }
+  }
+  const shockFrozen = () => shockState.active && !shockPose(shockState.age).walkable;
+  function startShock() {
+    if (shockState.active) return;
+    shockState.active = true; shockState.age = 0; shockState.fled = false;
+    if (emoteBrain.isBusy()) emoteBrain.request('stand');
+    wander.walking = false;
+    const g = playerSnowman.group.position, s = sfx(); if (s && s.zap) s.zap(sfxRelative(g.x, g.y + 0.8, g.z));
+    debugLog.log('storm.shock', { x: +wander.pos.x.toFixed(1), z: +wander.pos.y.toFixed(1) });
+  }
+  function doStrike() { // 一番大きな木へ落雷。その下にいる雪だるまだけが感電する
+    const topY = bigTree.position.y + bigTreeBuilt.canopyTop;
+    weather.strikeAt(treeCanopy.x, topY, treeCanopy.z, 1);
+    debugLog.log('storm.strike', {});
+    if (wanderActive && snowmanUnderTree()) { startShock(); strikePlanner.notifyShock(clock.elapsedTime); }
+  }
+  let shelterDebugForce = false;
+  function updateStormEvents(delta) {
+    updateRainUmbrella();
+    const night = getTimeOfDay(gameHour) === 'night';
+    // --- 雨宿り ---
+    const rain = weather.getRainIntensity();
+    const onset = rainOnset.update(rain);
+    if (!wanderActive) shelterInterest.timer = -1;
+    else if ((onset || shelterDebugForce) && shelterInterest.timer < 0 && leafCover() > 0.5 && !shockState.active) {
+      const delay = shelterDebugForce ? 0.5 : rollShelter({ asleep: emoteBrain.isSleeping() });
+      shelterDebugForce = false;
+      if (delay !== null) shelterInterest.timer = delay;
+    }
+    if (shelterInterest.timer >= 0) {
+      shelterInterest.timer -= delta;
+      if (shelterInterest.timer < 0) {
+        shelterInterest.timer = -1;
+        if (wanderActive && rain >= STORM.rainOff && !snowmanUnderTree()) {
+          shelterInterest.active = true;
+          if (wander.waiting && wander.holdHeading == null) wander.waitTimer = Math.min(wander.waitTimer, 0.8 + Math.random() * 1.8); // 待機中なら、気づいてほどなく歩き出す
+        }
+      }
+    }
+    // --- 落雷 ---
+    if (strikePlanner.update({ now: clock.elapsedTime, storm: weather.getWeather() === 'storm', night, watching: wanderActive })) doStrike();
+    // --- 感電の流れ ---
+    if (shockState.active) {
+      shockState.age += delta;
+      const pose = shockPose(shockState.age);
+      playerSnowman.setShock(pose);
+      if (pose.phase === 'flee') {
+        if (!shockState.fled) { // 起き上がったら、元気に逃げ出す
+          shockState.fled = true; fleeNow.pending = true;
+          wander.collectTask = null; wander.baseTask = null; wander.holdHeading = null; clearRestSpot();
+          wander.waiting = true; wander.waitTimer = 0;
+        }
+        wander.speedMul = pose.fleeSpeedMul || 1;
+      }
+      if (shockState.age >= SHOCK_TOTAL || !wanderActive) { shockState.active = false; wander.speedMul = 1; playerSnowman.setShock(null); }
+    }
+  }
+
   function updateSnowStuff(delta) {
     updateSnowballs(delta);
     updateGather();
@@ -4431,7 +4629,7 @@ export function initScene(mountEl, options = {}) {
   function updateEmote(delta) {
     const g = playerSnowman.group;
     const px = g.position.x, pz = g.position.z, hd = g.rotation.y;
-    const autoAllowed = wanderActive && !editMode.isEnabled();
+    const autoAllowed = wanderActive && !editMode.isEnabled() && !shockState.active; // v1.96: 感電の最中は、座る・寝るの自動開始をしない
     const night = getTimeOfDay(gameHour) === 'night';
     // 場所の確認: 座っている間と、座りたくなって落ち着いて待っている間だけ、0.4秒ごとに。
     // v1.77: 確認を始める時は、すぐ確かめる(前の場所の古い結果を使わない。以前は、一度「だめ」になると、その結果が残って、二度と座らなかった)
@@ -4482,7 +4680,7 @@ export function initScene(mountEl, options = {}) {
       autoAllowed, calm, spotOk: emoteState.spotOk,
       isNight: night,
       canLie: emoteState.canLie,
-      interrupt: autoAllowed && starInterest.active, // 星に向かうと決めたら、起きて出かける
+      interrupt: autoAllowed && (starInterest.active || shelterInterest.active), // 星に向かうと決めたら・雨が気になったら、起きて出かける
     });
     if (mode === 'walk') {
       // 歩行モード: 座っている間・ホイールを開いている間は、歩けない。歩こうとしたら立つ(寝ていたら、起きて座ってから)
@@ -4511,7 +4709,7 @@ export function initScene(mountEl, options = {}) {
       walk.update(delta);
     }
     if (wanderActive) {
-      if (emoteBrain.isBusy()) wander.walking = false; // v1.73: 座っている・寝ている間は、見守りの移動を止める(動作・目的地はそのまま残す)
+      if (emoteBrain.isBusy() || shockFrozen()) wander.walking = false; // v1.73: 座っている・寝ている間は、見守りの移動を止める(動作・目的地はそのまま残す)。v1.96: 感電で固まる・倒れている間も止める
       else updateWanderAI(delta);
     }
 
@@ -4619,6 +4817,7 @@ export function initScene(mountEl, options = {}) {
     updatePlacedIgloos(delta); // v1.95
     updatePlacementGuide();   // v1.90
     updateSnowStuff(delta);   // v1.94
+    updateStormEvents(delta); // v1.96: 雨宿り・落雷・感電
     updateLanterns(delta);
     updateButterfly(delta, t); // v1.78: 鼻にとまる蝶
     updateSnowmanStarReaction(delta);
@@ -4708,7 +4907,11 @@ export function initScene(mountEl, options = {}) {
       playerSnowman.group.visible = true;
     }
 
-    if (pressField.update(t)) setGrassPressZones(pressField.list(t)); // v1.81
+    { // v1.81 + v1.96: 置いた物の下の草に、雪玉が当たって倒れた所(約3秒で戻る)を足す。雪玉のほうを先に入れて、数の上限で切れないようにする
+      const pfCh = pressField.update(t), tapCh = snowTapGrass.update(t);
+      if (pfCh || tapCh) setGrassPressZones(snowTapGrass.list(t).map((z) => ({ ...z, amount: z.amount * 0.55 })).concat(pressField.list(t)));
+    }
+    if (poppyField && snowTapFlowers.update(t)) poppyField.setTaps(snowTapFlowers.list(t).map((z) => ({ ...z, amount: z.amount * 0.8 }))); // v1.96
     updateGrass(t, snowX, snowZ); // v1.34: 雪だるまの位置を渡し、近くの草が踏まれて揺れるようにする
     if (poppyField) poppyField.update(t);
     if (pollinators) {
@@ -4965,6 +5168,20 @@ export function initScene(mountEl, options = {}) {
     getDefaultWalkView: () => DEFAULT_WALK_VIEW,
     setWander,
     isWandering: () => wanderActive,
+    // v1.96(検証用): 雨宿り・落雷・感電・雪玉の当たり判定
+    debugStorm: {
+      strike: () => doStrike(), shock: () => startShock(), shelter: () => { shelterDebugForce = true; },
+      state: () => ({ shock: shockState.active ? { ...shockState, phase: shockPose(shockState.age).phase } : null, shelter: { ...shelterInterest }, underTree: snowmanUnderTree(), leafCover: leafCover(), planner: strikePlanner.state(), speedMul: wander.speedMul || 1 }),
+      moveSnowmanTo: (x, z) => { wander.pos.set(x, z); },
+    },
+    debugSnowball: {
+      shapes: () => { rebuildSnowballShapes(); const out = {}; for (const sh of snowShapes) out[sh.kind] = (out[sh.kind] || 0) + 1; return out; },
+      throwDir: (dx, dy, dz, from) => { // 指定の向き(と、あれば始点)へ雪玉を1個飛ばす。持ち物は減らさない
+        const dir = new THREE.Vector3(dx, dy, dz).normalize(), v = throwVelocity(dir), o = from || { x: camera.position.x, y: camera.position.y, z: camera.position.z };
+        const mesh = new THREE.Mesh(snowballGeo, snowballMat); const bb = { mesh, x: o.x, y: o.y, z: o.z, ...v, age: 0 }; mesh.position.set(bb.x, bb.y, bb.z); scene.add(mesh); snowballs.push(bb); return true;
+      },
+      fireStrength: () => placedItems.filter((i) => i.fire).map((i) => +(i.fireK === undefined ? 1 : i.fireK).toFixed(2)),
+    },
     setCinemaMode,
     isCinemaMode: () => cinemaMode,
     getMode: () => mode,

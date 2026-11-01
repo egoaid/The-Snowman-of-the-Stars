@@ -85,7 +85,8 @@ export function tickStarTorch(mesh, t) {
   const ud = mesh && mesh.userData && mesh.userData.starTorch; if (!ud) return;
   const s = t + ud.seed;
   const pulse = 1 + 0.07 * Math.sin(s * 1.7) + 0.035 * Math.sin(s * 3.1 + 1);
-  if (ud.glow) { ud.glow.scale.setScalar(1.0 * pulse); ud.glow.material.opacity = 0.72 + 0.13 * Math.sin(s * 1.7 + 0.5); }
+  const fl = ud.flickerMul === undefined ? 1 : ud.flickerMul; // v1.96: 雪玉が当たった時の、光の点滅
+  if (ud.glow) { ud.glow.scale.setScalar(1.0 * pulse * (0.8 + 0.2 * fl)); ud.glow.material.opacity = (0.72 + 0.13 * Math.sin(s * 1.7 + 0.5)) * fl; }
   if (ud.far) { // 遠い松明の光のにじみ: ふわっと出て、ふわっと消える。ゆっくり脈打つ
     const cur = ud.far.userData.k || 0, k = cur + (ud.farTarget - cur) * 0.06;
     ud.far.userData.k = k;
@@ -107,4 +108,19 @@ export function createHeldStarTorch() {
   body.scale.setScalar(0.26);
   const holder = new THREE.Group(); holder.add(body); holder.rotation.z = 0.2;
   return holder;
+}
+
+/**
+ * v1.96: 雪玉が当たった時の、しなり。足もと(メッシュの原点)を支点に、先を (sx, sz) だけ傾ける。
+ * sx, sz は、松明のローカル座標での「先の振れ(ラジアン)」。
+ */
+export function setStarTorchTilt(mesh, sx, sz) {
+  if (!mesh) return;
+  if (mesh.rotation.order !== 'YXZ') mesh.rotation.order = 'YXZ'; // まず向き(yaw)、そのあとで傾ける
+  mesh.rotation.x = sz;   // +x回転は、先を +z へ倒す
+  mesh.rotation.z = -sx;  // +z回転は、先を -x へ倒す
+}
+/** v1.96: 光の点滅の倍率(0〜1)を渡す。1=ふだん。 */
+export function setStarTorchFlicker(mesh, mul) {
+  const ud = mesh && mesh.userData && mesh.userData.starTorch; if (ud) ud.flickerMul = mul;
 }

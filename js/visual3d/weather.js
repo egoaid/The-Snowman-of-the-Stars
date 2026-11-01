@@ -20,6 +20,7 @@ import { makeRng, randRange } from './rng.js';
 import { terrainHeightAt } from './terrain.js';
 import { getRiver, nearestRiverPoint, getWaterSurfaceAt } from './river.js';
 import { getToonGradientMap, getCloudGradientMap } from './shading.js';
+import { snowMeltSeconds } from '../snow-melt.js';
 
 const RAIN_COUNT = 320;
 const RAIN_RADIUS = 11; // プレイヤーを中心にした雨の描画範囲(半径)
@@ -700,6 +701,22 @@ export function createWeatherSystem(scene, options = {}) {
     boltMat.needsUpdate = true;
   }
 
+  // v1.96: 雨を遮る所(大木の樹冠など)。[{x, z, radius, bottomY}] 円の内側で、bottomY(世界の高さ)より下には、雨が降らない。
+  let rainShelters = [];
+  /** v1.96: 指定の場所(木のてっぺん)へ、雷を1回落とす。稲光・フラッシュ・雷鳴(onLightningの購読先)は、ふつうの雷と同じ。 */
+  function strikeAt(x, topY, z, power = 1) {
+    const h = Math.max(10, Math.min(CLOUD_HEIGHT - topY, 40));
+    boltSprite.position.set(x, topY + h / 2, z);
+    boltSprite.scale.set(h * 0.5, h, 1);
+    boltMat.map = boltTextures[Math.floor(rng() * boltTextures.length)];
+    boltMat.needsUpdate = true;
+    boltSprite.visible = true;
+    boltMat.opacity = 1;
+    boltFade = 0.26;
+    flashStrength = Math.min(1, power);
+    for (const cb of lightningCallbacks) cb(power);
+  }
+
   function triggerLightning(cameraPos) {
     const power = randRange(rng, 0.35, 1) * (0.6 + stormFactor * 0.4);
     positionBolt(cameraPos);
@@ -816,17 +833,19 @@ export function createWeatherSystem(scene, options = {}) {
     stormFactor += (targetStormFactor - stormFactor) * Math.min(1, d * 0.6);
 
     // --- 積雪量(降っている間ゆっくり増え、止むとゆっくり融ける) ---
-    // 2026-09(春の融雪): 「春になっても雪が溶けにくいのは変。早めに
-    // 溶かして」との指摘に対応。春(currentSeason==='spring')の間は、
-    // 融雪速度を大幅に速める(冬の間や、単に晴れ間で一時的に降っていない
-    // だけの時は、これまで通りゆっくりにしておく)。
-    const meltRateMul = currentSeason === 'spring' ? 4.5 : 1;
+    // v1.96: 冬のあとで季節を変えた時に、雪が消えるのが遅すぎたため、冬以外の季節は
+    //   「全部消えるまでの時間」で決める(春=ゲーム内1日、夏=半日、秋=2日。snow-melt.js)。
+    //   冬の間は、これまでどおり降っていない時だけゆっくり融ける。
+    const meltSec = snowMeltSeconds(currentSeason);
     if (currentWeather === 'snow' && snowIntensity > 0.1) {
       snowCoverage = Math.min(1, snowCoverage + SNOW_COVERAGE_GAIN * d);
       snowDepth = Math.min(SNOW_DEPTH_MAX, snowDepth + SNOW_DEPTH_GAIN_PER_SEC * d);
+    } else if (meltSec) {
+      snowCoverage = Math.max(0, snowCoverage - d / meltSec);
+      snowDepth = Math.max(0, snowDepth - (SNOW_DEPTH_MAX / meltSec) * d);
     } else {
-      snowCoverage = Math.max(0, snowCoverage - SNOW_COVERAGE_DECAY * meltRateMul * d);
-      snowDepth = Math.max(0, snowDepth - SNOW_DEPTH_DECAY_PER_SEC * meltRateMul * d);
+      snowCoverage = Math.max(0, snowCoverage - SNOW_COVERAGE_DECAY * d);
+      snowDepth = Math.max(0, snowDepth - SNOW_DEPTH_DECAY_PER_SEC * d);
     }
 
     // --- 天候の自動サイクル(オートモード中のみ) ---
@@ -849,6 +868,19 @@ export function createWeatherSystem(scene, options = {}) {
       for (let i = 0; i < RAIN_COUNT; i++) {
         const drop = drops[i];
         drop.y -= drop.speed * fallSpeedMul * d;
+        // v1.96: 大きな木の樹冠の下では、葉が傘になって、雨が通らない(樹冠の底より下へ入った雨粒は、着地せずに上へ戻す)
+        if (rainShelters.length) {
+          const wy = cameraPos.y + drop.y, wx0 = cameraPos.x + drop.ox, wz0 = cameraPos.z + drop.oz;
+          let blocked = false;
+          for (const sh of rainShelters) {
+            if (wy < sh.bottomY && Math.hypot(wx0 - sh.x, wz0 - sh.z) < sh.radius) { blocked = true; break; }
+          }
+          if (blocked) {
+            drop.y = RAIN_TOP;
+            drop.ox = randRange(rng, -RAIN_RADIUS, RAIN_RADIUS);
+            drop.oz = randRange(rng, -RAIN_RADIUS, RAIN_RADIUS);
+          }
+        }
         if (drop.y < groundPlaneRel || drop.y < HARD_BOTTOM_REL) {
           // 着地: この瞬間の実際の(x,z)で1回だけ正確な地形/川判定をする
           const worldX = cameraPos.x + drop.ox;
@@ -1018,6 +1050,8 @@ export function createWeatherSystem(scene, options = {}) {
     setWeatherWeights,
     getSkyModifier,
     onLightning,
+    strikeAt,
+    setRainShelters: (list) => { rainShelters = Array.isArray(list) ? list : []; },
     setSunDirection,
     // 水面処理がoffの時は、川への着水で波紋を登録しない(false)
     setWaterRipplesEnabled: (enabled) => { waterRipplesEnabled = !!enabled; },

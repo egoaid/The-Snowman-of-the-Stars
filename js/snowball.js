@@ -4,6 +4,7 @@
 //   ・集めた所の雪面は、少しへこんで、約5秒で元に戻る。
 //   ・持ち物の中の雪玉は、雪のない暖かい時期(雪が積もっていない・降っていない)に、少しずつ溶ける。チェストの中は、溶けない。
 //   ・投げる: 雪玉を手に持ってクリック。物・木・水面・雪面に当たると、飛び散って消える。
+//   ・v1.96: 当たる物を増やした(かまくら・木の幹と葉・岩・置いた物ぜんぶ。snowball-targets.js)。当たった物ごとに反応がある(scene3d.js)。
 export const SNOWBALL = {
   gatherSec: 0.45,      // 1個集めるのにかかる時間(長押し)
   minDepth: 0.08,       // これ以上積もっていれば、集められる(m)
@@ -30,7 +31,7 @@ export function throwVelocity(dir) { return { vx: dir.x * SNOWBALL.speed, vy: di
 /**
  * 雪玉を dt 秒だけ進める。当たったら、当たった物の種類を返す(null=まだ飛んでいる)。
  * @param {{x,y,z,vx,vy,vz,age}} b 雪玉の状態(その場で更新する)
- * @param {{groundAt:(x,z)=>number, obstacleAt:(x,y,z)=>boolean, waterAt:(x,z)=>number}} env
+ * @param {{groundAt:(x,z)=>number, obstacleAt?:(x,y,z)=>boolean, hitAt?:(x,y,z)=>object|null, waterAt:(x,z)=>number}} env
  *   groundAt: 雪面の高さ / obstacleAt: 木・岩・置いた物などにぶつかるか / waterAt: 水面の高さ(水がなければ NaN)
  * @returns {null|'ground'|'obstacle'|'water'|'timeout'}
  */
@@ -40,7 +41,9 @@ export function stepSnowball(b, dt, env) {
   for (let i = 0; i < steps; i++) {
     b.vy -= SNOWBALL.gravity * h;
     b.x += b.vx * h; b.y += b.vy * h; b.z += b.vz * h;
-    if (env.obstacleAt(b.x, b.y, b.z)) return 'obstacle';
+    // v1.96: 形(円柱・球・ドーム)で、当たった物の種類までわかる hitAt を先に調べる。当たった形は b.hit に残る。
+    if (env.hitAt) { const hh = env.hitAt(b.x, b.y, b.z); if (hh) { b.hit = hh; return 'obstacle'; } }
+    if (env.obstacleAt && env.obstacleAt(b.x, b.y, b.z)) return 'obstacle';
     const w = env.waterAt(b.x, b.z);
     if (Number.isFinite(w) && b.y <= w) return 'water';
     if (b.y <= env.groundAt(b.x, b.z) + SNOWBALL.radius * 0.5) return 'ground';

@@ -46,6 +46,7 @@
 
 import * as THREE from 'three';
 import { getToonGradientMap } from './shading.js';
+import { dodgePush, stepDodge, newDodge } from '../snowball-targets.js';
 
 // ================= 共通素材(雪だるまと共通の「顔」の考え方) =================
 const EYE_MATERIAL = new THREE.MeshBasicMaterial({ color: 0x2c2822 });
@@ -484,6 +485,12 @@ export function createPollinatorField(terrainHeightFn, opts = {}) {
     group.add(mesh);
   }
 
+  // v1.96: 雪玉がくると、蝶も蜂も、当たる寸前に必ずよける(当たらない)。よけた分(dodge)は、あとで元の飛び方へ戻る。
+  for (const c of creatures) { c.dodge = newDodge(); c.dodgeApplied = new THREE.Vector3(); }
+  let threats = []; // [{x,y,z, v:{x,y,z}}] 飛んでいる雪玉(scene3d.js が毎フレーム渡す)
+  function setThreats(list) { threats = list || []; }
+  const _dodgeBase = new THREE.Vector3();
+
   // 2026-09(v1.28): 「雨・雷雨のとき蝶と蜂が空中で一時停止する」不具合の修正。
   // 原因: 表示(group.visible)を、このファイルのsetActive()と、scene3d.jsの
   // applySeasonAndSnow()(積雪で埋まっていない限り常にtrueにする)の2か所が
@@ -532,6 +539,7 @@ export function createPollinatorField(terrainHeightFn, opts = {}) {
     for (const c of creatures) {
       c.mesh.scale.setScalar(Math.max(scale, 1e-3));
       prevPos.copy(c.mesh.position);
+      c.mesh.position.sub(c.dodgeApplied); // v1.96: よけ分を外した、本来の位置から動かす
       if (c.kind === 'butterfly') {
         const x = c.homeX + Math.sin(t * c.speed + c.phaseX) * c.radius;
         const z = c.homeZ + Math.sin(t * c.speed * 0.7 + c.phaseZ) * c.radius * 0.8;
@@ -600,6 +608,24 @@ export function createPollinatorField(terrainHeightFn, opts = {}) {
         flapWings(c.wings, t, c.flutterPhase, 20, Math.PI * 0.4);
       }
 
+      // v1.96: 雪玉の通り道から、よける(いちばん近づく地点が近いほど、強く)。雪玉がなくなれば、バネで元へ戻る。
+      {
+        const o = c.dodge, cur = c.mesh.position;
+        _dodgeBase.copy(cur);
+        let ax = 0, ay = 0, az = 0;
+        for (const th of threats) {
+          const pu = dodgePush(th, th.v, { x: cur.x + o.x, y: cur.y + o.y, z: cur.z + o.z });
+          ax += pu.x; ay += pu.y; az += pu.z;
+        }
+        const moving = ax !== 0 || ay !== 0 || az !== 0 || Math.abs(o.x) + Math.abs(o.y) + Math.abs(o.z) + Math.abs(o.vx) + Math.abs(o.vy) + Math.abs(o.vz) > 1e-4;
+        if (moving) stepDodge(o, { x: ax, y: ay, z: az }, Math.min(dt, 0.05));
+        else { o.x = o.y = o.z = o.vx = o.vy = o.vz = 0; }
+        cur.x += o.x; cur.y += o.y; cur.z += o.z;
+        const floorY = terrainHeightFn(cur.x, cur.z) + 0.15;
+        if (cur.y < floorY) cur.y = floorY; // 地面にもぐらない
+        c.dodgeApplied.subVectors(cur, _dodgeBase);
+      }
+
       // 進行方向(直前フレームからの移動方向)を向かせる。ほぼ静止している
       // 場合(到着直後など)は向きを変えない。2026-09(改訂2): 即座に
       // lookAt()で振り向かせるのではなく、理想の向きへQuaternionを
@@ -616,7 +642,7 @@ export function createPollinatorField(terrainHeightFn, opts = {}) {
     }
   }
 
-  return { group, update, setActive, isActive: () => active, getFade: () => fade };
+  return { group, update, setActive, setThreats, isActive: () => active, getFade: () => fade };
 }
 
 // --- 蜂の巣(木の幹に取り付ける簡易な形状) ---

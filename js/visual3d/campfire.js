@@ -101,11 +101,16 @@ export function createCampfire(scale = 1, { lit = true, withLight = true } = {})
   }
   setLit(isLit);
 
+  // v1.96: 火の勢い(0〜1。1=ふだん)。雨の間は少し弱まり、雪玉が当たると一瞬消えかかる。0にはしない(消えない)。
+  let strength = 1;
+  function setStrength(k) { strength = Math.max(0.05, Math.min(1, k)); embers.material.opacity = 0.85 * (0.4 + 0.6 * strength); }
+
   function update(time) {
     if (!isLit) return;
     const flicker = 0.85 + Math.sin(time * 11) * 0.08 + Math.sin(time * 23.1) * 0.05;
-    if (light) light.intensity = 3.2 * flicker;
-    flameGroup.scale.set(1, 0.9 + flicker * 0.25, 1);
+    if (light) light.intensity = 3.2 * flicker * strength;
+    const sw = 0.55 + 0.45 * strength; // 弱いと、細く低くなる
+    flameGroup.scale.set(sw, (0.9 + flicker * 0.25) * (0.25 + 0.75 * strength), sw);
     flameGroup.rotation.y = Math.sin(time * 3) * 0.3;
 
     const positions = emberGeo.attributes.position;
@@ -117,5 +122,5 @@ export function createCampfire(scale = 1, { lit = true, withLight = true } = {})
     positions.needsUpdate = true;
   }
 
-  return { group, update, light, setLit, isLit: () => isLit };
+  return { group, update, light, setLit, isLit: () => isLit, setStrength, getStrength: () => strength };
 }

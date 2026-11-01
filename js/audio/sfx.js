@@ -201,6 +201,28 @@
         noiseHit(ctx, out, t, { type: 'highpass', freq: 3200, gain: 0.05, decay: 0.07 });
       }, 0.8);
     },
+    /** v1.96: 雪玉が川に落ちる: 「チャポン」。サイン波は使わない(電子音に聞こえるため)。小さな着水の「チャ」→空洞の「ポン」→水が戻る→小さな泡。 */
+    waterPlop(rel = null) {
+      if (this._throttle('plop', 0.08)) return;
+      this._voice(rel, 1.0, (ctx, out, t) => {
+        noiseHit(ctx, out, t, { type: 'bandpass', freq: rnd(2200, 3200), freqEnd: 1200, q: 0.7, gain: 0.2, decay: 0.05, attack: 0.001 });
+        const fc = rnd(300, 420);
+        noiseHit(ctx, out, t + 0.035, { type: 'bandpass', freq: fc * 1.7, freqEnd: fc, q: 9, gain: 0.42, decay: 0.17, attack: 0.003 });
+        noiseHit(ctx, out, t + 0.035, { type: 'lowpass', freq: 260, freqEnd: 140, q: 1.1, gain: 0.18, decay: 0.16, attack: 0.004 });
+        noiseHit(ctx, out, t + 0.06, { type: 'lowpass', freq: 2600, freqEnd: 600, q: 0.6, gain: 0.08, decay: 0.3, attack: 0.05 });
+        for (let i = 0; i < 3; i++) {
+          const f = rnd(500, 1300);
+          noiseHit(ctx, out, t + 0.09 + Math.pow(Math.random(), 1.3) * 0.28, { type: 'bandpass', freq: f, freqEnd: f * rnd(1.25, 1.6), q: rnd(14, 24), gain: rnd(0.08, 0.2), decay: rnd(0.04, 0.09), attack: 0.002 });
+        }
+      }, 0.9);
+    },
+    /** v1.96: 感電: 「ビリビリビリ」。細かい高い音の連なりと、低い唸り。 */
+    zap(rel = null) {
+      this._voice(rel, 1.4, (ctx, out, t) => {
+        for (let i = 0; i < 16; i++) noiseHit(ctx, out, t + i * 0.055 + Math.random() * 0.03, { type: 'highpass', freq: rnd(2500, 5200), gain: rnd(0.08, 0.2), decay: rnd(0.02, 0.05) });
+        noiseHit(ctx, out, t, { type: 'bandpass', freq: 120, q: 2, gain: 0.3, decay: 0.5 });
+      }, 0.9);
+    },
     /** v1.88: 着火: 小さな「ボッ」と、ぱちぱち。 */
     fireIgnite(rel = null) {
       this._voice(rel, 1.1, (ctx, out, t) => {

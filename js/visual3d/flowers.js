@@ -19,7 +19,22 @@ import { getRiver, distanceToRiver } from './river.js';
 // 先端(pos.y=0.3)でちょうどbend=1になるよう正規化し、花側と揺れ幅を一致させる。
 const stemVertexShader = `
   uniform float uTime;
+  uniform vec4 uTap[8]; // v1.96: 雪玉が当たった所。(x, z, 半径, 倒れ具合0〜1)
+  uniform int uTapCount;
   varying vec2 vUv;
+  vec2 tapLean(vec2 root, out float press) {
+    vec2 acc = vec2(0.0); press = 0.0;
+    for (int i = 0; i < 8; i++) {
+      if (i >= uTapCount) break;
+      vec4 tp = uTap[i];
+      vec2 d = root - tp.xy;
+      float dl = length(d);
+      float f = tp.w * (1.0 - smoothstep(tp.z * 0.25, tp.z, dl));
+      vec2 dir = dl > 0.001 ? d / dl : vec2(1.0, 0.0);
+      acc += dir * f; press = max(press, f);
+    }
+    return acc;
+  }
   void main() {
     vUv = uv;
     vec3 pos = position;
@@ -29,6 +44,9 @@ const stemVertexShader = `
     pos.x += sway;
     pos.z += sway * 0.5;
     vec4 worldPosition = instanceMatrix * vec4(pos, 1.0);
+    float press; vec2 lean = tapLean(instanceMatrix[3].xz, press); // v1.96: 雪玉で、外側へ倒れる(約3秒で戻る)
+    worldPosition.xz += lean * 0.24 * bend;
+    worldPosition.y -= press * 0.09 * bend;
     gl_Position = projectionMatrix * modelViewMatrix * worldPosition;
   }
 `;
@@ -47,7 +65,22 @@ const stemFragmentShader = `
 // 正規化してあるので、ここは常にフル振幅でよい)。
 const headVertexShader = `
   uniform float uTime;
+  uniform vec4 uTap[8]; // v1.96: 雪玉が当たった所。(x, z, 半径, 倒れ具合0〜1)
+  uniform int uTapCount;
   varying vec2 vUv;
+  vec2 tapLean(vec2 root, out float press) {
+    vec2 acc = vec2(0.0); press = 0.0;
+    for (int i = 0; i < 8; i++) {
+      if (i >= uTapCount) break;
+      vec4 tp = uTap[i];
+      vec2 d = root - tp.xy;
+      float dl = length(d);
+      float f = tp.w * (1.0 - smoothstep(tp.z * 0.25, tp.z, dl));
+      vec2 dir = dl > 0.001 ? d / dl : vec2(1.0, 0.0);
+      acc += dir * f; press = max(press, f);
+    }
+    return acc;
+  }
   void main() {
     vUv = uv;
     vec3 pos = position;
@@ -56,6 +89,9 @@ const headVertexShader = `
     pos.x += sway;
     pos.z += sway * 0.5;
     vec4 worldPosition = instanceMatrix * vec4(pos, 1.0);
+    float press; vec2 lean = tapLean(instanceMatrix[3].xz, press); // v1.96: 茎の先と同じだけ倒す
+    worldPosition.xz += lean * 0.24;
+    worldPosition.y -= press * 0.09;
     gl_Position = projectionMatrix * modelViewMatrix * worldPosition;
   }
 `;
@@ -177,13 +213,13 @@ export function createPoppyField(terrainHeightFn, options = {}) {
   const headGeo = buildFlowerHeadGeometry(0.08, 0.3);
 
   const stemMaterial = new THREE.ShaderMaterial({
-    uniforms: { uTime: { value: 0 }, uLightMul: { value: 1 } },
+    uniforms: { uTime: { value: 0 }, uLightMul: { value: 1 }, uTap: { value: Array.from({ length: 8 }, () => new THREE.Vector4(0, 0, 1, 0)) }, uTapCount: { value: 0 } },
     vertexShader: stemVertexShader,
     fragmentShader: stemFragmentShader,
     side: THREE.DoubleSide,
   });
   const headMaterial = new THREE.ShaderMaterial({
-    uniforms: { uTime: { value: 0 }, uLightMul: { value: 1 } },
+    uniforms: { uTime: { value: 0 }, uLightMul: { value: 1 }, uTap: { value: Array.from({ length: 8 }, () => new THREE.Vector4(0, 0, 1, 0)) }, uTapCount: { value: 0 } },
     vertexShader: headVertexShader,
     fragmentShader: headFragmentShader,
     side: THREE.DoubleSide,
@@ -249,6 +285,16 @@ export function createPoppyField(terrainHeightFn, options = {}) {
     headMaterial.uniforms.uLightMul.value = v;
   }
 
+  /** v1.96: 雪玉が当たった所を渡す([{x,z,radius,amount}] 最大8)。amount 1=いちばん倒れている 0=元通り。 */
+  function setTaps(zones) {
+    const n = Math.min(zones.length, 8);
+    for (const m of [stemMaterial, headMaterial]) {
+      const arr = m.uniforms.uTap.value;
+      for (let i = 0; i < n; i++) arr[i].set(zones[i].x, zones[i].z, zones[i].radius, zones[i].amount);
+      m.uniforms.uTapCount.value = n;
+    }
+  }
+
   /** 半径 r の円(x,z)の中に、花が1本でもあるか(お花畑の上か)。margin は花の根元のまわりの余白。 */
   function isOnFlowers(x, z, r, margin = 0.2) {
     const rr = (r + margin) * (r + margin);
@@ -259,5 +305,5 @@ export function createPoppyField(terrainHeightFn, options = {}) {
     return false;
   }
 
-  return { group, update, setLightMul, patchCenters, isOnFlowers };
+  return { group, update, setLightMul, patchCenters, isOnFlowers, setTaps };
 }
