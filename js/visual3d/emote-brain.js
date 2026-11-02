@@ -263,6 +263,9 @@ export function createEmoteBrain({ rng = Math.random, config = {} } = {}) {
     request,
     get state() { return s.state; },
     isBusy: () => s.state !== 'stand',
+    /** v1.101: 座っている間(演奏中など)、うとうとして寝てしまわないよう、座る時間を延ばす。 */
+    keepSitting() { if (s.state === 'sit') { s.idleLeft = Math.max(s.idleLeft, 8); s.sleepPlan = false; } },
+    isSitting: () => s.state === 'sit',
     /** 見守りで、そろそろ座りたい(立っていて、休憩の時間が来ている)。場所を確かめる合図に使う。 */
     wantsAutoRest: () => s.state === 'stand' && s.nextRestIn <= 0,
     /** v1.78: 次の休憩で寝る予定か(座る前に、平らな場所を探すために使う)。 */

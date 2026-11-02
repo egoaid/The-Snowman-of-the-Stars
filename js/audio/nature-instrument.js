@@ -20,7 +20,7 @@
   const SUSTAINED = { flower: true, insect: true }; // 押している間、鳴り続ける
   const midiToFreq = (m) => 440 * Math.pow(2, (m - 69) / 12);
 
-  let ctx = null, bus = null, noiseBuf = null, reverbIn = null, shaper = null, gate = null, stutterTimer = null;
+  let ctx = null, bus = null, noiseBuf = null, reverbIn = null, shaper = null, gate = null, stutterTimer = null, remoteIn = null, remoteLp = null, remotePan = null;
   let condDirty = false; // 音声の準備ができる前に決まった条件を、準備ができたあとで反映する
   const cond = { gain: 1, drive: 0, dropout: 0 }; // 電池の状態による劣化(music/battery.js の degradation)。gain 0 = 電池切れで、鳴らない
   const active = []; // { midi, source, endAt, release }
@@ -40,6 +40,10 @@
       const d = ir.getChannelData(ch); let y = 0;
       for (let i = 0; i < len; i++) { y += ((Math.random() * 2 - 1) - y) * 0.32; d[i] = y * Math.exp(-i / (ctx.sampleRate * 0.5)) * (i < 200 ? i / 200 : 1); }
     }
+    // 雪だるまが、世界のどこかで弾く音: 距離で小さく・こもり、HRTFで方向がわかる(近くで弾くプレイヤー自身の音は、この道を通らない)
+    remoteIn = ctx.createGain(); remoteLp = ctx.createBiquadFilter(); remoteLp.type = 'lowpass'; remoteLp.frequency.value = 14000; remoteLp.Q.value = 0.4;
+    remotePan = ctx.createPanner(); remotePan.panningModel = 'HRTF'; remotePan.distanceModel = 'inverse'; remotePan.refDistance = 3.5; remotePan.rolloffFactor = 1.05; remotePan.maxDistance = 300;
+    remoteIn.connect(remoteLp); remoteLp.connect(remotePan); remotePan.connect(bus);
     reverbIn = ctx.createGain(); const conv = ctx.createConvolver(); conv.buffer = ir;
     const wet = ctx.createGain(); wet.gain.value = 0.9;
     reverbIn.connect(conv); conv.connect(wet); wet.connect(bus);
@@ -178,9 +182,17 @@
       } else if (!(cond.dropout > 0) && stutterTimer) { clearInterval(stutterTimer); stutterTimer = null; gate.gain.setValueAtTime(1, ctx.currentTime); }
     },
     getCondition: () => ({ ...cond }),
+    /** 雪だるまの演奏の位置(聞き手から見た相対位置 x,y,z)。距離が遠いほど、高い音がこもる(空気の吸収)。 */
+    setRemotePosition(rel) {
+      if (!ensure() || !rel) return;
+      const d = Math.hypot(rel.x, rel.y, rel.z), t = ctx.currentTime;
+      if (remotePan.positionX) { remotePan.positionX.setTargetAtTime(rel.x, t, 0.05); remotePan.positionY.setTargetAtTime(rel.y, t, 0.05); remotePan.positionZ.setTargetAtTime(rel.z, t, 0.05); }
+      else if (remotePan.setPosition) remotePan.setPosition(rel.x, rel.y, rel.z);
+      remoteLp.frequency.setTargetAtTime(Math.max(1800, 14000 / (1 + d / 28)), t, 0.1);
+    },
     setVolume(v) { this.volume = Math.max(0, Math.min(1.5, +v || 0)); if (bus) bus.gain.setTargetAtTime(this.volume * cond.gain, ctx.currentTime, 0.03); },
     /** 鍵盤を押した。source は 'tree' 'river' 'flower' 'insect' 'snow' 'star' 'stone'。 */
-    noteOn(source, midi, velocity = 0.8) {
+    noteOn(source, midi, velocity = 0.8, opts = null) {
       if (!VOICES[source] || !ensure()) return false;
       if (condDirty) this.setCondition({ ...cond });
       if (cond.gain <= 0) return false; // 電池がない・なくなった: 鳴らない
@@ -191,7 +203,7 @@
       this._prune(now);
       while (active.length >= MAX_VOICES) this._stop(active.shift(), now);
       const vel = Math.max(0.15, Math.min(1, Math.pow(velocity, 1.2)));
-      const mix = ctx.createGain(); mix.connect(bus); // この音の出口: そのまま(ドライ)と、残響へ送る分
+      const mix = ctx.createGain(); mix.connect(opts && opts.remote ? remoteIn : bus); // この音の出口: そのまま(ドライ)と、残響へ送る分
       const send = ctx.createGain(); send.gain.value = REVERB_SEND[source] || 0; mix.connect(send); send.connect(reverbIn);
       const v = VOICES[source](midiToFreq(midi) * FREQ_MUL[source], now, vel, mix);
       active.push({ midi, source, endAt: v.endAt, release: v.release });

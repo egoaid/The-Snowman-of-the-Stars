@@ -28,12 +28,12 @@ export const SEASONS = ['spring', 'tsuyu', 'summer', 'typhoon', 'autumn', 'winte
  * - 冬: 雪が中心。雷雨はほぼ無し
  */
 const WEATHER_WEIGHTS = {
-  spring: { clear: 0.55, rain: 0.35, storm: 0.10, snow: 0 },
-  tsuyu: { clear: 0.15, rain: 0.62, storm: 0.23, snow: 0 },
-  summer: { clear: 0.55, rain: 0.18, storm: 0.27, snow: 0 },
-  typhoon: { clear: 0.28, rain: 0.24, storm: 0.48, snow: 0 },
-  autumn: { clear: 0.58, rain: 0.34, storm: 0.08, snow: 0 },
-  winter: { clear: 0.42, rain: 0.05, storm: 0.0, snow: 0.53 },
+  spring: { clear: 0.45, drizzle: 0.2, rain: 0.27, storm: 0.08, snow: 0 },
+  tsuyu: { clear: 0.10, drizzle: 0.25, rain: 0.5, storm: 0.15, snow: 0 },
+  summer: { clear: 0.5, drizzle: 0.1, rain: 0.15, storm: 0.25, snow: 0 },
+  typhoon: { clear: 0.25, drizzle: 0.1, rain: 0.2, storm: 0.45, snow: 0 },
+  autumn: { clear: 0.5, drizzle: 0.2, rain: 0.24, storm: 0.06, snow: 0 },
+  winter: { clear: 0.4, drizzle: 0.04, rain: 0.03, storm: 0.0, snow: 0.53 },
 };
 
 // 見た目(葉・地面)は4区分で管理。tsuyu→summer、typhoon→autumnへ丸める。

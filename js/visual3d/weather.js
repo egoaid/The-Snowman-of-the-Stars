@@ -304,7 +304,7 @@ export function createWeatherSystem(scene, options = {}) {
   const rng = makeRng(options.seed ?? 9001);
 
   // ================= 状態 =================
-  let currentWeather = 'clear'; // 'clear' | 'rain' | 'storm' | 'snow'
+  let currentWeather = 'clear'; // 'clear' | 'drizzle'(小雨。v1.101) | 'rain' | 'storm' | 'snow'
   let rainIntensity = 0; // 0..1 (平滑化済み・実際に描画/音に使う値)
   let targetRainIntensity = 0;
   let snowIntensity = 0; // 0..1 (降雪の見た目の強さ)
@@ -752,13 +752,20 @@ export function createWeatherSystem(scene, options = {}) {
       nextStrikeTimer = Infinity;
       return;
     }
-    if (name !== 'clear' && name !== 'rain' && name !== 'storm' && name !== 'snow') return;
+    if (name !== 'clear' && name !== 'drizzle' && name !== 'rain' && name !== 'storm' && name !== 'snow') return;
     forceRainbowDebug = false; // 通常の天候に戻したらデバッグ強制表示を解除
     currentWeather = name;
     if (name === 'clear') {
       targetRainIntensity = 0;
       targetSnowIntensity = 0;
       targetCloudAmount = 0.05;
+      targetStormFactor = 0;
+      nextStrikeTimer = Infinity;
+    } else if (name === 'drizzle') {
+      // v1.101: 小雨。細かい雨が、しとしと降る。雨音の中で、演奏を聴くための天候(環境音との共演)。雷はなく、雲も薄い。
+      targetRainIntensity = 0.2;
+      targetSnowIntensity = 0;
+      targetCloudAmount = 0.42;
       targetStormFactor = 0;
       nextStrikeTimer = Infinity;
     } else if (name === 'rain') {

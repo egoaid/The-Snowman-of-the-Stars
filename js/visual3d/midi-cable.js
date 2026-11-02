@@ -18,8 +18,8 @@ export function cablePoints(a, b, groundAt, n = 14) {
 
 export function createMidiCable({ scene, groundAt }) {
   const group = new THREE.Group(); group.visible = false; scene.add(group);
-  const mat = new THREE.MeshStandardMaterial({ color: 0x14161a, roughness: 0.55 });
-  const plugMat = new THREE.MeshStandardMaterial({ color: 0x2a2e35, roughness: 0.4, metalness: 0.4 });
+  const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: 0.5 }); // v1.101: カラフルなケーブル(虹色が、ケーブルにそって流れる)
+  const plugMat = new THREE.MeshStandardMaterial({ color: 0x2a2e35, roughness: 0.4, metalness: 0.4 }); // プラグは黒い金属
   let tube = null, last = null;
   const plugA = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.014, 0.05, 10), plugMat), plugB = plugA.clone();
   group.add(plugA, plugB);
@@ -35,7 +35,11 @@ export function createMidiCable({ scene, groundAt }) {
       const pts = cablePoints(a, b, groundAt).map((p) => new THREE.Vector3(p.x, p.y, p.z));
       const curve = new THREE.CatmullRomCurve3(pts);
       if (tube) { group.remove(tube); tube.geometry.dispose(); }
-      tube = new THREE.Mesh(new THREE.TubeGeometry(curve, 28, 0.013, 6, false), mat); tube.castShadow = true; group.add(tube);
+      const tubular = 28, radial = 6, geo = new THREE.TubeGeometry(curve, tubular, 0.016, radial, false), len = curve.getLength();
+      const cols = new Float32Array(geo.attributes.position.count * 3), c = new THREE.Color();
+      for (let i = 0; i <= tubular; i++) { c.setHSL(((i / tubular) * len * 0.85) % 1, 0.85, 0.56); for (let j = 0; j <= radial; j++) { const o = (i * (radial + 1) + j) * 3; cols[o] = c.r; cols[o + 1] = c.g; cols[o + 2] = c.b; } }
+      geo.setAttribute('color', new THREE.BufferAttribute(cols, 3));
+      tube = new THREE.Mesh(geo, mat); tube.castShadow = true; group.add(tube);
       orient(plugA, pts[1], pts[0]); plugA.position.copy(pts[0]).addScaledVector(dirTmp.set(pts[1].x - pts[0].x, pts[1].y - pts[0].y, pts[1].z - pts[0].z).normalize(), 0.018);
       orient(plugB, pts[pts.length - 2], pts[pts.length - 1]); plugB.position.copy(pts[pts.length - 1]).addScaledVector(dirTmp.set(pts[pts.length - 2].x - pts[pts.length - 1].x, pts[pts.length - 2].y - pts[pts.length - 1].y, pts[pts.length - 2].z - pts[pts.length - 1].z).normalize(), 0.018);
       plugA.quaternion.setFromUnitVectors(up, dirTmp.set(pts[1].x - pts[0].x, pts[1].y - pts[0].y, pts[1].z - pts[0].z).normalize());

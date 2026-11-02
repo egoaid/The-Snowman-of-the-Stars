@@ -99,6 +99,7 @@ export default {
   "set.weather.label": "天候(手動切替):",
   "set.weather.auto": "自動(季節に応じて変化)",
   "set.weather.clear": "晴れ",
+  "set.weather.drizzle": "小雨",
   "set.weather.rain": "雨",
   "set.weather.storm": "雷雨",
   "set.weather.snow": "雪",

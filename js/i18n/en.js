@@ -99,6 +99,7 @@ export default {
   "set.weather.label": "Weather (manual):",
   "set.weather.auto": "Auto (changes with the season)",
   "set.weather.clear": "Clear",
+  "set.weather.drizzle": "Drizzle",
   "set.weather.rain": "Rain",
   "set.weather.storm": "Thunderstorm",
   "set.weather.snow": "Snow",

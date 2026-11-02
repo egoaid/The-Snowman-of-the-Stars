@@ -775,6 +775,8 @@ export function createSnowmanCharacter(scale = 1) {
   const bodyGlow = new THREE.Mesh(body.geometry, shockGlowMat); bodyGlow.scale.setScalar(1.07); bodyGlow.visible = false; body.add(bodyGlow);
   const headGlow = new THREE.Mesh(head.geometry, shockGlowMat); headGlow.scale.setScalar(1.07); headGlow.visible = false; head.add(headGlow);
   const eyeBaseX = eyeLeft.scale.x, eyeBaseZ = eyeLeft.scale.z;
+  // v1.101: 座って演奏する時の、楽しそうな動き。pat=足のパタパタ / sway=頭を優しく振る / arms=手が鍵盤の上で動く(0〜1)。t=時刻
+  const perform = { pat: 0, sway: 0, arms: 0, t: 0 };
 
   function update(delta, t) {
     const lieBackup = emote.lie; // v1.96: 感電で倒れている間は、寝る姿勢と同じ「倒れる」見た目を使う(終わったら戻す)
@@ -832,6 +834,9 @@ export function createSnowmanCharacter(scale = 1) {
     if (shock.stiff > 0.001) { // v1.96: 固まる。腕の振りが止まる
       rightArm.rotation.x *= 1 - shock.stiff; leftArm.rotation.x *= 1 - shock.stiff;
     }
+    if (perform.arms > 0.001) { // 手が、鍵盤の上で、交互に動く
+      rightArm.rotation.x += perform.arms * (0.75 + 0.18 * Math.sin(perform.t * 7.3)); leftArm.rotation.x += perform.arms * (0.75 + 0.18 * Math.sin(perform.t * 7.3 + 2.1));
+    }
     if (shock.arms > 0.001) { // 腕を前へ上げて、びっくり
       rightArm.rotation.x += shock.arms * ACTION_SWING_ANGLE * 1.1; leftArm.rotation.x += shock.arms * ACTION_SWING_ANGLE * 1.1;
     }
@@ -874,12 +879,18 @@ export function createSnowmanCharacter(scale = 1) {
     leftFoot.position.z += footFwd;
     rightFoot.rotation.y = -0.32 * sitK;
     leftFoot.rotation.y = 0.32 * sitK;
+    if (perform.pat > 0.001 && sitK > 0.4) { // 座って演奏: 足を、交互に、パタパタ
+      const ph = perform.t * 8.2, k = perform.pat * Math.min(1, (sitK - 0.4) / 0.4);
+      rightFoot.position.y += Math.max(0, Math.sin(ph)) * bodyRadius * 0.17 * k; leftFoot.position.y += Math.max(0, Math.sin(ph + Math.PI)) * bodyRadius * 0.17 * k;
+      rightFoot.position.z += Math.max(0, Math.sin(ph)) * bodyRadius * 0.05 * k; leftFoot.position.z += Math.max(0, Math.sin(ph + Math.PI)) * bodyRadius * 0.05 * k;
+    }
     if (shock.leg > 0.001) { // 片足立ち: 左足を持ち上げて、前へ出す
       leftFoot.position.y += shock.leg * bodyRadius * 0.6; leftFoot.position.z += shock.leg * bodyRadius * 0.3;
     }
     feetGroup.rotation.x = lieAngle;
     feetGroup.position.set(0, -lieLift * Math.cos(lieAngle), -lieLift * Math.sin(lieAngle));
     // 頭: あくびで上を向き、とろんとするとゆっくりうなずく。寝転ぶと少し下げて、地面にめり込まず浮かないようにする。
+    headGroup.rotation.z = Math.sin(perform.t * 2.5) * 0.12 * perform.sway + Math.sin(perform.t * 1.1 + 1) * 0.04 * perform.sway; // 頭を、優しく振る
     headGroup.rotation.x = -0.36 * emote.yawn + Math.sin(emote.breathPhase * 0.7) * 0.1 * emote.drowsy * (1 - lieK) + 0.05 * sitK * (1 - lieK);
     headGroup.position.z = -EMOTE_LIE_HEAD_DROP * lieK;
     hatGroup.rotation.x = -EMOTE_LIE_HAT_TILT * lieK;
@@ -907,7 +918,7 @@ export function createSnowmanCharacter(scale = 1) {
     const jt = shock.jitter;
     rollPivot.position.x = jt > 0.001 ? (Math.random() - 0.5) * 0.05 * jt : 0;
     rollPivot.position.z = jt > 0.001 ? (Math.random() - 0.5) * 0.05 * jt : 0;
-    hatGroup.rotation.z = jt > 0.001 ? (Math.random() - 0.5) * 0.3 * jt : 0;
+    hatGroup.rotation.z = (jt > 0.001 ? (Math.random() - 0.5) * 0.3 * jt : 0) + Math.sin(perform.t * 2.5 + 0.4) * 0.05 * perform.sway;
     shockGlowMat.opacity = shock.glow * 0.6;
     bodyGlow.visible = headGlow.visible = shock.glow > 0.01;
     emote.lie = lieBackup;
@@ -933,6 +944,8 @@ export function createSnowmanCharacter(scale = 1) {
     getHeadCover: () => headCoverKind,
     /** v1.44: 地面からの高さ(m)。ジャンプ中の伸び縮み・付属品の慣性に使う(毎フレーム渡す)。 */
     setJumpHeight(h) { jump.h = Math.max(0, +h || 0); },
+    /** v1.101: 座って演奏する時の動き。null か {} で、ふだんに戻す。 */
+    setPerform(p) { perform.pat = (p && +p.pat) || 0; perform.sway = (p && +p.sway) || 0; perform.arms = (p && +p.arms) || 0; perform.t = (p && +p.t) || 0; },
     /** v1.96: 感電の見た目(storm-events.js の shockPose())。null か {} で、ふだんに戻す。 */
     setShock(p) {
       shock.glow = (p && +p.glow) || 0; shock.jitter = (p && +p.jitter) || 0; shock.stiff = (p && +p.stiff) || 0;

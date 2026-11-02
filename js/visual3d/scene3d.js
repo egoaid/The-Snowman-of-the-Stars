@@ -79,6 +79,7 @@ import { findHit, hitSway, stepSway, newSway, torchFlickerMul, fireDipMul } from
 import { pickNatureSource } from '../music/notes.js';
 import { createBattery, degradation, planInsert, PLAY_GRACE_SEC } from '../music/battery.js';
 import { createMusicMemory } from '../music/memory.js';
+import { createPerformer, createRainWatcher, createSongPlayer } from '../music/performer.js';
 import { createMidiKeyboard } from './midi-keyboard.js';
 import { createMidiCable } from './midi-cable.js';
 import { createCopperOreField } from './copper-ore.js';
@@ -673,7 +674,8 @@ export function initScene(mountEl, options = {}) {
     routePlan: null, // v1.53 E2: 丸太を伝って川を渡っている最中の経路
     jumpAssist: false, // 丸太へ跳び乗っている最中(空中の前進を速くする)
     collectTask: null, // v1.54: 拾い物の動作 {cand, phase:'goto'|'investigate'|'around'}
-    baseTask: null, // v1.54: チェストへしまう動作 {phase:'goto'|'face'|'open'|'store'|'close'|'pause'}
+    musicTask: null, // v1.101: 雪だるまの演奏のための移動 {phase:'goto'|'face'|'open'|'take'|'close'|'goto2', plan, spot, chestIt}
+  baseTask: null, // v1.54: チェストへしまう動作 {phase:'goto'|'face'|'open'|'store'|'close'|'pause'}
     // --- スタック検知用 ---
     stuckCheckTimer: STUCK_CHECK_INTERVAL,
     stuckCheckPos: new THREE.Vector2(snowmanHomeX, snowmanHomeZ),
@@ -851,6 +853,8 @@ export function initScene(mountEl, options = {}) {
   const chestStandOf = (it) => ({ x: it.x + Math.sin(it.mesh.rotation.y) * 1.15, z: it.z + Math.cos(it.mesh.rotation.y) * 1.15 }); // しまう時に立つ場所(正面)
   function pickNextWanderActivityRaw() {
     if (forcedRestActivity) { const a = forcedRestActivity; forcedRestActivity = null; return a; }
+    // v1.101: 気まぐれに、記憶した曲を弾きに行く(キーボードがチェストの中なら、取り出してから)
+    try { const mp = planPerformance(); if (mp) return mp; } catch (e) { /* シーンの準備中(まだ演奏の部品がない)は、弾かない */ }
     // v1.96: 感電のあと: 木から離れて、遠くへ逃げる(いちばん遠い候補へ)
     if (fleeNow.pending) {
       fleeNow.pending = false;
@@ -957,6 +961,7 @@ export function initScene(mountEl, options = {}) {
     wander.routePlan = null;
     wander.collectTask = next.collect ? { cand: next.collect, phase: 'goto' } : null; // v1.54
     wander.baseTask = next.toChest ? { phase: 'goto', it: next.chestIt } : null;
+    wander.musicTask = next.music ? { phase: 'goto', ...next.music } : null; // v1.101
     // v1.53 E2: 川を渡りたい時は、丸太の表面を伝って向こう岸へ届く経路があるかを、物理的な到達可能性から調べる
     // (丸太に「橋」の印は無い。入口で乗れるか・上を歩けるか・向こうに地面があるかを面の高さと位置から確かめる)。
     // 無ければ、川岸まで行って佇む。失敗した足がかりは一定時間覚えて、同じ不可能な試みを繰り返さない。
@@ -1361,7 +1366,7 @@ export function initScene(mountEl, options = {}) {
   }
   const rand2 = (r) => r[0] + Math.random() * (r[1] - r[0]);
   function endTasks() {
-    wander.collectTask = null; wander.baseTask = null;
+    wander.collectTask = null; wander.baseTask = null; wander.musicTask = null;
     wander.waiting = true; wander.waitTimer = 0.4 + Math.random() * 0.8; wander.waitElapsed = 0;
     wander.baseHeading = wander.heading; wander.walking = false; wander.activity = 'idle';
     wander.nextRestMin = 3; wander.nextRestMax = 8;
@@ -1464,6 +1469,8 @@ export function initScene(mountEl, options = {}) {
     const ct = wander.collectTask, bt = wander.baseTask;
     if (ct && ct.phase !== 'goto') return runCollectTask(ct, delta);
     if (bt && bt.phase !== 'goto') return runBaseTask(bt, delta);
+    const mt = wander.musicTask; // v1.101
+    if (mt && mt.phase !== 'goto' && mt.phase !== 'goto2') return runMusicTask(mt, delta);
     return false;
   }
 
@@ -1595,6 +1602,7 @@ export function initScene(mountEl, options = {}) {
       wander.routePlan = null; // 渡り終えた/目的地に着いた
       // v1.54: 拾い物・チェストの目的地に着いたら、その場の動作を始める(休みに入る代わりに)
       if (wander.collectTask && beginCollectTask()) { wander.walking = false; return; }
+      if (wander.musicTask) { beginMusicTask(); wander.walking = false; return; } // v1.101: 演奏の場所・チェストに着いた
       if (wander.baseTask) { beginChestTask(); wander.walking = false; return; }
       wander.waiting = true;
       wander.waitTimer = wander.nextRestMin + Math.random() * (wander.nextRestMax - wander.nextRestMin);
@@ -2939,18 +2947,18 @@ export function initScene(mountEl, options = {}) {
     }
 
     if (windSound) {
-      const gust = w === 'storm' ? 0.4 : w === 'rain' ? 0.22 : BASE_WIND_INTENSITY;
+      const gust = w === 'storm' ? 0.4 : w === 'rain' ? 0.22 : w === 'drizzle' ? 0.14 : BASE_WIND_INTENSITY;
       windSound.setIntensity(gust);
     }
 
     if (riverSound) {
       // 雨・雷雨で川の水量/乱流が増した想定で、泡・飛沫の量を底上げする
       // (既存のriverSound.setSize(0.4)による基準値に対する加算)
-      const flowBoost = w === 'storm' ? 0.35 : w === 'rain' ? 0.15 : 0;
+      const flowBoost = w === 'storm' ? 0.35 : w === 'rain' ? 0.15 : w === 'drizzle' ? 0.06 : 0;
       riverSound.setBubbleRate(Math.min(1, RIVER_BASE_BUBBLE_RATE + flowBoost));
       riverSound.setSplashAmount(Math.min(1, RIVER_BASE_SPLASH_AMOUNT + flowBoost));
       // 晴れの時は川全体の音量を少し控えめにする
-      const weatherVol = w === 'storm' ? 1.0 : w === 'rain' ? 1.0 : 0.7;
+      const weatherVol = w === 'storm' ? 1.0 : w === 'rain' ? 1.0 : w === 'drizzle' ? 0.85 : 0.7;
       riverSound.setWeatherVolume(weatherVol);
     }
   }
@@ -4219,26 +4227,195 @@ export function initScene(mountEl, options = {}) {
     playKb.group.rotation.y = Math.atan2(-d.x, -d.z); // 鍵盤の手前が、こちらを向く
     playKb.group.visible = true; playKb.group.updateMatrixWorld(true);
   }
-  function getMusicTarget(source) { // 演奏している自然物の、ケーブルをつなぐ場所
-    const p = playerSnowman.group.position, px = p.x, pz = p.z;
+  /**
+   * 演奏している自然物の、ケーブルをつなぐ場所。(fx,fz)=演奏している人の位置、dir=その人の向き。
+   *   川=川の中(先が水に入る) / 木・石=幹・岩の根もと / 星の灯り=松明の根もと / 花=花の軸の部分 / 虫=地面 / 雪=雪面
+   */
+  function musicTargetFor(source, fx, fz, dir) {
     const ground = (x, z, up = 0.1) => ({ x, y: terrainHeightAt(x, z) + up, z });
-    if (source === 'river') { try { const nr = nearestRiverPoint(px, pz, riverSamplesForAvoid); const w = dryWaterSurfaceAt(nr.x, nr.z); return { x: nr.x, y: Number.isFinite(w) ? w : terrainHeightAt(nr.x, nr.z), z: nr.z }; } catch (e) { return null; } }
+    if (source === 'river') {
+      try {
+        const nr = nearestRiverPoint(fx, fz, riverSamplesForAvoid), L = Math.hypot(fx - nr.x, fz - nr.z) || 1, sh = Math.min(1.0, L * 0.35);
+        const x = nr.x + ((fx - nr.x) / L) * sh, z = nr.z + ((fz - nr.z) / L) * sh, w = dryWaterSurfaceAt(x, z);
+        return { x, y: (Number.isFinite(w) ? w : terrainHeightAt(x, z)) - 0.16, z }; // 水面より少し下: ケーブルの先が、川の中に入る
+      } catch (e) { return null; }
+    }
     if (source === 'tree' || source === 'stone') {
       let best = null, bd = 1e9;
-      for (const c of worldColliders) { if ((source === 'stone') !== c.id.startsWith('rock')) continue; const d = Math.hypot(px - c.x, pz - c.z); if (d < bd) { bd = d; best = c; } }
+      for (const c of worldColliders) { if ((source === 'stone') !== c.id.startsWith('rock')) continue; const d = Math.hypot(fx - c.x, fz - c.z); if (d < bd) { bd = d; best = c; } }
       if (!best) return null;
-      const dx = px - best.x, dz = pz - best.z, L = Math.hypot(dx, dz) || 1; return ground(best.x + (dx / L) * best.radius, best.z + (dz / L) * best.radius, 0.3);
+      const dx = fx - best.x, dz = fz - best.z, L = Math.hypot(dx, dz) || 1; return ground(best.x + (dx / L) * best.radius, best.z + (dz / L) * best.radius, 0.3);
     }
-    if (source === 'star') { let best = null, bd = 1e9; for (const it of placedItems) if (it.itemId === 'star_torch') { const d = Math.hypot(px - it.x, pz - it.z); if (d < bd) { bd = d; best = it; } } return best ? { x: best.x, y: best.mesh.position.y + 0.3, z: best.z } : null; }
-    if (source === 'flower' && poppyField) { let best = null, bd = 1e9; for (const c of poppyField.patchCenters) { const d = Math.hypot(px - c.x, pz - c.z); if (d < bd) { bd = d; best = c; } } return best ? ground(best.x, best.z, 0.15) : null; }
-    const d = new THREE.Vector3(); camera.getWorldDirection(d); d.y = 0; d.normalize(); // 虫・雪: 足もとの草むら・雪面へ、ななめ前
-    const side = source === 'snow' ? -1 : 1, x = px + d.x * 3.2 - d.z * side * 1.2, z = pz + d.z * 3.2 + d.x * side * 1.2;
-    return ground(x, z, 0.05);
+    if (source === 'star') { let best = null, bd = 1e9; for (const it of placedItems) if (it.itemId === 'star_torch') { const d = Math.hypot(fx - it.x, fz - it.z); if (d < bd) { bd = d; best = it; } } return best ? { x: best.x, y: best.mesh.position.y + 0.3, z: best.z } : null; }
+    if (source === 'flower' && poppyField) { let best = null, bd = 1e9; for (const c of poppyField.patchCenters) { const d = Math.hypot(fx - c.x, fz - c.z); if (d < bd) { bd = d; best = c; } } return best ? ground(best.x, best.z, 0.32) : null; } // 花の軸の部分
+    const side = source === 'snow' ? -1 : 1, x = fx + dir.x * 3.0 - dir.z * side * 1.0, z = fz + dir.z * 3.0 + dir.x * side * 1.0;
+    if (source === 'snow') return { x, y: terrainHeightAt(x, z) + weather.getSnowDepth() - 0.02, z }; // 雪面へ
+    return ground(x, z, 0.0); // 虫: 地面へ
   }
+  function getMusicTarget(source) {
+    const p = playerSnowman.group.position, d = new THREE.Vector3(); camera.getWorldDirection(d); d.y = 0; d.normalize();
+    return musicTargetFor(source, p.x, p.z, { x: d.x, z: d.z });
+  }
+  // ================================================================
+  // v1.101: 雪だるまの自律演奏(見守りモードだけ)。きまりは music/performer.js。
+  //   気まぐれに、プレイヤーが以前に弾いた曲を、その場所で思い出して弾く。地面にキーボードを置いて、座って、足をパタパタさせ、頭を優しく振って楽しむ。
+  //   キーボードがチェストの中なら、自分でチェストを開けて取り出す。小雨の中では弾き続け、雨が強くなると中断する。
+  //   雪だるまの演奏は、電池を減らさない。
+  // ================================================================
+  const performer = createPerformer();
+  const rainWatch = createRainWatcher();
+  const npcKb = createMidiKeyboard(); npcKb.group.scale.setScalar(KB_SCALE); npcKb.group.visible = false; scene.add(npcKb.group);
+  const perf = { active: false, phase: 'none', timer: 0, song: null, place: null, player: null, target: null, placed: false, amp: 0 };
+  const foldKey = (m) => 48 + ((((m - 48) % 36) + 36) % 36); // 3Dキーボードの37鍵に収める(オクターブをたたむ)
+  const nearestOf = (list, fx, fz, maxD) => { let best = null, bd = maxD; for (const c of list) { const d = Math.hypot(fx - c.x, fz - c.z); if (d < bd) { bd = d; best = c; } } return best; };
+  /** その場所で弾く時に、立つ(座る)場所。行けなければ null。 */
+  function performSpotFor(place) {
+    const fx = wander.pos.x, fz = wander.pos.y, MAXD = 55;
+    const away = (cx, cz, d) => { const L = Math.hypot(fx - cx, fz - cz) || 1; return { x: cx + ((fx - cx) / L) * d, z: cz + ((fz - cz) / L) * d }; };
+    const ok = (p) => { const q = sanitizeWaypoint(p.x, p.z); return q && !traversal.isWaterBlocked(q.x, q.z, null) ? { x: q.x, z: q.z } : null; };
+    if (place === 'river') {
+      try {
+        const nr = nearestRiverPoint(fx, fz, riverSamplesForAvoid); if (Math.hypot(fx - nr.x, fz - nr.z) > MAXD) return null;
+        return ok(away(nr.x, nr.z, getWaterEdgeDistance(distanceToRiver(fx, fz, riverSamplesForAvoid).width) + 1.4)); // 川岸
+      } catch (e) { return null; }
+    }
+    if (place === 'tree' || place === 'stone') { const c = nearestOf(worldColliders.filter((q) => (place === 'stone') === q.id.startsWith('rock')), fx, fz, MAXD); return c ? ok(away(c.x, c.z, c.radius + 1.6)) : null; }
+    if (place === 'star') { const c = nearestOf(placedItems.filter((q) => q.itemId === 'star_torch'), fx, fz, MAXD); return c ? ok(away(c.x, c.z, 1.8)) : null; }
+    if (place === 'flower') { const c = poppyField ? nearestOf(poppyField.patchCenters, fx, fz, MAXD + 10) : null; return c ? ok(away(c.x, c.z, 1.7)) : null; }
+    if (place === 'insect') return ok({ x: fx, z: fz });
+    if (place === 'snow') return weather.getSnowDepth() > 0.3 ? ok({ x: fx, z: fz }) : null;
+    return null;
+  }
+  function findChestWith(id) { let best = null, bd = 1e9; for (const it of placedItems) { if (!it.chest || it.chest.storage.count(id) < 1) continue; const d = Math.hypot(it.x - wander.pos.x, it.z - wander.pos.y); if (d < bd) { bd = d; best = it; } } return best; }
+  /** 活動を選ぶ時に、気まぐれで「弾きに行く」と決める。決めたら、歩く先と、その後の計画を返す。 */
+  function planPerformance() {
+    if (!wanderActive || shockState.active || musicState.panelOpen || perf.active || editMode.isEnabled()) return null;
+    const songsByPlace = {}, feasible = {};
+    for (const p of ['tree', 'river', 'flower', 'insect', 'snow', 'star', 'stone']) { songsByPlace[p] = musicMemory.songs(p); feasible[p] = songsByPlace[p].length > 0 && !!performSpotFor(p); }
+    const inBag = inventory.count('midi_keyboard') > 0, chestIt = inBag ? null : findChestWith('midi_keyboard'), st = kbBattery.state();
+    const plan = performer.plan({
+      now: clock.elapsedTime, songsByPlace, feasible, keyboard: inBag ? 'bag' : chestIt ? 'chest' : null,
+      hasBattery: st === 'ok' || st === 'low' || inventory.count('battery') > 0 || !!(chestIt && chestIt.chest.storage.count('battery') > 0),
+      rain: weather.getRainIntensity(), busy: emoteBrain.isBusy() || !!wander.collectTask || !!wander.baseTask,
+    });
+    if (!plan) return null;
+    const spot = performSpotFor(plan.place); if (!spot) return null;
+    const goal = plan.fetch ? chestStandOf(chestIt) : spot;
+    return { target: { x: goal.x, z: goal.z }, restMin: 1, restMax: 2, activity: 'idle', music: { plan, spot, chestIt } };
+  }
+  function beginMusicTask() { // 歩いて着いた: チェストなら、開けて取り出す。演奏の場所なら、座る準備
+    const mt = wander.musicTask; if (!mt) return;
+    if (mt.phase === 'goto' && mt.chestIt) {
+      if (!placedItems.includes(mt.chestIt)) { endTasks(); return; }
+      mt.phase = 'face'; mt.timer = 1.6; wander.legs = []; return;
+    }
+    startPerformance(mt);
+  }
+  function runMusicTask(mt, delta) { // チェストの前: 向く → 開ける → キーボード(と電池)を取り出す → 閉める → 演奏の場所へ
+    wander.walking = false; resetEscapeWatch(); resetStuckCheck();
+    const it = mt.chestIt, chest = it && it.chest;
+    if (!chest || !placedItems.includes(it)) { endTasks(); return true; }
+    const COL = SNOWMAN_COLLECT; mt.timer -= delta;
+    if (mt.phase === 'face') {
+      const err = faceToward(it.x, it.z, delta);
+      if (err < 0.15 || mt.timer <= 0) { mt.phase = 'open'; mt.timer = COL.chestOpenSec; chest.open(); }
+    } else if (mt.phase === 'open') {
+      faceToward(it.x, it.z, delta);
+      if (mt.timer <= 0 && chest.settled()) { mt.phase = 'take'; mt.timer = 0.35; }
+    } else if (mt.phase === 'take') {
+      faceToward(it.x, it.z, delta);
+      if (mt.timer <= 0) {
+        if (inventory.canAdd('midi_keyboard', 1) && chest.storage.take('midi_keyboard', 1) > 0) {
+          inventory.add('midi_keyboard', 1);
+          const bs = kbBattery.state();
+          if ((bs === 'none' || bs === 'dead') && inventory.count('battery') < 1 && inventory.canAdd('battery', 1) && chest.storage.take('battery', 1) > 0) inventory.add('battery', 1);
+          debugLog.log('music.keyboardTakenFromChest', {});
+        } else mt.failed = true; // 持ち物がいっぱい・もう無い: あきらめる
+        mt.phase = 'close'; mt.timer = COL.chestCloseSec; chest.close();
+      }
+    } else if (mt.phase === 'close') {
+      if (mt.timer <= 0 && chest.settled()) {
+        if (mt.failed) { endTasks(); return true; }
+        mt.phase = 'goto2'; // 演奏の場所へ歩く
+        wander.waiting = false; wander.turningAway = 0; wander.legs = [{ x: mt.spot.x, z: mt.spot.z }]; wander.detouring = 0; wander.target.set(mt.spot.x, mt.spot.z);
+        wander.activity = 'walk'; wander.nextRestMin = 1; wander.nextRestMax = 2; resetStuckCheck();
+      }
+    }
+    return true;
+  }
+  function startPerformance(mt) {
+    const st = kbBattery.state();
+    if (st === 'none' || st === 'dead') { // 電池を入れる
+      if (inventory.count('battery') > 0) { inventory.remove('battery', 1, { silent: true }); kbBattery.insert(); } else { endTasks(); return; }
+    }
+    const h = wander.heading;
+    Object.assign(perf, { active: true, phase: 'sit', timer: 0, song: mt.plan.song, place: mt.plan.place, player: createSongPlayer(mt.plan.song), placed: false, amp: 0 });
+    perf.target = musicTargetFor(perf.place, wander.pos.x, wander.pos.y, { x: Math.sin(h), z: Math.cos(h) });
+    if (!perf.target) { perf.active = false; endTasks(); return; }
+    wander.musicTask = null; wander.legs = []; wander.walking = false; wander.waiting = true; wander.waitTimer = 9999; wander.waitElapsed = 0; wander.holdHeading = h;
+    rainWatch.reset();
+    debugLog.log('music.perform.start', { place: perf.place, song: perf.song.id, notes: perf.song.notes.length });
+  }
+  const _perfV = new THREE.Vector3();
+  function placeNpcKeyboard() { // 座る前に、目の前の地面へキーボードを置く。ケーブルを、演奏する自然物へつなぐ
+    const h = wander.heading, p = playerSnowman.group.position, x = p.x + Math.sin(h) * 0.95, z = p.z + Math.cos(h) * 0.95;
+    npcKb.group.position.set(x, terrainHeightAt(x, z) + Math.max(0, weather.getSnowDepth() - 0.05) + 0.02, z);
+    npcKb.group.rotation.y = h + Math.PI; // 鍵盤の手前が、雪だるまのほうを向く
+    npcKb.setBase(48); npcKb.releaseAll(); npcKb.group.visible = true; npcKb.group.updateMatrixWorld(true);
+    npcKb.cableAnchor.getWorldPosition(_perfV); kbCable.set(_perfV, perf.target);
+    const sfxs = sfx(); if (sfxs) sfxs.itemPickup('tent', sfxRelative(x, p.y + 0.1, z)); // キーボードを置く、小さな音
+  }
+  function stopPerformance(interrupted) {
+    const ni = musicInstrument(); if (ni) ni.allOff();
+    npcKb.releaseAll(); emoteBrain.request('stand');
+    perf.phase = 'stop'; perf.timer = 0; perf.interrupted = !!interrupted;
+    if (interrupted) debugLog.log('music.perform.interrupted', { place: perf.place });
+  }
+  function finishPerformance() {
+    npcKb.group.visible = false; kbCable.hide();
+    if (perf.interrupted) performer.interrupted(clock.elapsedTime); else performer.finished(clock.elapsedTime);
+    perf.active = false; perf.phase = 'none';
+    wander.holdHeading = null; wander.waiting = true; wander.waitTimer = 1.5 + Math.random() * 2; wander.waitElapsed = 0; wander.baseHeading = wander.heading;
+    debugLog.log('music.perform.end', { place: perf.place, interrupted: !!perf.interrupted });
+  }
+  function updatePerformance(delta) {
+    const now = clock.elapsedTime;
+    if (!perf.active) { // 弾き終わったあと、手足の動きを、ゆっくり戻す
+      if (perf.amp > 0) { perf.amp = Math.max(0, perf.amp - delta * 3); playerSnowman.setPerform(perf.amp > 0 ? { pat: perf.amp, sway: perf.amp, arms: perf.amp, t: now } : null); }
+      return;
+    }
+    perf.timer += delta;
+    if (perf.phase !== 'stop' && (!wanderActive || shockState.active || musicState.panelOpen)) stopPerformance(true); // モードが変わった・感電・プレイヤーが演奏を始めた
+    if (perf.phase === 'sit') {
+      const want = Math.atan2(perf.target.x - wander.pos.x, perf.target.z - wander.pos.y);
+      wander.holdHeading = want; // 演奏する自然物のほうを向く
+      let d = want - wander.heading; d = Math.abs(Math.atan2(Math.sin(d), Math.cos(d)));
+      if (!perf.placed && (d < 0.25 || perf.timer > 2.5)) { placeNpcKeyboard(); emoteBrain.request('sit'); perf.placed = true; perf.timer = 0; }
+      else if (perf.placed) { npcKb.tick(kbBattery.state(), now); if ((emoteBrain.isSitting() && perf.timer > 0.6) || perf.timer > 4.5) { perf.phase = 'play'; perf.timer = 0; } }
+    } else if (perf.phase === 'play') {
+      emoteBrain.keepSitting(); npcKb.tick(kbBattery.state(), now);
+      if (rainWatch.update(delta, weather.getRainIntensity())) { stopPerformance(true); return; } // 雨: 小雨は弾き続ける。雨は数秒〜10秒、強い雨は1〜3秒で中断
+      const ni = musicInstrument(), p = playerSnowman.group.position, ev = perf.player.advance(delta);
+      if (ni) { ni.setRemotePosition(sfxRelative(p.x, p.y + 0.5, p.z)); }
+      for (const e of ev) {
+        const n = e.note;
+        if (e.type === 'on') { if (ni) ni.noteOn(n.s || perf.place, n.n, n.v, { remote: true }); npcKb.setKeyDown(foldKey(n.n), true); }
+        else { if (ni) ni.noteOff(n.n); npcKb.setKeyDown(foldKey(n.n), false); }
+      }
+      perf.amp += (1 - perf.amp) * Math.min(1, delta * 2.5); // 足をパタパタ・頭を優しく振って、楽しそうに
+      playerSnowman.setPerform({ pat: perf.amp, sway: perf.amp, arms: perf.amp, t: now });
+      if (perf.player.isDone()) stopPerformance(false);
+    } else if (perf.phase === 'stop') {
+      perf.amp = Math.max(0, perf.amp - delta * 3); playerSnowman.setPerform(perf.amp > 0 ? { pat: perf.amp, sway: perf.amp, arms: perf.amp, t: now } : null);
+      if (!emoteBrain.isBusy() || perf.timer > 3.5) finishPerformance();
+    }
+  }
+
   function updateMusic(delta) {
     const open = musicState.panelOpen, now = clock.elapsedTime;
     // 電池: 弾いている間(最後の音から10秒まで)だけ、現実の時間で減る
     const playing = open && (musicRt.held.size > 0 || now - musicRt.lastNoteAt < PLAY_GRACE_SEC);
+    updatePerformance(delta); // v1.101: 雪だるまの演奏
     const saved = musicMemory.tick(now); // 最後の音から5秒たったら、自動で1曲として保存される(パネルを閉じたあとも)
     if (saved) debugLog.log('music.songSaved', { place: saved.song.place, notes: saved.song.notes.length, evicted: saved.evicted });
     const ev = kbBattery.tick(delta, playing);
@@ -5117,7 +5294,7 @@ export function initScene(mountEl, options = {}) {
     // 代わりに使う。発生の強さ(intensity)はseason.getAutumnProgress()から。
     {
       const w = weather.getWeather();
-      const windFactor = w === 'storm' ? 1.0 : w === 'rain' ? 0.45 : 0.15;
+      const windFactor = w === 'storm' ? 1.0 : w === 'rain' ? 0.45 : w === 'drizzle' ? 0.25 : 0.15;
       const autumnProgress = season.getAutumnProgress();
       leafFall.update(delta, {
         shedding: season.isAutumnLike(),
@@ -5381,6 +5558,8 @@ export function initScene(mountEl, options = {}) {
       giveKit: () => { inventory.add('midi_keyboard', 1); inventory.add('battery', 2); inventory.add('coal', 4); inventory.add('copper_ore', 2); return true; },
       state: () => ({ ...musicPower(), pickupTaken: kbPickup.taken, pickup: { x: +kbPickup.x.toFixed(2), z: +kbPickup.z.toFixed(2) }, copper: copperField.pieces.map((p) => ({ x: +p.x.toFixed(1), z: +p.z.toFixed(1), taken: p.taken })), cable: kbCable.isVisible() }),
       setCharge: (f) => kbBattery.restore({ inserted: true, charge: f }),
+      perform: () => ({ active: perf.active, phase: perf.phase, place: perf.place, cooldownUntil: +performer.cooldownUntil().toFixed(0), now: +clock.elapsedTime.toFixed(0), taskPhase: wander.musicTask ? wander.musicTask.phase : null }), // v1.101
+      forcePerform: (place) => { performer.finished(-1e9); const sp = performSpotFor(place); const songs = musicMemory.songs(place); if (!sp || !songs.length) return false; wander.musicTask = null; wander.legs = [{ x: sp.x, z: sp.z }]; wander.waiting = false; wander.target.set(sp.x, sp.z); wander.musicTask = { phase: 'goto', plan: { place, song: songs[0], fetch: false }, spot: sp, chestIt: null }; return true; },
       memory: () => Object.fromEntries(['tree', 'river', 'flower', 'insect', 'snow', 'star', 'stone'].map((k) => [k, { songs: musicMemory.songCount(k), notes: musicMemory.noteCount(k) }])), // v1.100
       songs: (place) => musicMemory.songs(place).map((q) => ({ id: q.id, x: q.x, z: q.z, notes: q.notes.length })),
     },
