@@ -1717,7 +1717,7 @@ import { createMusicPanel } from './js/music/piano-panel.js'; // v1.97: 演奏�
       getAutoSource: () => (sceneRefForTouch && sceneRefForTouch.getMusicSource ? sceneRefForTouch.getMusicSource() : 'insect'),
       getPower: () => (sceneRefForTouch && sceneRefForTouch.getMusicPower ? sceneRefForTouch.getMusicPower() : { state: 'none', fraction: 0 }),
       canOpen: () => !!sceneRefForTouch && sceneRefForTouch.getMode() === 'walk' && !isInventoryOpen() && !isEmoteWheelOpen() && sceneRefForTouch.prepareMusicOpen(), // v1.99: キーボードと電池が必要
-      onPress: (m) => { if (sceneRefForTouch && sceneRefForTouch.musicNotePress) sceneRefForTouch.musicNotePress(m); },
+      onPress: (m, played, vel, src) => { if (sceneRefForTouch && sceneRefForTouch.musicNotePress) sceneRefForTouch.musicNotePress(m, played, vel, src); },
       onRelease: (m) => { if (sceneRefForTouch && sceneRefForTouch.musicNoteRelease) sceneRefForTouch.musicNoteRelease(m); },
       onBaseChange: (b) => { if (sceneRefForTouch && sceneRefForTouch.setMusicBase) sceneRefForTouch.setMusicBase(b); },
       onSource: (src) => { if (sceneRefForTouch && sceneRefForTouch.setMusicSource) sceneRefForTouch.setMusicSource(src); },

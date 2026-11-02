@@ -16,7 +16,7 @@ export function createMusicPanel({ root, instrument, getAutoSource = () => 'inse
   const currentSource = () => (selected === 'auto' ? getAutoSource() : selected);
 
   // ---- 音を鳴らす/止める(どの入力からでも、ここを通る) ----
-  function press(midi, vel = 0.8) { instrument.noteOn(currentSource(), midi, vel); onPress(midi); const el = keysEl.querySelector(`[data-midi="${midi}"]`); if (el) el.classList.add('down'); }
+  function press(midi, vel = 0.8) { const src = currentSource(), played = instrument.noteOn(src, midi, vel); onPress(midi, played, vel, src); const el = keysEl.querySelector(`[data-midi="${midi}"]`); if (el) el.classList.add('down'); }
   function release(midi) { instrument.noteOff(midi); onRelease(midi); const el = keysEl.querySelector(`[data-midi="${midi}"]`); if (el && ![...down.values()].includes(midi)) el.classList.remove('down'); }
 
   // ---- 鍵盤(画面): C〜C の2オクターブ+1音。PCキーの文字を鍵盤に表示する ----

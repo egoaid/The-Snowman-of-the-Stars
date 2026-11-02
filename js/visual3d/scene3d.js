@@ -78,6 +78,7 @@ import { GAME_DAY_REAL_SEC } from '../snow-melt.js';
 import { findHit, hitSway, stepSway, newSway, torchFlickerMul, fireDipMul } from '../snowball-targets.js';
 import { pickNatureSource } from '../music/notes.js';
 import { createBattery, degradation, planInsert, PLAY_GRACE_SEC } from '../music/battery.js';
+import { createMusicMemory } from '../music/memory.js';
 import { createMidiKeyboard } from './midi-keyboard.js';
 import { createMidiCable } from './midi-cable.js';
 import { createCopperOreField } from './copper-ore.js';
@@ -4193,6 +4194,8 @@ export function initScene(mountEl, options = {}) {
   // 演奏中: キーボードを、前の地面に置く。鍵盤が沈み、本体が光り、近くの自然物とケーブルでつながる。
   const playKb = createMidiKeyboard(); playKb.group.scale.setScalar(KB_SCALE); playKb.group.visible = false; scene.add(playKb.group);
   const kbCable = createMidiCable({ scene, groundAt: terrainHeightAt });
+  // v1.100: 音楽の記憶。弾いた音を、音符の情報として覚える(録音ではない)。最後の音から5秒で1曲。場所(=自然音源)ごとに、10,000音符まで。
+  const musicMemory = createMusicMemory();
   const musicRt = { lastNoteAt: -99, held: new Set(), source: 'insect', condKey: '', targetAt: -1, anchor: new THREE.Vector3() };
   const musicInstrument = () => (window.SoundEngine && window.SoundEngine.NatureInstrument) || null;
   const musicPower = () => ({ state: kbBattery.state(), fraction: kbBattery.fraction() });
@@ -4236,6 +4239,8 @@ export function initScene(mountEl, options = {}) {
     const open = musicState.panelOpen, now = clock.elapsedTime;
     // 電池: 弾いている間(最後の音から10秒まで)だけ、現実の時間で減る
     const playing = open && (musicRt.held.size > 0 || now - musicRt.lastNoteAt < PLAY_GRACE_SEC);
+    const saved = musicMemory.tick(now); // 最後の音から5秒たったら、自動で1曲として保存される(パネルを閉じたあとも)
+    if (saved) debugLog.log('music.songSaved', { place: saved.song.place, notes: saved.song.notes.length, evicted: saved.evicted });
     const ev = kbBattery.tick(delta, playing);
     if (ev === 'low') showPlaceNotice(tr('music.batteryLow'));
     else if (ev === 'dead') { // なくなった電池は、使い終わった電池として持ち物へ戻る
@@ -4824,7 +4829,7 @@ export function initScene(mountEl, options = {}) {
     const want = !!open && mode === 'walk' && !inventoryOpen && !emoteState.wheelOpen;
     if (want === musicState.panelOpen) return musicState.panelOpen;
     musicState.panelOpen = want;
-    if (want) { walk.releasePointerForUi(); placePlayKb(); musicRt.targetAt = -1; } else { walk.endUiRelease(mode === 'walk'); playKb.group.visible = false; playKb.releaseAll(); musicRt.held.clear(); kbCable.hide(); }
+    if (want) { walk.releasePointerForUi(); placePlayKb(); musicRt.targetAt = -1; } else { walk.endUiRelease(mode === 'walk'); playKb.group.visible = false; playKb.releaseAll(); for (const m of musicRt.held) musicMemory.noteOff(clock.elapsedTime, m); musicRt.held.clear(); kbCable.hide(); } // 閉じる時、押したままの音は、記憶の中でも離す
     return want;
   }
   /** いま立っている場所の近くにある自然物 → 演奏する音('river' 'tree' 'flower' 'insect' 'snow' 'star' 'stone') */
@@ -5241,7 +5246,7 @@ export function initScene(mountEl, options = {}) {
       logs: logs.slice(0, 300),
       shards: shardSystem.serialize(), // v1.69: 星のかけら・月のかけらを貼った倒木と、接着した塊(倒木の番号で)
       tentBundleTaken: tentBundle.taken, // v1.92
-      music: { kbTaken: kbPickup.taken, battery: kbBattery.serialize(), copperTaken: copperField.pieces.filter((q) => q.taken).map((q) => q.index) }, // v1.99: 落ちているテントを拾ったか
+      music: { kbTaken: kbPickup.taken, battery: kbBattery.serialize(), copperTaken: copperField.pieces.filter((q) => q.taken).map((q) => q.index), memory: musicMemory.serialize() }, // v1.99 / v1.100: 音楽の記憶: 落ちているテントを拾ったか
       rockTaken: rockClusters.map((r, i) => (r.taken ? i : -1)).filter((i) => i >= 0), // v1.86: 回収した岩
       coalTaken: coalField.pieces.filter((q) => q.taken).map((q) => q.index), // v1.85: 回収した木炭
       moonTaken: moonBuried.map((m, i) => (moonStones.getLanded().some((s) => s.id === m.id) ? -1 : i)).filter((i) => i >= 0), // v1.69: 拾われた、埋まっていた月の石
@@ -5284,6 +5289,7 @@ export function initScene(mountEl, options = {}) {
       const m = st.music; if (!m || typeof m !== 'object') return;
       if (m.kbTaken) takeKbPickup();
       kbBattery.restore(m.battery);
+      if (m.memory) musicMemory.restore(m.memory); // v1.100
       for (const i of Array.isArray(m.copperTaken) ? m.copperTaken : []) { if (copperField.take(i)) interaction.unregister(copperField.pieces[i].iid); }
     });
     guard(() => { for (const i of Array.isArray(st.rockTaken) ? st.rockTaken : []) removeRock(i); }); // v1.86
@@ -5365,13 +5371,18 @@ export function initScene(mountEl, options = {}) {
     setEmoteWheelOpen,
     setMusicPanelOpen, getMusicSource, // v1.97: 演奏パネル
     prepareMusicOpen, getMusicPower: musicPower, // v1.99: キーボード・電池
-    musicNotePress: (m) => { musicRt.held.add(m); musicRt.lastNoteAt = clock.elapsedTime; playKb.setKeyDown(m, true); },
-    musicNoteRelease: (m) => { musicRt.held.delete(m); playKb.setKeyDown(m, false); },
+    musicNotePress: (m, played = true, vel = 0.8, src = musicRt.source) => {
+      musicRt.held.add(m); musicRt.lastNoteAt = clock.elapsedTime; playKb.setKeyDown(m, true);
+      if (played) { const p = playerSnowman.group.position; musicMemory.noteOn(clock.elapsedTime, m, vel, src, { x: p.x, z: p.z }); } // 鳴った音だけ、覚える
+    },
+    musicNoteRelease: (m) => { musicRt.held.delete(m); playKb.setKeyDown(m, false); musicMemory.noteOff(clock.elapsedTime, m); },
     setMusicBase: (b) => playKb.setBase(b), setMusicSource: (src) => { musicRt.source = src; musicRt.targetAt = -1; },
     debugMusic: { // 検証用
       giveKit: () => { inventory.add('midi_keyboard', 1); inventory.add('battery', 2); inventory.add('coal', 4); inventory.add('copper_ore', 2); return true; },
       state: () => ({ ...musicPower(), pickupTaken: kbPickup.taken, pickup: { x: +kbPickup.x.toFixed(2), z: +kbPickup.z.toFixed(2) }, copper: copperField.pieces.map((p) => ({ x: +p.x.toFixed(1), z: +p.z.toFixed(1), taken: p.taken })), cable: kbCable.isVisible() }),
       setCharge: (f) => kbBattery.restore({ inserted: true, charge: f }),
+      memory: () => Object.fromEntries(['tree', 'river', 'flower', 'insect', 'snow', 'star', 'stone'].map((k) => [k, { songs: musicMemory.songCount(k), notes: musicMemory.noteCount(k) }])), // v1.100
+      songs: (place) => musicMemory.songs(place).map((q) => ({ id: q.id, x: q.x, z: q.z, notes: q.notes.length })),
     },
     isEmoteWheelOpen: () => emoteState.wheelOpen,
     // v1.46: 編集(観察)モード。歩行モード中は入れない。
