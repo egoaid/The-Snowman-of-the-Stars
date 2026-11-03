@@ -256,6 +256,7 @@
       const z = -Math.cos(azimuth) * distance;
       const y = SoundEngine.randomRange(0.5, 2.5);
       const panner = SoundEngine.createSpatialPanner(x, y, z, false);
+      SoundEngine.setSpatialProfile(panner, 'bird'); // v1.102: 遠くまで届く
       panner.connect(this.output);
       setTimeout(() => { try { panner.disconnect(); } catch (e) {} }, 10000);
       return panner;

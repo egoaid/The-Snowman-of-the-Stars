@@ -76,6 +76,7 @@ import { SNOWBALL, canGather, nextMelt, throwVelocity, stepSnowball } from '../s
 import { fireAction, fireStrength } from '../fire-rules.js';
 import { GAME_DAY_REAL_SEC } from '../snow-melt.js';
 import { findHit, hitSway, stepSway, newSway, torchFlickerMul, fireDipMul } from '../snowball-targets.js';
+import { createListenerRelative } from './listener-rel.js'; // v1.102
 import { pickNatureSource } from '../music/notes.js';
 import { createBattery, degradation, planInsert, PLAY_GRACE_SEC } from '../music/battery.js';
 import { createMusicMemory } from '../music/memory.js';
@@ -3000,10 +3001,8 @@ export function initScene(mountEl, options = {}) {
         fireSound.setCrackle(0.55 * fireSoundLevel);
       }
       if (near) {
-        const dx = near.x - px, dy = near.mesh.position.y + 0.2 - py, dz = near.z - pz;
-        const localRight = dx * _right.x + dz * _right.z;
-        const localForward = dx * _fwd.x + dz * _fwd.z;
-        fireSound.setListenerRelativePosition(localRight, dy, -localForward);
+        const r = listenerRelative(near.x, near.mesh.position.y + 0.2, near.z); // v1.102: カメラの上下の傾きも含めた、聞き手から見た位置
+        fireSound.setListenerRelativePosition(r.x, r.y, r.z);
       }
     }
 
@@ -3011,12 +3010,8 @@ export function initScene(mountEl, options = {}) {
     {
       const nearest = nearestRiverPoint(px, pz, riverSamplesForAvoid);
       const riverY = terrainHeightAt(nearest.x, nearest.z) + 0.1;
-      const dx = nearest.x - px;
-      const dy = riverY - py;
-      const dz = nearest.z - pz;
-      const localRight = dx * _right.x + dz * _right.z;
-      const localForward = dx * _fwd.x + dz * _fwd.z;
-      riverSound.setListenerRelativePosition(localRight, dy, -localForward);
+      const r = listenerRelative(nearest.x, riverY, nearest.z); // v1.102
+      riverSound.setListenerRelativePosition(r.x, r.y, r.z);
     }
 
     // --- 蜂の巣: 近づくと羽音が聞こえる固定の点音源(HRTF立体音響) ---
@@ -3030,9 +3025,8 @@ export function initScene(mountEl, options = {}) {
       const dy = beehiveWorldPos.y - py;
       const dz = beehiveWorldPos.z - pz;
       const dist = Math.hypot(dx, dy, dz);
-      const localRight = dx * _right.x + dz * _right.z;
-      const localForward = dx * _fwd.x + dz * _fwd.z;
-      window.SoundEngine.Bees.setListenerRelativePosition(localRight, dy, -localForward);
+      const r = listenerRelative(beehiveWorldPos.x, beehiveWorldPos.y, beehiveWorldPos.z); // v1.102
+      window.SoundEngine.Bees.setListenerRelativePosition(r.x, r.y, r.z);
       // 3.5m以内から聞こえ始め、1m以内でほぼ最大になる程度の近接感
       const proximity = isPollinatorActiveNow ? Math.max(0, Math.min(1, (3.5 - dist) / 2.5)) : 0;
       window.SoundEngine.Bees.setProximity(proximity);
@@ -3043,9 +3037,8 @@ export function initScene(mountEl, options = {}) {
     const star = window.SoundEngine && window.SoundEngine.StarBells && fallingStars.getActive();
     if (star) {
       const dx = star.x - px, dy = star.y - py, dz = star.z - pz;
-      const localRight = dx * _right.x + dz * _right.z;
-      const localForward = dx * _fwd.x + dz * _fwd.z;
-      window.SoundEngine.StarBells.setListenerRelativePosition(localRight, dy, -localForward);
+      const r = listenerRelative(star.x, star.y, star.z); // v1.102
+      window.SoundEngine.StarBells.setListenerRelativePosition(r.x, r.y, r.z);
     }
   }
 
@@ -3063,16 +3056,10 @@ export function initScene(mountEl, options = {}) {
   // v1.56-H3: 世界の中の効果音(チェスト・置く/拾う・丸太・水しぶき)。音を有効にするまでは何もしない。
   // 位置は「いまのカメラから見た相対位置」(右・上・前=-Z)にして、HRTFで定位させる。
   // ================================================================
+  const listenerRelative = createListenerRelative(camera);
   const _sfxF = new THREE.Vector3(), _sfxR = new THREE.Vector3();
   function sfx() { return (audioOn && window.SoundEngine && window.SoundEngine.Sfx) || null; }
-  function sfxRelative(x, y, z) {
-    camera.getWorldDirection(_sfxF); _sfxF.y = 0;
-    if (_sfxF.lengthSq() < 1e-6) _sfxF.set(0, 0, -1);
-    _sfxF.normalize();
-    _sfxR.crossVectors(_sfxF, _up).normalize();
-    const dx = x - camera.position.x, dz = z - camera.position.z;
-    return { x: dx * _sfxR.x + dz * _sfxR.z, y: y - camera.position.y, z: -(dx * _sfxF.x + dz * _sfxF.z) };
-  }
+  function sfxRelative(x, y, z) { return listenerRelative(x, y, z); } // v1.102: カメラの向きすべて(上下の傾きも)を使う
 
   // 見守り中の雪だるまが星へ示す反応(気づく→向かう、を確率で)
   const starNotice = { pending: false, timer: 0, approach: false };
@@ -3693,10 +3680,8 @@ export function initScene(mountEl, options = {}) {
         const gs = window.SoundEngine && window.SoundEngine.GatherSounds;
         if (audioOn && gs) {
           const px = playerSnowman.group.position.x, pz = playerSnowman.group.position.z;
-          const dx = log.x - px, dz = log.z - pz;
-          const localRight = dx * _right.x + dz * _right.z;
-          const localForward = dx * _fwd.x + dz * _fwd.z;
-          gs.setListenerRelativePosition(localRight, 0, -localForward);
+          const r = listenerRelative(log.x, camera.position.y, log.z); // v1.102(高さは、聞き手と同じ)
+          gs.setListenerRelativePosition(r.x, r.y, r.z);
           gs.playPickupBranch();
         }
       },

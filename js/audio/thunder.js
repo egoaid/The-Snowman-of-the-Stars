@@ -95,6 +95,7 @@
       const z = -Math.cos(strikeAngle) * strikeDistance;
       const y = SoundEngine.randomRange(3, 9); // 雷は上空から
       const panner = SoundEngine.createSpatialPanner(x, y, z, false);
+      SoundEngine.setSpatialProfile(panner, 'thunder'); // v1.102: 遠雷を、さらにこもらせない
       panner.connect(this.output);
 
       // 1) マルチストライク(1〜3回のクラック。実際の雷は6割以上が1〜2回の"clap"で構成される)

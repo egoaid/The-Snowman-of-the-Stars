@@ -47,6 +47,7 @@
       const output = ctx.createGain();
       output.gain.value = 1;
       const panner = SoundEngine.createSpatialPanner(0, 0, 0, false);
+      SoundEngine.setSpatialProfile(panner, 'star'); // v1.102: 小さく繊細な鈴
       output.connect(panner);
       panner.connect(SoundEngine.getSfxBus());
       this._output = output;

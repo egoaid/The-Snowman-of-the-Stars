@@ -320,9 +320,33 @@
     refDistance: 1,
     maxDistance: 10000,
     roomScale: 1,             // 0.3(狭い)〜2(広大)程度を想定
+    airAbsorption: 1,         // v1.102: 距離による高音域の減衰の強さ(0=なし 1=標準 2=強め)
     rotation: 0,              // ラジアン。シーン全体の回転(「振り向く」)
   };
   const spatialRegistry = []; // { panner, getPosition }
+
+  /**
+   * v1.102: 音源ごとの距離の聞こえ方(「すべての音源に同じ減衰を使わない」)。
+   *   rolloff: 距離による音量の減り方(小さいほど遠くまで届く) / air: 空気吸収の距離(m)。小さいほど、遠くで高音域が早く弱まる。
+   *   ふつうの距離(数m以内)では、これまでとほぼ同じ聞こえ方になるように選んである(環境音の音量バランスを保つ)。
+   */
+  const SPATIAL_PROFILES = {
+    default: { air: 60 },
+    river:   { rolloff: 0.24, air: 140 }, // 広がりのある音源: 遠くまで届く
+    fire:    { rolloff: 0.45, air: 30 },  // 局所的な音源: 離れると早く小さく・こもる
+    bird:    { rolloff: 0.25, air: 160 },  // 遠くまで届く鳥の声
+    insect:  { air: 70 },
+    bees:    { rolloff: 0.5, air: 20 },   // ごく近くだけ聞こえる羽音
+    star:    { rolloff: 0.45, air: 35 },   // 小さく繊細な鈴・チャイム
+    thunder: { air: 500 },                // 遠雷は、もともと低く響くので、さらにこもらせない
+  };
+  const spatialProfiles = new WeakMap(); // panner → profile
+  const AIR_MIN_HZ = 1800, AIR_MAX_HZ = 20000;
+  /** 距離 d(m) で、空気が高音域を弱めた後の、高い音の上限(Hz)。 */
+  function airCutoff(d, air, strength) {
+    if (!(strength > 0)) return AIR_MAX_HZ;
+    return Math.max(AIR_MIN_HZ, Math.min(AIR_MAX_HZ, AIR_MAX_HZ / (1 + (Math.max(0, d) * strength) / air)));
+  }
 
   function transformSpatialPosition(x, y, z) {
     const sx = x * spatialSettings.roomScale;
@@ -334,10 +358,11 @@
   }
 
   function applyPannerCharacteristics(panner) {
+    const pf = spatialProfiles.get(panner) || null;
     panner.panningModel = spatialSettings.panningModel;
     panner.distanceModel = spatialSettings.distanceModel;
-    panner.refDistance = spatialSettings.refDistance;
-    panner.rolloffFactor = spatialSettings.rolloffFactor;
+    panner.refDistance = pf && pf.refDistance !== undefined ? pf.refDistance : spatialSettings.refDistance;
+    panner.rolloffFactor = pf && pf.rolloff !== undefined ? pf.rolloff : spatialSettings.rolloffFactor;
     panner.maxDistance = spatialSettings.maxDistance;
   }
 
@@ -350,11 +375,16 @@
     const c = getContext();
     if (panner.positionX) {
       const now = c.currentTime;
-      panner.positionX.setTargetAtTime(pos.x, now, 0.15);
-      panner.positionY.setTargetAtTime(pos.y, now, 0.15);
-      panner.positionZ.setTargetAtTime(pos.z, now, 0.15);
+      panner.positionX.setTargetAtTime(pos.x, now, 0.06); // v1.102: 0.15→0.06。振り向いた時に、音の方向が、映像より遅れないように
+      panner.positionY.setTargetAtTime(pos.y, now, 0.06);
+      panner.positionZ.setTargetAtTime(pos.z, now, 0.06);
     } else if (panner.setPosition) {
       panner.setPosition(pos.x, pos.y, pos.z);
+    }
+    panner._pos = { x, y, z };
+    if (panner._air) { // 距離で、高音域を弱める(音源ごとの air で、強さが違う)
+      const pf = spatialProfiles.get(panner) || SPATIAL_PROFILES.default;
+      panner._air.frequency.setTargetAtTime(airCutoff(Math.hypot(x, y, z), pf.air, spatialSettings.airAbsorption), c.currentTime, 0.2);
     }
   }
 
@@ -368,6 +398,12 @@
   function createSpatialPanner(x, y, z, persistent, getPositionFn) {
     const c = getContext();
     const panner = c.createPanner();
+    // v1.102: パンナーの出口に、距離で高音域を弱めるローパスをつなぐ。呼ぶ側は、これまでどおり panner.connect(出口) と書けばよい。
+    const air = c.createBiquadFilter(); air.type = 'lowpass'; air.Q.value = 0.5; air.frequency.value = AIR_MAX_HZ;
+    panner.connect(air); // (差し替える前の connect)
+    panner.connect = (dest, o, i) => { air.connect(dest, o, i); return dest; };
+    panner.disconnect = (...a) => air.disconnect(...a);
+    panner._air = air;
     applyPannerCharacteristics(panner);
     applySpatialPositionImmediate(panner, x, y, z);
     if (persistent) {
@@ -378,6 +414,8 @@
 
   function applySpatialPositionImmediate(panner, x, y, z) {
     const pos = transformSpatialPosition(x, y, z);
+    panner._pos = { x, y, z };
+    if (panner._air) { const pf = spatialProfiles.get(panner) || SPATIAL_PROFILES.default; panner._air.frequency.value = airCutoff(Math.hypot(x, y, z), pf.air, spatialSettings.airAbsorption); }
     if (panner.positionX) {
       panner.positionX.value = pos.x;
       panner.positionY.value = pos.y;
@@ -385,6 +423,14 @@
     } else if (panner.setPosition) {
       panner.setPosition(pos.x, pos.y, pos.z);
     }
+  }
+
+  /** v1.102: 音源の種類('river' 'fire' 'bird' 'insect' 'bees' 'star' 'thunder')を決めて、距離の聞こえ方を、その音源に合わせる。 */
+  function setSpatialProfile(panner, nameOrProfile) {
+    const pf = typeof nameOrProfile === 'string' ? (SPATIAL_PROFILES[nameOrProfile] || SPATIAL_PROFILES.default) : Object.assign({}, SPATIAL_PROFILES.default, nameOrProfile);
+    spatialProfiles.set(panner, pf); applyPannerCharacteristics(panner);
+    if (panner._air && panner._pos) panner._air.frequency.value = airCutoff(Math.hypot(panner._pos.x, panner._pos.y, panner._pos.z), pf.air, spatialSettings.airAbsorption); // 位置が変わらない音源(鳥・虫・雷)も、種類に合わせる
+    return panner;
   }
 
   function unregisterSpatialSource(panner) {
@@ -410,6 +456,9 @@
   }
 
   SoundEngine.createSpatialPanner = createSpatialPanner;
+  SoundEngine.setSpatialProfile = setSpatialProfile; // v1.102
+  SoundEngine.airCutoff = (d, name) => airCutoff(d, (SPATIAL_PROFILES[name] || SPATIAL_PROFILES.default).air, spatialSettings.airAbsorption);
+  SoundEngine.SPATIAL_PROFILES = SPATIAL_PROFILES;
   SoundEngine.applySpatialPosition = applySpatialPosition;
   SoundEngine.unregisterSpatialSource = unregisterSpatialSource;
   SoundEngine.transformSpatialPosition = transformSpatialPosition;

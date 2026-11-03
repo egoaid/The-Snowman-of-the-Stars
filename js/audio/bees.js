@@ -43,6 +43,7 @@
       // 更新される(非persistent。蜂の巣自体は動かないが、リスナー
       // (カメラ)側が動くため、相対位置は毎フレーム変わる)。
       const panner = SoundEngine.createSpatialPanner(0, 0, 0, false);
+      SoundEngine.setSpatialProfile(panner, 'bees'); // v1.102: ごく近くだけ聞こえる羽音
       this._panner = panner;
       output.connect(panner);
       panner.connect(SoundEngine.getAmbientBus());

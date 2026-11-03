@@ -48,6 +48,7 @@
       );
       this.output.connect(this.panner);
       this.panner.connect(SoundEngine.getAmbientBus());
+      SoundEngine.setSpatialProfile(this.panner, 'fire'); // v1.102: 局所的な音源。離れると早く小さく・こもる
 
       // --- 唸り(ロー)レイヤー ---
       const roarNoise = SoundEngine.createNoiseSource('brown', 5);

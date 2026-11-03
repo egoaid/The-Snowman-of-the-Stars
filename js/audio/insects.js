@@ -341,6 +341,7 @@
       const z = -Math.cos(azimuth) * distance;
       const y = SoundEngine.randomRange(-0.3, 0.3);
       const panner = SoundEngine.createSpatialPanner(x, y, z, false);
+      SoundEngine.setSpatialProfile(panner, 'insect'); // v1.102
       panner.connect(this.output);
       setTimeout(() => { try { panner.disconnect(); } catch (e) {} }, 8000);
       return panner;

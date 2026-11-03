@@ -156,6 +156,7 @@
 
       bus.connect(panner);
       panner.connect(SoundEngine.getAmbientBus());
+      SoundEngine.setSpatialProfile(panner, 'river'); // v1.102: 広がりのある音源。遠くまで届く
       sendSource.connect(sendGain);
       sendGain.connect(this._reverb);
 
