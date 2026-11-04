@@ -551,7 +551,6 @@
       <div id="touchBtnAction" class="touch-btn" title="Action" data-i18n-title="touch.action">✦</div>
       <div id="touchBtnView" class="touch-btn" title="Switch view (first / third person)" data-i18n-title="touch.view">📷</div>
       <div id="touchBtnPlace" class="touch-btn" title="Place" data-i18n-title="touch.place">📍</div>
-      <div id="touchBtnMusic" class="touch-btn" title="Play music" data-i18n-title="touch.music">🎹</div>
       <div id="touchBtnEmote" class="touch-btn" title="Emotes (sit / sleep)" data-i18n-title="touch.emote">🪑</div>
     </div>
   </div>
@@ -1726,15 +1725,15 @@ import { createMusicPanel } from './js/music/piano-panel.js'; // v1.97: 演奏�
     });
     window.__musicPanel = musicPanel;
     onLangChange(() => musicPanel.rebuild());
-    document.addEventListener('keydown', (e) => {
-      if (e.code !== 'KeyP' || e.repeat || musicPanel.isOpen()) return; // 開いている間の P(閉じる)は、パネルが受け取る
-      const tag = (document.activeElement && document.activeElement.tagName) || '';
-      if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
-      if (!sceneRefForTouch || sceneRefForTouch.getMode() !== 'walk') return;
-      e.preventDefault(); musicPanel.open();
+    // v1.103: 演奏ボタン(ホットバー)を選ぶと、MIDIキーボードが出る。ほかのスロットを選ぶと、閉じる。(Pキー・スマホの🎹ボタンは廃止)
+    let lastWasMusicButton = false;
+    scene.onInventoryChange((snap) => {
+      const sel = snap.hotbar[snap.selected];
+      const isBtn = !!sel && sel.id === 'music_button';
+      if (isBtn && !lastWasMusicButton) musicPanel.open();
+      else if (!isBtn && lastWasMusicButton && musicPanel.isOpen()) musicPanel.close();
+      lastWasMusicButton = isBtn;
     });
-    const touchBtnMusic = document.getElementById('touchBtnMusic');
-    touchBtnMusic.addEventListener('touchstart', (e) => { e.preventDefault(); musicPanel.toggle(); }, { passive: false });
     // v1.91: スマホの「置く」ボタン。手に持った物を、置く場所の枠(緑)のところに置く。置ける物を持っている時だけ出る。
     const touchBtnPlace = document.getElementById('touchBtnPlace');
     touchBtnPlace.addEventListener('touchstart', (e) => { e.preventDefault(); touchBtnPlace.classList.add('active'); if (sceneRefForTouch && sceneRefForTouch.placeHeldItem) sceneRefForTouch.placeHeldItem(true); }, { passive: false });
@@ -1849,7 +1848,6 @@ import { createMusicPanel } from './js/music/piano-panel.js'; // v1.97: 演奏�
       walkExitBtn.style.display = isTouchDevice && uiWalking ? 'flex' : 'none';
       touchBtnAction.style.display = isTouchDevice && uiWalking ? 'flex' : 'none';
       touchBtnEmote.style.display = isTouchDevice && uiWalking ? 'flex' : 'none'; // v1.73
-      document.getElementById('touchBtnMusic').style.display = isTouchDevice && uiWalking ? 'flex' : 'none'; // v1.97
       if (!uiWalking && window.__musicPanel && window.__musicPanel.isOpen()) window.__musicPanel.close(); // 歩行モードでなくなったら、演奏パネルは閉じる
       hotbarBar.style.display = uiWalking ? 'flex' : 'none';
       if (uiWalking) renderHotbar();

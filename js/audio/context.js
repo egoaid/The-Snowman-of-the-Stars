@@ -338,7 +338,8 @@
     insect:  { air: 70 },
     bees:    { rolloff: 0.5, air: 20 },   // ごく近くだけ聞こえる羽音
     star:    { rolloff: 0.45, air: 35 },   // 小さく繊細な鈴・チャイム
-    thunder: { air: 500 },                // 遠雷は、もともと低く響くので、さらにこもらせない
+    thunder: { air: 500 },
+    footstep: { rolloff: 1.0, air: 25 },  // 足音: 小さく局所的。離れるとはっきり小さくなる                // 遠雷は、もともと低く響くので、さらにこもらせない
   };
   const spatialProfiles = new WeakMap(); // panner → profile
   const AIR_MIN_HZ = 1800, AIR_MAX_HZ = 20000;

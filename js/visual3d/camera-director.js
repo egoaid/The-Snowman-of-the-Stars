@@ -158,7 +158,7 @@ export function createCameraDirector(options = {}) {
       { type: 'drone_pan', w: 2 },
     ];
     const snowmanOnly = !!(ctx.emote && SNOWMAN_ONLY_PHASES.has(ctx.emote.phase)); // v1.76: 眠りの間は、雪だるまが映るカットだけ
-    if (ctx.flower && !snowmanOnly) candidates.push({ type: 'flowers_only', w: 0.9 });
+    // v1.103: 花へのズーム(flowers_only)は、多すぎるので廃止
     if (ctx.fire && !snowmanOnly && directorTime - lastFireCutAt >= FIRE_COOLDOWN_SECONDS) {
       candidates.push({ type: 'campfire_only', w: FIRE_SHOT_WEIGHT });
     }

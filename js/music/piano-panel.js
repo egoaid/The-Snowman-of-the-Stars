@@ -1,5 +1,5 @@
 // piano-panel.js (v1.97) — 演奏パネル。画面の鍵盤・PCキーボード・外部MIDIキーボードの、どれで弾いても同じ。
-//   ・開く: Pキー / スマホは🎹。歩行モードの間だけ開ける。開いている間は、歩かない(scene3d.js が止める)。
+//   ・開く: ホットバーの「演奏ボタン」をマウスホイール(スマホはタップ)で選ぶ(MIDIキーボードを持っている時だけ、自動で置かれる)。歩行モードの間だけ開ける。閉じる: ほかのスロットを選ぶ / Esc。開いている間は、歩かない(scene3d.js が止める)。
 //   ・音は、近くの自然物(自動)か、パネルで選んだ自然物。
 //   ・開いている間、鍵盤のキーは、ほかの操作(Eのインベントリ・Bのエモートなど)より先に、演奏として受け取る。
 import { SOURCES, SOURCE_ICON, keyToMidi, isNoteKey, isBlackKey, noteName, OCTAVE_MIN, OCTAVE_MAX } from './notes.js';
@@ -89,7 +89,7 @@ export function createMusicPanel({ root, instrument, getAutoSource = () => 'inse
     if (!open || e.ctrlKey || e.metaKey || e.altKey) return;
     const tag = (document.activeElement && document.activeElement.tagName) || '';
     if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
-    if (e.code === 'Escape' || e.code === 'KeyP') { e.preventDefault(); e.stopImmediatePropagation(); if (!e.repeat) close(); return; }
+    if (e.code === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); if (!e.repeat) close(); return; }
     if (e.code === 'ArrowLeft' || e.code === 'ArrowRight') { e.preventDefault(); e.stopImmediatePropagation(); if (!e.repeat) shiftOctave(e.code === 'ArrowLeft' ? -1 : 1); return; }
     if (!isNoteKey(e.code)) return;
     e.preventDefault(); e.stopImmediatePropagation(); // E・B・F・Q などの、ほかの操作へは渡さない

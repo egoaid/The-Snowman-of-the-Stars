@@ -46,7 +46,7 @@ import { createLogObstacleManager, isWalkOver } from './log-obstacles.js';
 import { createTraversal, createVerticalState, createClimbController, createTraversalFailureMemory, ACTION, climbDurationFor } from './traversal.js';
 import { createStagnationWatchdog, createRepeatDetector, blockerSignature, findRescueSpot, hopPoint } from './wander-watchdog.js';
 import { createFallingStarSystem, pickStarLandingSpot } from './falling-star.js';
-import { getRecipe, recipeInputs, RECIPES, pebblesFromRock, ROCK_COLLECT_MAX_SCALE } from '../recipes.js'; // v1.69 / v1.74(recipeInputs)
+import { getRecipe, recipeInputs, RECIPES, pebblesFromRock, ROCK_COLLECT_MAX_SCALE, TENTATIVE } from '../recipes.js'; // v1.69 / v1.74(recipeInputs)
 import { createStarTorchMesh, tickStarTorch, setStarTorchFar, setStarTorchTilt, setStarTorchFlicker, STAR_TORCH } from './star-torch.js';
 import { createButterflyVisit } from './butterfly-visit.js'; // v1.78: 寝ている雪だるまの鼻に蝶がとまる
 import { createActivityLog } from './activity-log.js'; // v1.80: 活動ログ(歩いた経路と出来事を記録して、あとで解析する) // v1.74: 星の松明
@@ -81,6 +81,8 @@ import { pickNatureSource } from '../music/notes.js';
 import { createBattery, degradation, planInsert, PLAY_GRACE_SEC } from '../music/battery.js';
 import { createMusicMemory } from '../music/memory.js';
 import { createPerformer, createRainWatcher, createSongPlayer } from '../music/performer.js';
+import { createBuilder, missingFor, gatherKindsFor } from '../builder.js';
+import { canCraft, craft } from '../recipes.js';
 import { createMidiKeyboard } from './midi-keyboard.js';
 import { createMidiCable } from './midi-cable.js';
 import { createCopperOreField } from './copper-ore.js';
@@ -654,6 +656,7 @@ export function initScene(mountEl, options = {}) {
   const STUCK_MAX_NO_APPROACH_CHECKS = 3;
   // 目的地・経由点を障害物の衝突円の外へ押し出す時の余白。雪だるまの
   // 衝突半径 + 到着判定(目的地から0.3m以内)より大きい値にする。
+  const RIVER_MARGIN = 2.2, RIVER_SAFE = 3.2; // v1.103: 水際からの、近づかない距離 / 救出先の距離
   const WANDER_ARRIVE_CLEARANCE = playerSnowman.collision.collisionRadius + 0.35;
   function sanitizeWaypoint(x, z) {
     return pushOutOfObstacles(x, z, aiObstacles(), WANDER_ARRIVE_CLEARANCE);
@@ -675,7 +678,8 @@ export function initScene(mountEl, options = {}) {
     routePlan: null, // v1.53 E2: 丸太を伝って川を渡っている最中の経路
     jumpAssist: false, // 丸太へ跳び乗っている最中(空中の前進を速くする)
     collectTask: null, // v1.54: 拾い物の動作 {cand, phase:'goto'|'investigate'|'around'}
-    musicTask: null, // v1.101: 雪だるまの演奏のための移動 {phase:'goto'|'face'|'open'|'take'|'close'|'goto2', plan, spot, chestIt}
+    buildTask: null, // v1.103: 雪だるまの設置作業 {phase:'goto'|'work', goal, x, z, itemId, yaw}
+  musicTask: null, // v1.101: 雪だるまの演奏のための移動 {phase:'goto'|'face'|'open'|'take'|'close'|'goto2', plan, spot, chestIt}
   baseTask: null, // v1.54: チェストへしまう動作 {phase:'goto'|'face'|'open'|'store'|'close'|'pause'}
     // --- スタック検知用 ---
     stuckCheckTimer: STUCK_CHECK_INTERVAL,
@@ -856,6 +860,7 @@ export function initScene(mountEl, options = {}) {
     if (forcedRestActivity) { const a = forcedRestActivity; forcedRestActivity = null; return a; }
     // v1.101: 気まぐれに、記憶した曲を弾きに行く(キーボードがチェストの中なら、取り出してから)
     try { const mp = planPerformance(); if (mp) return mp; } catch (e) { /* シーンの準備中(まだ演奏の部品がない)は、弾かない */ }
+    try { const bp = planBuilding(); if (bp) return bp; } catch (e) { /* シーンの準備中は、作らない */ } // v1.103: 収納・作成・設置
     // v1.96: 感電のあと: 木から離れて、遠くへ逃げる(いちばん遠い候補へ)
     if (fleeNow.pending) {
       fleeNow.pending = false;
@@ -963,6 +968,7 @@ export function initScene(mountEl, options = {}) {
     wander.collectTask = next.collect ? { cand: next.collect, phase: 'goto' } : null; // v1.54
     wander.baseTask = next.toChest ? { phase: 'goto', it: next.chestIt } : null;
     wander.musicTask = next.music ? { phase: 'goto', ...next.music } : null; // v1.101
+    wander.buildTask = next.build ? { phase: 'goto', ...next.build } : null; // v1.103
     // v1.53 E2: 川を渡りたい時は、丸太の表面を伝って向こう岸へ届く経路があるかを、物理的な到達可能性から調べる
     // (丸太に「橋」の印は無い。入口で乗れるか・上を歩けるか・向こうに地面があるかを面の高さと位置から確かめる)。
     // 無ければ、川岸まで行って佇む。失敗した足がかりは一定時間覚えて、同じ不可能な試みを繰り返さない。
@@ -1367,7 +1373,7 @@ export function initScene(mountEl, options = {}) {
   }
   const rand2 = (r) => r[0] + Math.random() * (r[1] - r[0]);
   function endTasks() {
-    wander.collectTask = null; wander.baseTask = null; wander.musicTask = null;
+    wander.collectTask = null; wander.baseTask = null; wander.musicTask = null; wander.buildTask = null;
     wander.waiting = true; wander.waitTimer = 0.4 + Math.random() * 0.8; wander.waitElapsed = 0;
     wander.baseHeading = wander.heading; wander.walking = false; wander.activity = 'idle';
     wander.nextRestMin = 3; wander.nextRestMax = 8;
@@ -1392,9 +1398,10 @@ export function initScene(mountEl, options = {}) {
       const kind = collectRegistry.kindOf(c.kind);
       let took = false;
       // 拾うと決めた時だけ。大きな物は、拾わずに眺めるだけ(データのsizeで決まる)。ポーチに入らなければ拾わない。
-      if (collectRegistry.exists(c) && collectRegistry.decideCollect(c) && pouch.canTake(kind.itemId)) {
-        const itemId = collectRegistry.take(c);
-        if (itemId) took = pouch.take(itemId);
+      const forced = builderWants(kind.itemId); // v1.103: 作る材料は、ポーチがいっぱいでも・気まぐれでも、必ず拾う
+      if (collectRegistry.exists(c) && (forced || collectRegistry.decideCollect(c)) && (pouch.canTake(kind.itemId) || (forced && inventory.canAdd(kind.itemId, 1)))) {
+        const canPouch = pouch.canTake(kind.itemId), itemId = collectRegistry.take(c);
+        if (itemId) { if (canPouch) took = pouch.take(itemId); else if (inventory.canAdd(itemId, 1)) { inventory.add(itemId, 1); took = true; } }
       }
       if (!took && collectRegistry.exists(c)) collectRegistry.ignore(c, clock.elapsedTime + SNOWMAN_COLLECT.ignoreAfterDeclineSec); // 拾わなかった物は、しばらく気にしない
       activityLog.event('collect', { ck: c.kind, x: c.x, z: c.z, took, item: kind.itemId, edge: +edgeAt(c.x, c.z).toFixed(1) });
@@ -1472,6 +1479,8 @@ export function initScene(mountEl, options = {}) {
     if (bt && bt.phase !== 'goto') return runBaseTask(bt, delta);
     const mt = wander.musicTask; // v1.101
     if (mt && mt.phase !== 'goto' && mt.phase !== 'goto2') return runMusicTask(mt, delta);
+    const bk = wander.buildTask; // v1.103
+    if (bk && bk.phase !== 'goto') return runBuildTask(bk, delta);
     return false;
   }
 
@@ -1604,6 +1613,7 @@ export function initScene(mountEl, options = {}) {
       // v1.54: 拾い物・チェストの目的地に着いたら、その場の動作を始める(休みに入る代わりに)
       if (wander.collectTask && beginCollectTask()) { wander.walking = false; return; }
       if (wander.musicTask) { beginMusicTask(); wander.walking = false; return; } // v1.101: 演奏の場所・チェストに着いた
+      if (wander.buildTask) { beginBuildTask(); wander.walking = false; return; } // v1.103: 設置の場所に着いた
       if (wander.baseTask) { beginChestTask(); wander.walking = false; return; }
       wander.waiting = true;
       wander.waitTimer = wander.nextRestMin + Math.random() * (wander.nextRestMax - wander.nextRestMin);
@@ -2285,7 +2295,7 @@ export function initScene(mountEl, options = {}) {
   let mode = 'orbit'; // 'orbit'(自由カメラ・未操作) | 'walk'(プレイヤー操作)
   // 歩行モードの初期視点は「三人称(後ろ姿)」(2026-09 v1.28: 指定により。以前は一人称)。
   // 'first' | 'third-back' | 'third-front' (mode==='walk'の時のみ意味を持つ)
-  const DEFAULT_WALK_VIEW = 'third-back';
+  const DEFAULT_WALK_VIEW = 'first'; // v1.103: 歩行モードの初期値は、一人称視点
   let cameraView = DEFAULT_WALK_VIEW;
   let wanderActive = false; // 見守りモード(自律移動)。mode==='walk'とは排他
   let cinemaMode = false; // 見守りモード中だけ有効な自動シネマティックカメラ
@@ -2824,12 +2834,12 @@ export function initScene(mountEl, options = {}) {
     const onLog = logUnderFoot(x, z);
     if (onLog) {
       const size = window.SoundEngine.Sfx ? window.SoundEngine.Sfx.logSize(onLog.log.length, onLog.log.radius) : 0.5;
-      window.SoundEngine.Footsteps.step('wood', 1, { size });
+      window.SoundEngine.Footsteps.step('wood', 1, { size, rel: sfxRelative(x, terrainHeightAt(x, z) + 0.05, z) }); // v1.102: 足もとの位置から
       return;
     }
     const { distance, width } = distanceToRiver(x, z, riverSamplesForAvoid);
     const surface = distance < getWaterEdgeDistance(width) ? 'water' : 'grass';
-    window.SoundEngine.Footsteps.step(surface);
+    window.SoundEngine.Footsteps.step(surface, 1, { rel: sfxRelative(x, terrainHeightAt(x, z) + 0.05, z) }); // v1.102: 足もとの位置から
   }
   let fireSound = null;
   let fireSoundLevel = 0, fireSoundApplied = 0, fireAudioT = 0; // v1.89: 焚き火の音の大きさ(ついている火があれば1、なければ0へ、なめらかに)
@@ -3724,7 +3734,7 @@ export function initScene(mountEl, options = {}) {
   // 歩行モード: 小さな物は、狙って拾える(大きな物は、狙えるだけで拾えない)
   function registerRemnantInteraction(it) {
     const kind = COLLECTIBLE_KINDS[it.kind];
-    const isSmall = kind && kind.size === 'small' && kind.itemId;
+    const isSmall = kind && kind.itemId; // v1.103: レコードプレーヤー(大きなもの)も、プレイヤーは拾える。雪だるまは、小さなものだけ集める(isCollectible)
     const iid = interaction.register({
       kind: 'remnant',
       getPosition: () => ({ x: it.x, y: (it.followSnow ? it.root.position.y : terrainHeightAt(it.x, it.z)) + Math.max(0.1, it.height * 0.6), z: it.z }),
@@ -4157,6 +4167,102 @@ export function initScene(mountEl, options = {}) {
     });
   }
 
+  // v1.103: 木炭・銅鉱石・小さな石を、雪だるまが拾えるようにする(見守りモードで、チェストへ収納する。材料にもなる)
+  collectRegistry.registerProvider('coal', {
+    list: (x, z, r) => coalField.isHidden() ? [] : coalField.pieces.filter((p) => !p.taken && Math.hypot(p.x - x, p.z - z) <= r).map((p) => ({ id: p.index, x: p.x, z: p.z, y: p.y })),
+    take: (cand) => { const cp = coalField.pieces[cand.id]; if (!cp || cp.taken) return false; coalField.take(cp.index); interaction.unregister(cp.iid); return true; },
+  });
+  collectRegistry.registerProvider('copper_ore', {
+    list: (x, z, r) => copperField.isHidden() ? [] : copperField.pieces.filter((p) => !p.taken && Math.hypot(p.x - x, p.z - z) <= r).map((p) => ({ id: p.index, x: p.x, z: p.z, y: p.y })),
+    take: (cand) => { const cp = copperField.pieces[cand.id]; if (!cp || cp.taken) return false; copperField.take(cp.index); interaction.unregister(cp.iid); return true; },
+  });
+  collectRegistry.registerProvider('pebble', { // 小さな岩(拾える大きさのもの)。1個で石が1〜3個
+    list: (x, z, r) => { const out = []; rockClusters.forEach((rk, idx) => { if (!rk.taken && rk.scale < ROCK_COLLECT_MAX_SCALE && rk.mesh.visible && Math.hypot(rk.x - x, rk.z - z) <= r) out.push({ id: idx, x: rk.x, z: rk.z, y: terrainHeightAt(rk.x, rk.z) }); }); return out; },
+    take: (cand) => { const rk = rockClusters[cand.id]; if (!rk || rk.taken) return false; const n = pebblesFromRock(rk.scale); removeRock(cand.id); for (let k = 1; k < n; k++) inventory.add('stone', 1); return true; }, // 1個は、拾う側が足す
+  });
+
+  // ================================================================
+  // v1.103: 雪だるまのものづくり(見守りモード)。きまりは builder.js。
+  //   回収した物は、チェストへ収納する。空きがなければ(または、なければ)、チェストを作る。材料がなければ、地形で集める。作ったら、地形に設置する。
+  //   作業台・焚き火も、気まぐれに、集めて・作って・設置する(すでに設置されていれば、作らない)。
+  // ================================================================
+  const builderCtl = createBuilder();
+  const BUILD_ITEM = { table: 'crafting_table', chest: 'chest', campfire: 'campfire' };
+  const countPlaced = (id) => placedItems.filter((q) => q.itemId === id).length;
+  const builderCounts = () => { const c = {}; for (const id of ['log', 'wood', 'star', 'star_shard', 'stone', 'coal']) c[id] = inventory.count(id); return c; };
+  /** いま作っている目標に、足りない材料か(足りなければ、拾う時に、必ず拾う)。 */
+  function builderWants(itemId) {
+    const g = builderCtl.current(); if (!g) return false;
+    const goal = (g === 'chest' || g === 'campfire') && countPlaced('crafting_table') === 0 ? 'table' : g;
+    return inventory.count(BUILD_ITEM[goal]) < 1 && itemId in missingFor(goal, builderCounts());
+  }
+  function pickBuildSpot(goal) { // 設置する場所(キャンプのまわりの、置ける所)と、そこへ立つ位置
+    const itemId = BUILD_ITEM[goal], hub = restHub();
+    for (let k = 0; k < 16; k++) {
+      const a = Math.random() * Math.PI * 2, r = 3 + Math.random() * 5, x = hub.x + Math.cos(a) * r, z = hub.z + Math.sin(a) * r;
+      if (Math.hypot(x, z) > PLAYABLE_RADIUS - 6 || riverClearance(x, z) < RIVER_SAFE) continue;
+      const spot = resolvePlacement(x, z, placeRadiusOf(itemId)); if (!spot || riverClearance(spot.x, spot.z) < RIVER_SAFE) continue;
+      const L = Math.hypot(wander.pos.x - spot.x, wander.pos.y - spot.z) || 1;
+      const stand = sanitizeWaypoint(spot.x + ((wander.pos.x - spot.x) / L) * 1.7, spot.z + ((wander.pos.y - spot.z) / L) * 1.7); if (!stand) continue;
+      return { x: spot.x, z: spot.z, itemId, stand: { x: stand.x, z: stand.z }, yaw: Math.random() * Math.PI * 2 };
+    }
+    return null;
+  }
+  function planBuilding() {
+    if (!wanderActive || perf.active || shockState.active || musicState.panelOpen || editMode.isEnabled()) return null;
+    const now = clock.elapsedTime;
+    const needChest = !pouch.isEmpty() && !pickStorageChest(); // 回収した物があるのに、収納できるチェストがない
+    const goal = builderCtl.goal({ now, needChest, tableCount: countPlaced('crafting_table'), campfireCount: countPlaced('campfire') });
+    if (!goal) return null;
+    const have = inventory.count(BUILD_ITEM[goal]) > 0; // もう作ってあるのに、置けていない時は、置きに行く
+    const missing = have ? {} : missingFor(goal, builderCounts());
+    if (Object.keys(missing).length) { // 材料を、地形で探して集める
+      const br = bridgeAvailable();
+      const cands = collectRegistry.sense(wander.pos.x, wander.pos.y, { only: gatherKindsFor(missing), now, pouchFull: false }).filter((q) => reachableCandidate(q, br));
+      if (cands.length && Math.random() < 0.85) { const c = collectRegistry.choose(cands); if (c) return collectActivity(c); }
+      return null; // 見つからなければ、ふつうに過ごす(目標は、残る)
+    }
+    const spot = pickBuildSpot(goal);
+    if (!spot) { builderCtl.failed(now); return null; }
+    return { target: spot.stand, restMin: 1, restMax: 2, activity: 'idle', build: { goal, ...spot } };
+  }
+  function beginBuildTask() { const bk = wander.buildTask; if (!bk) return; bk.phase = 'work'; bk.timer = 3.4; bk.tick = 0; wander.legs = []; }
+  function executeBuild(bk) { // 作って、設置する。できたら true
+    const inv = inventory;
+    if (inv.count(bk.itemId) < 1) {
+      const tableOk = countPlaced('crafting_table') > 0;
+      const craftIf = (id) => canCraft(inv, id) && craft(inv, id);
+      if (bk.goal === 'table') { if (!craftIf('crafting_table')) return false; }
+      else {
+        if (!tableOk) return false; // チェスト・焚き火は、作業台で作る
+        if (bk.goal === 'chest') {
+          let g = 0; while (inv.count('wood') < TENTATIVE.chestWood && g++ < 4 && craftIf('log_to_wood'));
+          g = 0; while (inv.count('star_shard') < TENTATIVE.chestShards && g++ < 4 && craftIf('star_to_shards'));
+          if (!craftIf('chest')) return false;
+        } else if (!craftIf('campfire')) return false;
+      }
+    }
+    const yaw = SOLID_PLACED[bk.itemId] ? bk.yaw + Math.PI : bk.yaw;
+    if (!evaluateHeld(bk.itemId, bk.x, bk.z).ok) return false; // 置けない場所だった(作ったものは、持ち物に残る。次に、別の場所を選ぶ)
+    if (!inv.remove(bk.itemId, 1, { silent: true })) return false;
+    const placed = addPlacedItem(bk.itemId, bk.x, bk.z, yaw, { exact: true });
+    if (!placed) { inv.add(bk.itemId, 1); return false; }
+    activityLog.event('build', { goal: bk.goal, x: +bk.x.toFixed(1), z: +bk.z.toFixed(1) });
+    return true;
+  }
+  function runBuildTask(bk, delta) { // 設置の場所の前で、少し作業して、置く
+    wander.walking = false; resetEscapeWatch(); resetStuckCheck();
+    faceToward(bk.x, bk.z, delta);
+    bk.timer -= delta; bk.tick -= delta;
+    if (bk.tick <= 0) { bk.tick = 0.55; const s = sfx(); if (s) s.itemPickup('wood', sfxRelative(bk.x, terrainHeightAt(bk.x, bk.z) + 0.3, bk.z)); } // とんとん、と作業する音
+    if (bk.timer <= 0) {
+      const now = clock.elapsedTime, ok = executeBuild(bk);
+      if (ok) { builderCtl.done(now); spawnSnowPuff(bk.x, terrainHeightAt(bk.x, bk.z) + 0.4, bk.z, 10, 2.0); } else builderCtl.failed(now);
+      endTasks();
+    }
+    return true;
+  }
+
   // ================================================================
   // v1.99: MIDIキーボード(世界に1つ。大木の根もとにある)・電池・MIDIケーブル
   //   キーボードは内蔵音源を持たない。電池を入れると本体が光り、近くの自然物とMIDIケーブルでつないで、その音を奏でる。
@@ -4256,12 +4362,13 @@ export function initScene(mountEl, options = {}) {
   /** その場所で弾く時に、立つ(座る)場所。行けなければ null。 */
   function performSpotFor(place) {
     const fx = wander.pos.x, fz = wander.pos.y, MAXD = 55;
+    const BANK = RIVER_MARGIN + 0.6; // v1.103: 川の演奏の場所は、水際から離れた岸
     const away = (cx, cz, d) => { const L = Math.hypot(fx - cx, fz - cz) || 1; return { x: cx + ((fx - cx) / L) * d, z: cz + ((fz - cz) / L) * d }; };
     const ok = (p) => { const q = sanitizeWaypoint(p.x, p.z); return q && !traversal.isWaterBlocked(q.x, q.z, null) ? { x: q.x, z: q.z } : null; };
     if (place === 'river') {
       try {
         const nr = nearestRiverPoint(fx, fz, riverSamplesForAvoid); if (Math.hypot(fx - nr.x, fz - nr.z) > MAXD) return null;
-        return ok(away(nr.x, nr.z, getWaterEdgeDistance(distanceToRiver(fx, fz, riverSamplesForAvoid).width) + 1.4)); // 川岸
+        return ok(away(nr.x, nr.z, getWaterEdgeDistance(distanceToRiver(fx, fz, riverSamplesForAvoid).width) + BANK)); // 川岸(水際から、近づきすぎない)
       } catch (e) { return null; }
     }
     if (place === 'tree' || place === 'stone') { const c = nearestOf(worldColliders.filter((q) => (place === 'stone') === q.id.startsWith('rock')), fx, fz, MAXD); return c ? ok(away(c.x, c.z, c.radius + 1.6)) : null; }
@@ -4396,10 +4503,24 @@ export function initScene(mountEl, options = {}) {
     }
   }
 
+  // v1.103: MIDIキーボードを持っている間だけ、ホットバー(など持ち物)に「演奏ボタン」が置かれる。選ぶと、キーボードが出る。
+  let musicButtonSyncing = false;
+  function syncMusicButton() {
+    if (musicButtonSyncing) return; musicButtonSyncing = true;
+    try {
+      const hasKb = inventory.count('midi_keyboard') > 0, hasBtn = inventory.count('music_button') > 0;
+      if (hasKb && !hasBtn) inventory.add('music_button', 1);
+      else if (!hasKb && hasBtn) inventory.remove('music_button', inventory.count('music_button'));
+      else if (hasBtn && inventory.count('music_button') > 1) inventory.remove('music_button', inventory.count('music_button') - 1);
+    } finally { musicButtonSyncing = false; }
+  }
+  inventory.onChange(syncMusicButton);
+  syncMusicButton();
   function updateMusic(delta) {
     const open = musicState.panelOpen, now = clock.elapsedTime;
     // 電池: 弾いている間(最後の音から10秒まで)だけ、現実の時間で減る
     const playing = open && (musicRt.held.size > 0 || now - musicRt.lastNoteAt < PLAY_GRACE_SEC);
+    { const ni0 = musicInstrument(); if (ni0 && !musicRt.remoteSet && ni0.setRemoteDefault) { ni0.setRemoteDefault(true); musicRt.remoteSet = true; } } // v1.103: キーボードの音は、いつも、キーボードのある場所から聞こえる(遠い・近いの、音響の原理に従う)
     updatePerformance(delta); // v1.101: 雪だるまの演奏
     const saved = musicMemory.tick(now); // 最後の音から5秒たったら、自動で1曲として保存される(パネルを閉じたあとも)
     if (saved) debugLog.log('music.songSaved', { place: saved.song.place, notes: saved.song.notes.length, evicted: saved.evicted });
@@ -4413,6 +4534,7 @@ export function initScene(mountEl, options = {}) {
     const st = kbBattery.state(), fr = kbBattery.fraction(), key = st + ':' + Math.round(fr * 50);
     if (key !== musicRt.condKey) { musicRt.condKey = key; const ni = musicInstrument(); if (ni && ni.setCondition) ni.setCondition(degradation(fr, st)); } // 音量・歪み・途切れ
     if (!open) return;
+    { const ni1 = musicInstrument(), g = playKb.group.position; if (ni1 && ni1.setRemotePosition) ni1.setRemotePosition(sfxRelative(g.x, g.y + 0.1, g.z)); } // v1.103: 演奏中のキーボードの位置
     playKb.tick(st, now); // 光る(電池が入っている間)/点滅(少ない)/光らない(なくなった)
     if (now - musicRt.targetAt > 0.25) { // ケーブル: キーボードと、演奏している自然物をつなぐ
       musicRt.targetAt = now;
@@ -4636,6 +4758,50 @@ export function initScene(mountEl, options = {}) {
     snowballMeltTimer = r.timer;
     if (r.melted && inventory.remove('snowball', 1)) { showPlaceNotice(tr('notice.snowballMelted')); debugLog.log('snowball.melted', {}); }
   }
+  // ================================================================
+  // v1.103: 川の安全。見守りモードの雪だるまが、川岸から川(の穴)に降りて、出られなくなる事故への対策。
+  //   予防: 水際から RIVER_MARGIN(2.2m)より近くへは、近づかない(位置の更新で止める)。弾き語りの場所も、岸から離れた所を選ぶ。
+  //   救出: 水際(水の中・岸の穴)に、一定時間いたままなら、近くの安全な地面へ、ぽんっと移す(必ず抜け出せる最後の手段)。
+  // ================================================================
+  function riverClearance(x, z) { const r = distanceToRiver(x, z, riverSamplesForAvoid); return r.distance - getWaterEdgeDistance(r.width); }
+  const riverRescue = { t: 0, still: 0, lastX: 0, lastZ: 0, total: 0 };
+  /** 川の穴(岸が囲んで、周りより低い所)にいるか。 */
+  function inRiverPit(x, z) {
+    const h = terrainHeightAt(x, z); let higher = 0;
+    for (let i = 0; i < 6; i++) { const a = (i / 6) * Math.PI * 2; if (terrainHeightAt(x + Math.cos(a) * 3, z + Math.sin(a) * 3) - h > 0.9) higher++; }
+    return higher >= 3;
+  }
+  function findSafeLandNear(x, z) { // 水際から3.2m以上離れた、いちばん近い安全な地面
+    let best = null, bd = 1e9;
+    for (let r = 3; r <= 34; r += 1.5) {
+      for (let k = 0; k < 20; k++) {
+        const a = (k / 20) * Math.PI * 2 + r * 0.37, px = x + Math.cos(a) * r, pz = z + Math.sin(a) * r;
+        if (Math.hypot(px, pz) > PLAYABLE_RADIUS - 2 || riverClearance(px, pz) < RIVER_SAFE || traversal.isWaterBlocked(px, pz, null) || inRiverPit(px, pz)) continue;
+        const q = sanitizeWaypoint(px, pz); if (!q || riverClearance(q.x, q.z) < RIVER_SAFE) continue;
+        const d = Math.hypot(q.x - x, q.z - z); if (d < bd) { bd = d; best = q; }
+      }
+      if (best) return best;
+    }
+    return null;
+  }
+  function updateRiverSafety(delta) {
+    if (!wanderActive || shockState.active || perf.active) { riverRescue.t = 0; riverRescue.still = 0; return; }
+    riverRescue.t += delta; if (riverRescue.t < 1) return; const dt = riverRescue.t; riverRescue.t = 0;
+    const x = wander.pos.x, z = wander.pos.y, c = riverClearance(x, z);
+    const risky = c < 0.6 || (c < RIVER_MARGIN + 1.5 && inRiverPit(x, z)); // 水の中・水際・岸の穴
+    if (!risky) { riverRescue.still = 0; riverRescue.lastX = x; riverRescue.lastZ = z; return; }
+    const moved = Math.hypot(x - riverRescue.lastX, z - riverRescue.lastZ); riverRescue.lastX = x; riverRescue.lastZ = z;
+    riverRescue.still += moved < 0.6 ? dt * 1.6 : dt * 0.6; // ほとんど動けていない時は、早く救出する
+    if (riverRescue.still < 6) return;
+    const dest = findSafeLandNear(x, z); riverRescue.still = 0;
+    if (!dest) return;
+    riverRescue.total++;
+    spawnSnowPuff(x, terrainHeightAt(x, z) + 0.4, z, 14, 2.4);
+    wander.pos.set(dest.x, dest.z); wander.legs = []; wander.walking = false; endTasks(); resetEscapeWatch(); resetStuckCheck();
+    const gy = terrainHeightAt(dest.x, dest.z); spawnSnowPuff(dest.x, gy + 0.4, dest.z, 14, 2.4);
+    activityLog.event('riverRescue', { from: { x: +x.toFixed(1), z: +z.toFixed(1) }, to: { x: +dest.x.toFixed(1), z: +dest.z.toFixed(1) }, total: riverRescue.total });
+  }
+
   // ================================================================
   // v1.96: 雨宿り・落雷・感電(見守りモードだけ)。きまりは storm-events.js。
   //   雨が降りはじめると、時々、大きな木の下で雨宿りする(樹冠の下は雨が降らない)。
@@ -5079,6 +5245,13 @@ export function initScene(mountEl, options = {}) {
       // 足元の高さを渡す: 丸太などの面に支えられていれば、下が水でも歩ける(支えが無ければ入れない)
       const wg = traversal.guardWater(prevSnowX, prevSnowZ, snowX, snowZ, climbingNow ? null : feetNow);
       snowX = wg.x; snowZ = wg.z;
+      if (wanderActive) { // v1.103: 川に降りて出られなくなる事故を防ぐため、水際から RIVER_MARGIN より近くへは、近づかない(離れる動きは、いつでもできる)
+        const cPrev = riverClearance(prevSnowX, prevSnowZ), cNext = riverClearance(snowX, snowZ);
+        if (cPrev >= 0 && cNext < RIVER_MARGIN && cNext < cPrev - 1e-4) {
+          const cx = riverClearance(snowX, prevSnowZ), cz = riverClearance(prevSnowX, snowZ);
+          if (cx >= RIVER_MARGIN || cx >= cPrev) snowZ = prevSnowZ; else if (cz >= RIVER_MARGIN || cz >= cPrev) snowX = prevSnowX; else { snowX = prevSnowX; snowZ = prevSnowZ; }
+        }
+      }
     }
     prevSnowX = snowX; prevSnowZ = snowZ;
     // 補正後の位置を、次フレームの移動計算の基準にも反映しておく
@@ -5141,6 +5314,7 @@ export function initScene(mountEl, options = {}) {
     updateSnowStuff(delta);   // v1.94
     updateStormEvents(delta); // v1.96: 雨宿り・落雷・感電
     updateMusic(delta);       // v1.99: 電池・光・MIDIケーブル
+    updateRiverSafety(delta); // v1.103: 川に降りて出られなくなった時の、救出
     updateLanterns(delta);
     updateButterfly(delta, t); // v1.78: 鼻にとまる蝶
     updateSnowmanStarReaction(delta);
@@ -5451,6 +5625,7 @@ export function initScene(mountEl, options = {}) {
       const m = st.music; if (!m || typeof m !== 'object') return;
       if (m.kbTaken) takeKbPickup();
       kbBattery.restore(m.battery);
+      syncMusicButton(); // v1.103
       if (m.memory) musicMemory.restore(m.memory); // v1.100
       for (const i of Array.isArray(m.copperTaken) ? m.copperTaken : []) { if (copperField.take(i)) interaction.unregister(copperField.pieces[i].iid); }
     });
@@ -5532,7 +5707,7 @@ export function initScene(mountEl, options = {}) {
     debugEmoteConfig: (patch) => Object.assign(emoteBrain.config, patch || {}), // 検証用: 待ち時間などを短くする
     setEmoteWheelOpen,
     setMusicPanelOpen, getMusicSource, // v1.97: 演奏パネル
-    prepareMusicOpen, getMusicPower: musicPower, // v1.99: キーボード・電池
+    prepareMusicOpen, getMusicPower: musicPower, // v1.99: キーボード・電池(v1.103: 開くのは、ホットバーの演奏ボタン)
     musicNotePress: (m, played = true, vel = 0.8, src = musicRt.source) => {
       musicRt.held.add(m); musicRt.lastNoteAt = clock.elapsedTime; playKb.setKeyDown(m, true);
       if (played) { const p = playerSnowman.group.position; musicMemory.noteOn(clock.elapsedTime, m, vel, src, { x: p.x, z: p.z }); } // 鳴った音だけ、覚える

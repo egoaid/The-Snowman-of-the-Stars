@@ -14,13 +14,13 @@
 
   const MAX_VOICES = 20;
   // 自然物ごとに、鍵盤の音を何倍の高さで鳴らすか(その音色が気持ちよく聞こえる高さへ)
-  const FREQ_MUL = { tree: 1, river: 3, flower: 2, insect: 4, snow: 2, star: 4, stone: 1 };
+  const FREQ_MUL = { tree: 1, river: 2, flower: 2, insect: 4, snow: 2, star: 4, stone: 1 };
   // 自然物ごとの、残響(リバーブ)の量。川は「ポチャン」の余韻、石は「ゴーン」の長い響きを、しっかり出す。
   const REVERB_SEND = { tree: 0.12, river: 0.5, flower: 0.3, insect: 0.06, snow: 0.25, star: 0.3, stone: 0.8 };
   const SUSTAINED = { flower: true, insect: true }; // 押している間、鳴り続ける
   const midiToFreq = (m) => 440 * Math.pow(2, (m - 69) / 12);
 
-  let ctx = null, bus = null, noiseBuf = null, reverbIn = null, shaper = null, gate = null, stutterTimer = null, remoteIn = null, remoteLp = null, remotePan = null;
+  let ctx = null, bus = null, noiseBuf = null, reverbIn = null, shaper = null, gate = null, stutterTimer = null, remoteIn = null, remoteLp = null, remotePan = null, remoteReverbIn = null, remoteDefault = false;
   let condDirty = false; // 音声の準備ができる前に決まった条件を、準備ができたあとで反映する
   const cond = { gain: 1, drive: 0, dropout: 0 }; // 電池の状態による劣化(music/battery.js の degradation)。gain 0 = 電池切れで、鳴らない
   const active = []; // { midi, source, endAt, release }
@@ -42,11 +42,14 @@
     }
     // 雪だるまが、世界のどこかで弾く音: 距離で小さく・こもり、HRTFで方向がわかる(近くで弾くプレイヤー自身の音は、この道を通らない)
     remoteIn = ctx.createGain(); remoteLp = ctx.createBiquadFilter(); remoteLp.type = 'lowpass'; remoteLp.frequency.value = 14000; remoteLp.Q.value = 0.4;
-    remotePan = ctx.createPanner(); remotePan.panningModel = 'HRTF'; remotePan.distanceModel = 'inverse'; remotePan.refDistance = 3.5; remotePan.rolloffFactor = 1.05; remotePan.maxDistance = 300;
+    remotePan = ctx.createPanner(); remotePan.panningModel = 'HRTF'; remotePan.distanceModel = 'inverse'; remotePan.refDistance = 2; remotePan.rolloffFactor = 1.4; remotePan.maxDistance = 300; // 距離で、音量が、ほぼ距離に反比例して小さくなる(遠いほど、はっきり小さい)
     remoteIn.connect(remoteLp); remoteLp.connect(remotePan); remotePan.connect(bus);
     reverbIn = ctx.createGain(); const conv = ctx.createConvolver(); conv.buffer = ir;
     const wet = ctx.createGain(); wet.gain.value = 0.9;
     reverbIn.connect(conv); conv.connect(wet); wet.connect(bus);
+    // 遠くの演奏の残響も、距離の道(音量・こもり・方向)を通す。残響だけが、遠くでも大きく聞こえないように
+    remoteReverbIn = ctx.createGain(); const conv2 = ctx.createConvolver(); conv2.buffer = ir; const wet2 = ctx.createGain(); wet2.gain.value = 0.9;
+    remoteReverbIn.connect(conv2); conv2.connect(wet2); wet2.connect(remoteIn);
     noiseBuf = ctx.createBuffer(1, Math.floor(ctx.sampleRate * 0.5), ctx.sampleRate);
     const d = noiseBuf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
     return true;
@@ -90,22 +93,26 @@
       const cg = gainEnv(t, 0.1 * vel, 0.001, 0.025); click.connect(cg); cg.connect(out); noiseSrc(t, 0.05, click);
       return { endAt: end, release: null };
     },
-    // 川: 石が水に落ちた「ポチャン」。落ちる音(チャ)→水中の低い「ポ」→泡の余韻。残響が、水辺に広がる。
+    // 川: 川の流れの音に、音階をつけた音。さらさらと流れる水を、鍵盤の高さで鳴らし、少しエコーさせる。
+    //     (「ポチャン」を、鍵盤で鳴らすのではなく、流れそのものを奏でる。水の流れらしい、ゆるやかな揺れ付き)
     river(f, t, vel, out) {
-      let end = t + 1.2;
-      const body = ctx.createOscillator(); body.type = 'sine'; // 水中の「ポ」: 石が沈む低い響き(ごく短く、ノイズの水音に混ぜる)
-      body.frequency.setValueAtTime(f * 0.45, t); body.frequency.exponentialRampToValueAtTime(f * 0.3, t + 0.14);
-      const bg = gainEnv(t + 0.012, 0.42 * vel, 0.006, 0.2); body.connect(bg); bg.connect(out); body.start(t); body.stop(t + 0.3);
-      const hit = ctx.createBiquadFilter(); hit.type = 'lowpass'; hit.frequency.setValueAtTime(3200, t); hit.frequency.exponentialRampToValueAtTime(500, t + 0.07); // 「チャ」: 落ちて水を割る音
-      const hg = gainEnv(t, 0.55 * vel, 0.001, 0.07); hit.connect(hg); hg.connect(out); noiseSrc(t, 0.09, hit);
-      for (const [mul, q, amp] of [[1, 90, 1], [2.02, 70, 0.45]]) {
-        const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = q;
-        bp.frequency.setValueAtTime(f * mul * 0.8, t); bp.frequency.exponentialRampToValueAtTime(f * mul, t + 0.07); // 泡のように、少し音程が上がる
-        const g = gainEnv(t + 0.02, 4.2 * vel * amp, 0.004, 0.42); bp.connect(g); g.connect(out); noiseSrc(t + 0.02, 0.05, bp);
+      const dur = 0.95;
+      const ripple = ctx.createGain(); ripple.gain.value = 0.7; // 流れのうねり(ゆるやかな揺れ)
+      const lfo = ctx.createOscillator(); lfo.type = 'sine'; lfo.frequency.value = 5.2 + (f % 3); const lg = ctx.createGain(); lg.gain.value = 0.3; lfo.connect(lg); lg.connect(ripple.gain); lfo.start(t); lfo.stop(t + dur + 0.2);
+      const env = gainEnv(t, 5.4 * vel, 0.045, dur); env.connect(ripple);
+      const sig = ctx.createGain(); ripple.connect(sig);
+      for (const [mul, q, amp] of [[1, 15, 1], [2.01, 11, 0.5], [3.02, 9, 0.22]]) { // 音階: 流れのノイズを、音の高さ(と倍音)の共鳴に通す
+        const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = f * mul; bp.Q.value = q;
+        const g = ctx.createGain(); g.gain.value = amp; bp.connect(g); g.connect(env); noiseSrc(t, dur + 0.1, bp);
       }
-      const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 2400;
-      const sg = gainEnv(t, 0.07 * vel, 0.001, 0.05); hp.connect(sg); sg.connect(out); noiseSrc(t, 0.06, hp); // 水が弾ける小さな音
-      return { endAt: end, release: null };
+      const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 1800; // 水のさらさらした粒
+      const sg = gainEnv(t, 0.1 * vel, 0.05, dur * 0.8); hp.connect(sg); sg.connect(sig); noiseSrc(t, dur, hp);
+      sig.connect(out);
+      const dly = ctx.createDelay(1.0), fb = ctx.createGain(), dlp = ctx.createBiquadFilter(); // エコー: 少し遅れて、やわらかく返る
+      dly.delayTime.value = 0.27; fb.gain.value = 0.4; dlp.type = 'lowpass'; dlp.frequency.value = 2600;
+      const echoSend = ctx.createGain(); echoSend.gain.value = 0.55; sig.connect(echoSend); echoSend.connect(dly); dly.connect(dlp); dlp.connect(out); dlp.connect(fb); fb.connect(dly);
+      if (typeof setTimeout === 'function') setTimeout(() => { try { fb.disconnect(); dly.disconnect(); dlp.disconnect(); } catch (e) { /* 片づけ済み */ } }, (dur + 2.6) * 1000);
+      return { endAt: t + dur + 2.0, release: null };
     },
     // 花: 不思議で幻想的な音。ゆっくり立ち上がり、きらめきを重ねる。押している間、鳴り続ける。
     flower(f, t, vel, out) {
@@ -132,10 +139,18 @@
         release(rt) { g.gain.cancelScheduledValues(rt); g.gain.setTargetAtTime(0.0001, rt, 0.05); for (const o of [o1, o2, lfo]) { try { o.stop(rt + 0.4); } catch (e) { /* 同上 */ } } return rt + 0.45; },
       };
     },
-    // 雪: 澄んだベルのような音。長く響く。
+    // 雪: 音階のある、そりの鈴(Sleigh bells)。小さな金属の鈴が、いくつも触れ合って、シャラシャラと鳴る。音の高さは、鍵盤のとおり。
     snow(f, t, vel, out) {
-      const end = partialsHit(f, t, vel, [{ ratio: 1, amp: 1, decay: 1 }, { ratio: 2.32, amp: 0.42, decay: 0.6 }, { ratio: 4.25, amp: 0.2, decay: 0.38 }, { ratio: 6.63, amp: 0.09, decay: 0.24 }], 2.6, 0.26, out);
-      return { endAt: end, release: null };
+      const base = f * 2, parts = [{ ratio: 1, amp: 1, decay: 1 }, { ratio: 2.71, amp: 0.55, decay: 0.7 }, { ratio: 4.52, amp: 0.34, decay: 0.5 }, { ratio: 6.4, amp: 0.2, decay: 0.36 }];
+      let end = t;
+      const N = 7; // 鈴の数
+      for (let i = 0; i < N; i++) {
+        const at = t + Math.random() * 0.07 + i * 0.006, fi = base * (1 + (Math.random() - 0.5) * 0.014); // 少しずつ違う高さ: 触れ合う、きらめき
+        end = Math.max(end, partialsHit(fi, at, vel * (0.55 + Math.random() * 0.45), parts, 0.55 + Math.random() * 0.3, 0.2 / Math.sqrt(N / 3), out));
+      }
+      const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 5200; // 鈴が触れ合う、細かい金属音
+      const sg = gainEnv(t, 0.12 * vel, 0.002, 0.11); hp.connect(sg); sg.connect(out); noiseSrc(t, 0.14, hp);
+      return { endAt: end + 0.05, release: null };
     },
     // 星の灯り: 鈴・チャイム。きらきらと高く、こだまが少し遅れて返る。
     star(f, t, vel, out) {
@@ -182,13 +197,15 @@
       } else if (!(cond.dropout > 0) && stutterTimer) { clearInterval(stutterTimer); stutterTimer = null; gate.gain.setValueAtTime(1, ctx.currentTime); }
     },
     getCondition: () => ({ ...cond }),
+    /** true: 演奏の音を、いつも、位置のある音(setRemotePosition の場所から聞こえる)として鳴らす。 */
+    setRemoteDefault(v) { remoteDefault = !!v; },
     /** 雪だるまの演奏の位置(聞き手から見た相対位置 x,y,z)。距離が遠いほど、高い音がこもる(空気の吸収)。 */
     setRemotePosition(rel) {
       if (!ensure() || !rel) return;
       const d = Math.hypot(rel.x, rel.y, rel.z), t = ctx.currentTime;
       if (remotePan.positionX) { remotePan.positionX.setTargetAtTime(rel.x, t, 0.05); remotePan.positionY.setTargetAtTime(rel.y, t, 0.05); remotePan.positionZ.setTargetAtTime(rel.z, t, 0.05); }
       else if (remotePan.setPosition) remotePan.setPosition(rel.x, rel.y, rel.z);
-      remoteLp.frequency.setTargetAtTime(Math.max(1800, 14000 / (1 + d / 28)), t, 0.1);
+      remoteLp.frequency.setTargetAtTime(Math.max(1500, 20000 / (1 + d / 12)), t, 0.1); // 遠いほど、高い音が弱まる(空気の吸収)
     },
     setVolume(v) { this.volume = Math.max(0, Math.min(1.5, +v || 0)); if (bus) bus.gain.setTargetAtTime(this.volume * cond.gain, ctx.currentTime, 0.03); },
     /** 鍵盤を押した。source は 'tree' 'river' 'flower' 'insect' 'snow' 'star' 'stone'。 */
@@ -203,8 +220,9 @@
       this._prune(now);
       while (active.length >= MAX_VOICES) this._stop(active.shift(), now);
       const vel = Math.max(0.15, Math.min(1, Math.pow(velocity, 1.2)));
-      const mix = ctx.createGain(); mix.connect(opts && opts.remote ? remoteIn : bus); // この音の出口: そのまま(ドライ)と、残響へ送る分
-      const send = ctx.createGain(); send.gain.value = REVERB_SEND[source] || 0; mix.connect(send); send.connect(reverbIn);
+      const remote = opts ? !!opts.remote : remoteDefault;
+      const mix = ctx.createGain(); mix.connect(remote ? remoteIn : bus); // この音の出口: そのまま(ドライ)と、残響へ送る分
+      const send = ctx.createGain(); send.gain.value = REVERB_SEND[source] || 0; mix.connect(send); send.connect(remote ? remoteReverbIn : reverbIn);
       const v = VOICES[source](midiToFreq(midi) * FREQ_MUL[source], now, vel, mix);
       active.push({ midi, source, endAt: v.endAt, release: v.release });
       return true;

@@ -98,7 +98,14 @@
       if (now - this._lastStepTime < 0.15) return;
       this._lastStepTime = now;
 
-      const output = this.ensureOutput();
+      let output = this.ensureOutput();
+      // v1.102: 足音も、位置のある音にする(足もとの位置から聞こえ、遠い雪だるまの足音は、遠くから小さく聞こえる)
+      if (opts.rel && SoundEngine.createSpatialPanner) {
+        const g = ctx.createGain(); g.gain.value = 0.5;
+        const pn = SoundEngine.createSpatialPanner(opts.rel.x, opts.rel.y, opts.rel.z, false);
+        SoundEngine.setSpatialProfile(pn, 'footstep'); g.connect(pn); pn.connect(SoundEngine.getSfxBus());
+        output = g; setTimeout(() => { try { g.disconnect(); pn.disconnect(); } catch (e) { /* 片づけ済み */ } }, 1200);
+      }
       const v = SoundEngine.randomRange(0.85, 1.15) * Math.max(0.3, Math.min(1, intensity));
 
       if (surface === 'wood') {

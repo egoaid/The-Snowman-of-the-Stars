@@ -249,7 +249,7 @@
         case 'empty_can': return 'tin';
         case 'jack_o_lantern': return 'pumpkin';
         case 'twig': case 'log': case 'wood': case 'colored_pencils': case 'chest': case 'crafting_table': case 'campfire': return 'wood';
-        case 'cassette_tape': case 'small_toy': return 'plastic';
+        case 'cassette_tape': case 'small_toy': case 'record_player': return 'plastic';
         case 'stone': case 'coal': case 'iron': case 'diamond': return 'stone';
         default: return 'soft';
       }

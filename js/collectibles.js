@@ -20,16 +20,18 @@ export const COLLECTIBLE_KINDS = {
   // v1.55 E5: 人の痕跡。星 > 見慣れない物(カセット・おもちゃ) > 小さながらくた(缶・色鉛筆) > 小枝。
   // 大きな物(record_player)は、眺めるだけで拾わない(size:'large' のデータだけで決まる)。
   cassette_tape:   { itemId: 'cassette_tape',   size: 'small', priority: 0.7,  noticeRadius: 16, noticeChance: 0.6,  investigateSec: [1.6, 3.0], collectChance: 0.8 },
-  small_toy:       { itemId: 'small_toy',       size: 'small', priority: 0.7,  noticeRadius: 16, noticeChance: 0.6,  investigateSec: [1.8, 3.2], collectChance: 0.75 },
   colored_pencils: { itemId: 'colored_pencils', size: 'small', priority: 0.5,  noticeRadius: 14, noticeChance: 0.5,  investigateSec: [1.2, 2.2], collectChance: 0.7 },
   empty_can:       { itemId: 'empty_can',       size: 'small', priority: 0.5,  noticeRadius: 14, noticeChance: 0.5,  investigateSec: [1.0, 2.0], collectChance: 0.7 },
   jack_o_lantern:  { itemId: 'jack_o_lantern', size: 'small', priority: 0.8, noticeRadius: 30, noticeChance: 0.85, investigateSec: [1.5, 2.8], collectChance: 0.9 }, // 光っているので、遠くからでも気づく
-  record_player:   { itemId: null,              size: 'large', priority: 0.55, noticeRadius: 22, noticeChance: 0.7,  investigateSec: [3.0, 5.0], collectChance: 0 },
+  record_player:   { itemId: 'record_player',              size: 'large', priority: 0.55, noticeRadius: 22, noticeChance: 0.7,  investigateSec: [3.0, 5.0], collectChance: 0 },
   // v1.79: 落とし物(小枝・おもちゃ・丸太)と、月の石。気づく距離は35m(月の石は星と同じく、光るので110m)。拾う確率も高め。
   dropped_twig: { itemId: 'twig',      size: 'small', priority: 0.45, noticeRadius: 35, noticeChance: 0.7,  investigateSec: [0.7, 1.4], collectChance: 0.9 },
-  dropped_toy:  { itemId: 'small_toy', size: 'small', priority: 0.75, noticeRadius: 35, noticeChance: 0.75, investigateSec: [1.8, 3.2], collectChance: 0.9 },
   dropped_log:  { itemId: 'log',       size: 'small', priority: 0.5,  noticeRadius: 35, noticeChance: 0.7,  investigateSec: [1.0, 2.0], collectChance: 0.9 },
   moon_stone:   { itemId: 'moon_stone', size: 'small', priority: 0.9,  noticeRadius: 110, noticeChance: 1.0, investigateSec: [1.4, 2.6], collectChance: 1.0 },
+  // v1.103: 雪だるまが、地形で拾う物を増やした(チェストへ収納する。作業台・焚き火・チェストの材料にもなる)
+  coal:       { itemId: 'coal',       size: 'small', priority: 0.4,  noticeRadius: 30, noticeChance: 0.6, investigateSec: [0.8, 1.6], collectChance: 0.9 },
+  copper_ore: { itemId: 'copper_ore', size: 'small', priority: 0.5,  noticeRadius: 30, noticeChance: 0.6, investigateSec: [1.0, 1.8], collectChance: 0.9 },
+  pebble:     { itemId: 'stone',      size: 'small', priority: 0.3,  noticeRadius: 25, noticeChance: 0.5, investigateSec: [0.8, 1.5], collectChance: 0.8 },
   twig: { itemId: 'twig', size: 'small', priority: 0.3, noticeRadius: 14, noticeChance: 0.5, investigateSec: [0.7, 1.4], collectChance: 0.7, woodTypes: ['twig', 'small_branch'] },
 };
 

@@ -7,7 +7,7 @@
 export const APP = {
   titleJa: '星の雪だるま',
   titleEn: 'The Snowman of the Stars',
-  version: '1.102',
+  version: '1.103',
   // 表記上の統一形式。実際の権利は All rights reserved。
   copyright: '© 2026 egoaid',
   // v1.57: 公開(GitHub Pages)。絶対URLが必要な所(canonical・sitemap・OGP・manifest)の基準。
@@ -91,7 +91,6 @@ export const DROPS = {
   // 種類ごと: 落ちる間隔(秒)・ゆらぎ・同時に地上にある数の上限・地上に残る時間(秒)。nightOnly: 夜のあいだだけ数える。
   kinds: {
     twig: { itemId: 'twig',     collectKind: 'dropped_twig', intervalSec: 90,  jitter: 0.3, max: 6, lifetimeSec: [1500, 1800], nightOnly: false, firstDelayFactor: [0.2, 0.6] },
-    toy:  { itemId: 'small_toy', collectKind: 'dropped_toy',  intervalSec: 240, jitter: 0.3, max: 3, lifetimeSec: [1500, 1800], nightOnly: false, firstDelayFactor: [0.4, 0.9] },
     log:  { itemId: 'log',      collectKind: 'dropped_log',  intervalSec: 180, jitter: 0.3, max: 4, lifetimeSec: [1500, 1800], nightOnly: false, firstDelayFactor: [0.3, 0.8] },
   },
   // 落ちる場所(m)。歩ける範囲全体から選び、ばらけさせる。

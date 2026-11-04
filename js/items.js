@@ -53,6 +53,8 @@ export const ITEM_DEFS = {
   small_toy:       { id: 'small_toy',       icon: '🧸', maxStack: 16, category: 'material', hand: 'right' },
   twig:    { id: 'twig',    icon: '🌿', maxStack: 64, category: 'material', hand: 'right' },
   // v1.99: MIDIキーボード(内蔵音源なし。世界の自然物の音を奏でるための入力装置)と、その電池・材料
+  record_player: { id: 'record_player', icon: '📻', maxStack: 1, category: 'material', hand: 'right' }, // v1.103: 回収できる(古いレコードプレーヤー)
+  music_button:  { id: 'music_button',  icon: '🎹', maxStack: 1, category: 'utility' }, // v1.103: 演奏ボタン(MIDIキーボードを持っていると、ホットバーに自動で置かれる。選ぶと、キーボードが出る)
   midi_keyboard: { id: 'midi_keyboard', icon: '🎹', maxStack: 1, category: 'utility', hand: 'right' },
   battery:       { id: 'battery',       icon: '🔋', maxStack: 16, category: 'material', hand: 'right' }, // 単3乾電池6本ぶんのセット
   battery_spent: { id: 'battery_spent', icon: '🪫', maxStack: 16, category: 'material', hand: 'right' }, // 使い終わった電池(月のかけらで再充電)

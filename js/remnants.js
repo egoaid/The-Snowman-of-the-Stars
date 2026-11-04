@@ -18,7 +18,6 @@ export const REMNANT_DEFS = {
   cassette_tape:   { kind: 'cassette_tape',   count: 3, habitat: 'any',       buried: [0.25, 0.5],  tilt: 0.7, size: 0.27 },
   empty_can:       { kind: 'empty_can',       count: 5, habitat: 'riverbank', buried: [0.15, 0.4],  tilt: 1.3, size: 0.3 },
   colored_pencils: { kind: 'colored_pencils', count: 2, habitat: 'trees',     buried: [0.2, 0.45],  tilt: 0.5, size: 0.42 },
-  small_toy:       { kind: 'small_toy',       count: 2, habitat: 'any',       buried: [0.2, 0.5],   tilt: 0.6, size: 0.45 },
   record_player:   { kind: 'record_player',   count: 1, habitat: 'open',      buried: [0.1, 0.25],  tilt: 0.12, size: 1.5 },
   // v1.56: ハロウィンのジャック・オー・ランタン。10/20〜11/1のあいだだけ地表に現れる(season)。光っている。
   jack_o_lantern:  { kind: 'jack_o_lantern',  count: 5, habitat: 'any',       buried: [0.05, 0.2],  tilt: 0.25, size: 0.675, /* v1.56-H6: 雪だるまの頭と同じ大きさ(半径0.36m)。以前は0.4(半径約0.21m) */ season: { from: [10, 20], to: [11, 1] }, glow: true },
