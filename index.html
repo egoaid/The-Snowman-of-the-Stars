@@ -1725,15 +1725,6 @@ import { createMusicPanel } from './js/music/piano-panel.js'; // v1.97: 演奏�
     });
     window.__musicPanel = musicPanel;
     onLangChange(() => musicPanel.rebuild());
-    // v1.103: 演奏ボタン(ホットバー)を選ぶと、MIDIキーボードが出る。ほかのスロットを選ぶと、閉じる。(Pキー・スマホの🎹ボタンは廃止)
-    let lastWasMusicButton = false;
-    scene.onInventoryChange((snap) => {
-      const sel = snap.hotbar[snap.selected];
-      const isBtn = !!sel && sel.id === 'music_button';
-      if (isBtn && !lastWasMusicButton) musicPanel.open();
-      else if (!isBtn && lastWasMusicButton && musicPanel.isOpen()) musicPanel.close();
-      lastWasMusicButton = isBtn;
-    });
     // v1.91: スマホの「置く」ボタン。手に持った物を、置く場所の枠(緑)のところに置く。置ける物を持っている時だけ出る。
     const touchBtnPlace = document.getElementById('touchBtnPlace');
     touchBtnPlace.addEventListener('touchstart', (e) => { e.preventDefault(); touchBtnPlace.classList.add('active'); if (sceneRefForTouch && sceneRefForTouch.placeHeldItem) sceneRefForTouch.placeHeldItem(true); }, { passive: false });
@@ -1940,6 +1931,16 @@ import { createMusicPanel } from './js/music/piano-panel.js'; // v1.97: 演奏�
         // 登録し直すと、見守り/歩行を行き来するたびにリスナーが増え続けてしまうため)。
         // v1.41: 併せて、選択スロットが実際に変わった時だけ、控えめな効果音を鳴らす
         // (拾って自動で空きスロットに入った時などは、選択自体は変わらないので鳴らさない)。
+        // v1.103: 演奏ボタン(ホットバー)を選ぶと、MIDIキーボードが出る。ほかのスロットを選ぶと、閉じる。(Pキー・スマホの🎹ボタンは廃止)
+        //   scene は main() の中でできるので、この監視も、ここ(シーンができたあと)で登録する。
+        let lastWasMusicButton = false;
+        scene.onInventoryChange((snap) => {
+          const sel = snap.hotbar[snap.selected];
+          const isBtn = !!sel && sel.id === 'music_button';
+          if (isBtn && !lastWasMusicButton) musicPanel.open();
+          else if (!isBtn && lastWasMusicButton && musicPanel.isOpen()) musicPanel.close();
+          lastWasMusicButton = isBtn;
+        });
         let lastHotbarSelected = null;
         scene.onInventoryChange((snapshot) => {
           if (lastHotbarSelected !== null && snapshot.selected !== lastHotbarSelected) {
