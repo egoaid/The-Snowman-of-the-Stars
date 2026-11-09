@@ -6,14 +6,17 @@
 //         (nextWet / pickWetLimit / FIRE_WET_LIMIT は、以前の「雨で消える」きまりの名残り。いまは使っていない。)
 //   ・燃料: 減らない(「何も起こらない時間」を邪魔しないため)。
 export const FIRE_RAIN_MIN = 0.4;
+import { isFireTorch } from './torch.js';
 export const FIRE_TORCH_ITEM = 'star_torch';
+/** 焚き火に着火できる物: 星の松明・炎の松明(v1.104) */
+export const isIgniter = (id) => id === FIRE_TORCH_ITEM || isFireTorch(id);
 export const FIRE_WET_LIMIT = [25, 60]; // 強い雨で消えるまでの秒数(1本ずつ違う)
 const DRY_RATE = 0.6;                   // 降っていない間に乾く速さ(秒あたり)
 
 /** クリックされた時の結果。 */
 export function fireAction({ lit, selected, rain }) {
   if (lit) return selected ? 'need-empty-hand' : 'extinguish';
-  if (selected !== FIRE_TORCH_ITEM) return 'need-torch';
+  if (!isIgniter(selected)) return 'need-torch';
   if (rain >= FIRE_RAIN_MIN) return 'rain';
   return 'ignite';
 }

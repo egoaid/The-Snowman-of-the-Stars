@@ -20,7 +20,7 @@
   const SUSTAINED = { flower: true, insect: true }; // 押している間、鳴り続ける
   const midiToFreq = (m) => 440 * Math.pow(2, (m - 69) / 12);
 
-  let ctx = null, bus = null, noiseBuf = null, reverbIn = null, shaper = null, gate = null, stutterTimer = null, remoteIn = null, remoteLp = null, remotePan = null, remoteReverbIn = null, remoteDefault = false;
+  let ctx = null, bus = null, noiseBuf = null, reverbIn = null, shaper = null, gate = null, stutterTimer = null, remoteIn = null, remoteLp = null, remotePan = null, remoteReverbIn = null, remoteDefault = false, wetNode = null, wet2Node = null, remoteCut = 1, envWet = 1;
   let condDirty = false; // 音声の準備ができる前に決まった条件を、準備ができたあとで反映する
   const cond = { gain: 1, drive: 0, dropout: 0 }; // 電池の状態による劣化(music/battery.js の degradation)。gain 0 = 電池切れで、鳴らない
   const active = []; // { midi, source, endAt, release }
@@ -45,10 +45,10 @@
     remotePan = ctx.createPanner(); remotePan.panningModel = 'HRTF'; remotePan.distanceModel = 'inverse'; remotePan.refDistance = 2; remotePan.rolloffFactor = 1.4; remotePan.maxDistance = 300; // 距離で、音量が、ほぼ距離に反比例して小さくなる(遠いほど、はっきり小さい)
     remoteIn.connect(remoteLp); remoteLp.connect(remotePan); remotePan.connect(bus);
     reverbIn = ctx.createGain(); const conv = ctx.createConvolver(); conv.buffer = ir;
-    const wet = ctx.createGain(); wet.gain.value = 0.9;
+    const wet = ctx.createGain(); wet.gain.value = 0.9 * envWet; wetNode = wet;
     reverbIn.connect(conv); conv.connect(wet); wet.connect(bus);
     // 遠くの演奏の残響も、距離の道(音量・こもり・方向)を通す。残響だけが、遠くでも大きく聞こえないように
-    remoteReverbIn = ctx.createGain(); const conv2 = ctx.createConvolver(); conv2.buffer = ir; const wet2 = ctx.createGain(); wet2.gain.value = 0.9;
+    remoteReverbIn = ctx.createGain(); const conv2 = ctx.createConvolver(); conv2.buffer = ir; const wet2 = ctx.createGain(); wet2.gain.value = 0.9 * envWet; wet2Node = wet2;
     remoteReverbIn.connect(conv2); conv2.connect(wet2); wet2.connect(remoteIn);
     noiseBuf = ctx.createBuffer(1, Math.floor(ctx.sampleRate * 0.5), ctx.sampleRate);
     const d = noiseBuf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
@@ -197,6 +197,16 @@
       } else if (!(cond.dropout > 0) && stutterTimer) { clearInterval(stutterTimer); stutterTimer = null; gate.gain.setValueAtTime(1, ctx.currentTime); }
     },
     getCondition: () => ({ ...cond }),
+    /** v1.105: 遠くの演奏が、丘・木の向こうにある時の遮蔽(0〜1)。少し小さく・こもらせる(完全には消さない)。 */
+    setRemoteOcclusion(amount) {
+      const a = Math.max(0, Math.min(1, +amount || 0)); remoteCut = 1 - 0.75 * a;
+      if (!ensure()) return; remoteIn.gain.setTargetAtTime(1 - 0.45 * a, ctx.currentTime, 0.25);
+    },
+    /** v1.105: 聞き手のいる環境(森・川辺・雪原)に合わせた、残響の量の倍率(0.2〜1.5)。 */
+    setEnvironment(e) {
+      envWet = Math.max(0.2, Math.min(1.5, +(e && e.wetMul) || 1));
+      if (!ensure()) return; const t = ctx.currentTime; wetNode.gain.setTargetAtTime(0.9 * envWet, t, 1.0); wet2Node.gain.setTargetAtTime(0.9 * envWet, t, 1.0);
+    },
     /** true: 演奏の音を、いつも、位置のある音(setRemotePosition の場所から聞こえる)として鳴らす。 */
     setRemoteDefault(v) { remoteDefault = !!v; },
     /** 雪だるまの演奏の位置(聞き手から見た相対位置 x,y,z)。距離が遠いほど、高い音がこもる(空気の吸収)。 */
@@ -205,7 +215,7 @@
       const d = Math.hypot(rel.x, rel.y, rel.z), t = ctx.currentTime;
       if (remotePan.positionX) { remotePan.positionX.setTargetAtTime(rel.x, t, 0.05); remotePan.positionY.setTargetAtTime(rel.y, t, 0.05); remotePan.positionZ.setTargetAtTime(rel.z, t, 0.05); }
       else if (remotePan.setPosition) remotePan.setPosition(rel.x, rel.y, rel.z);
-      remoteLp.frequency.setTargetAtTime(Math.max(1500, 20000 / (1 + d / 12)), t, 0.1); // 遠いほど、高い音が弱まる(空気の吸収)
+      remoteLp.frequency.setTargetAtTime(Math.max(1500, 20000 / (1 + d / 12)) * remoteCut, t, 0.1); // 遠いほど、高い音が弱まる(空気の吸収)
     },
     setVolume(v) { this.volume = Math.max(0, Math.min(1.5, +v || 0)); if (bus) bus.gain.setTargetAtTime(this.volume * cond.gain, ctx.currentTime, 0.03); },
     /** 鍵盤を押した。source は 'tree' 'river' 'flower' 'insect' 'snow' 'star' 'stone'。 */

@@ -56,6 +56,11 @@ const HELD_ITEM_BUILDERS = {
   cassette_tape: () => heldFromRemnant('cassette_tape', 2.0, 0.05, 0.5),
   empty_can: () => heldFromRemnant('empty_can', 1.5, 0.0, 0.2),
   colored_pencils: () => heldFromRemnant('colored_pencils', 1.3, 0.0, 0.3),
+  torch_wood: () => { // v1.104: 松明の木(先が、少し焦げた、まっすぐな木)
+    const g = new THREE.Group(); const wood = new THREE.MeshStandardMaterial({ color: 0x8a5a2b, roughness: 0.9 }), char = new THREE.MeshStandardMaterial({ color: 0x2b2018, roughness: 1 });
+    const stick = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.028, 0.34, 8), wood); const tip = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.024, 0.07, 8), char); tip.position.y = 0.2;
+    g.add(stick, tip); g.position.y = 0.17; g.rotation.z = 0.5; const holder = new THREE.Group(); holder.add(g); return holder;
+  },
   record_player: () => heldFromRemnant('record_player', 0.32, 0.0, 0.12), // v1.103
   jack_o_lantern: () => { const holder = new THREE.Group(); const j = createJackOLanternMesh(0.11); j.position.y = 0.11; holder.add(j); return holder; },
   star_torch: () => createHeldStarTorch(), // v1.74: 星の松明(手に持つと小さな松明が見える。周りは照らさない)

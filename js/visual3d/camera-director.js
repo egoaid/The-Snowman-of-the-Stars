@@ -163,7 +163,9 @@ export function createCameraDirector(options = {}) {
       candidates.push({ type: 'campfire_only', w: FIRE_SHOT_WEIGHT });
     }
 
-    const pool = candidates.filter((c) => c.type !== lastShotType);
+    // v1.105: 雪だるまが演奏している間は、近づかない。遠くから、風景と一緒に見る(演奏の音が先に聞こえ、あとから雪だるまの姿に気づく、という体験を大切にする)
+    const farOnly = ctx.performing ? candidates.filter((c) => c.type === 'wide_distant' || c.type === 'overhead' || c.type === 'drone_pan') : candidates;
+    const pool = farOnly.filter((c) => c.type !== lastShotType);
     const total = pool.reduce((s, c) => s + c.w, 0);
     let r = Math.random() * total;
     for (const c of pool) {

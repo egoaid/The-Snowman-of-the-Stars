@@ -29,7 +29,12 @@ export const ITEM_DEFS = {
   //   星が「重力を与える」のに対し、月の石は「反重力」を持つ。月のかけらを丸太の組んだ物に貼ると、その物が少し宙に浮く。
   moon_stone: { id: 'moon_stone', icon: '🌙', maxStack: 64, category: 'collectible', hand: 'right' },
   moon_shard: { id: 'moon_shard', icon: '☾', maxStack: 64, category: 'material', hand: 'right' },
-  torch:   { id: 'torch',   icon: '🔥', maxStack: 64, category: 'utility',     hand: 'left' },
+  // v1.104: 炎の松明。手に持つ(左手)・地面に置ける。消耗品で、短くなる4つの段階(torch → torch_2 → torch_3 → torch_4)で表し、最後は消える
+  torch:   { id: 'torch',   icon: '🔥', maxStack: 1, category: 'utility',     hand: 'left' },
+  torch_2: { id: 'torch_2', icon: '🔥', maxStack: 1, category: 'utility',     hand: 'left' },
+  torch_3: { id: 'torch_3', icon: '🔥', maxStack: 1, category: 'utility',     hand: 'left' },
+  torch_4: { id: 'torch_4', icon: '🔥', maxStack: 1, category: 'utility',     hand: 'left' },
+  torch_wood: { id: 'torch_wood', icon: '🪵', maxStack: 16, category: 'material', hand: 'right' }, // 松明の木(手に持って、焚き火を叩くと着火)
   // v1.74: 星の松明。細い棒の先に星のかけらがついた松明(枝1+星のかけら1で作る)。Qキーで地面に立てて置ける。焚き火と同じくらい周りを照らす。
   star_torch: { id: 'star_torch', icon: '🌟', maxStack: 16, category: 'utility', hand: 'right' },
   log:     { id: 'log',     icon: '🪵', maxStack: 64, category: 'resource',    hand: 'right' },

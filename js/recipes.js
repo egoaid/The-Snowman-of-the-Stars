@@ -34,6 +34,9 @@ export const RECIPES = [
   { id: 'battery',          station: 'table', inputs: [{ id: 'coal', count: TENTATIVE.batteryCoals }, { id: 'copper_ore', count: TENTATIVE.batteryCopper }], output: { id: 'battery', count: 1 }, tentative: true },
   { id: 'battery_recharge', station: 'table', inputs: [{ id: 'battery_spent', count: 1 }, { id: 'moon_shard', count: TENTATIVE.rechargeShards }], output: { id: 'battery', count: 1 }, tentative: true },
   // v1.74: 星の松明(材料が2種類のレシピ。inputs)。端材(カット機能は保留中)ができたら、枝の代わりに使えるようにする。
+  // v1.104: 松明の木(小枝3本 / 丸太1本で4本)。手に持って、燃えている焚き火を叩くと着火して、炎の松明になる。
+  { id: 'torch_wood_twig',   station: 'inventory', input: { id: 'twig', count: 3 }, output: { id: 'torch_wood', count: 1 } },
+  { id: 'torch_wood_log',    station: 'inventory', input: { id: 'log', count: 1 },  output: { id: 'torch_wood', count: 4 } },
   { id: 'star_torch',       station: 'inventory', inputs: [{ id: 'twig', count: 1 }, { id: 'star_shard', count: 1 }], output: { id: 'star_torch', count: 1 } },
   // v1.75: 丸太からも作れる。丸太は小枝より大きいので、1個から4本できる。
   { id: 'log_to_star_torch', station: 'inventory', inputs: [{ id: 'log', count: 1 }, { id: 'star_shard', count: 1 }], output: { id: 'star_torch', count: 4 } },

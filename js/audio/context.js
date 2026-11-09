@@ -23,6 +23,8 @@
   let sfxVolume = 1;
   let dryGain = null;
   let wetGain = null;
+  let wetLp = null;
+  const environment = { wetMul: 1, damp: 8000 }; // v1.105: 聞き手のいる環境に合わせた、残響の倍率と、高音域の上限
   let reverbNode = null;
   let spaciousness = 0.35;
 
@@ -41,12 +43,14 @@
 
     dryGain = ctx.createGain();
     wetGain = ctx.createGain();
+    wetLp = ctx.createBiquadFilter(); wetLp.type = 'lowpass'; wetLp.frequency.value = environment.damp; wetLp.Q.value = 0.4; // v1.105: 環境(森・川辺・雪原)で、残響の明るさを変える
     reverbNode = ctx.createConvolver();
     reverbNode.buffer = createReverbImpulse(2.6, 2.8);
 
     masterGain.connect(dryGain);
     masterGain.connect(reverbNode);
-    reverbNode.connect(wetGain);
+    reverbNode.connect(wetLp);
+    wetLp.connect(wetGain);
     dryGain.connect(ctx.destination);
     wetGain.connect(ctx.destination);
 
@@ -100,8 +104,16 @@
     if (!ctx) return;
     const now = ctx.currentTime;
     dryGain.gain.setTargetAtTime(1 - spaciousness * 0.35, now, 0.3);
-    wetGain.gain.setTargetAtTime(spaciousness * 0.55, now, 0.3);
+    wetGain.gain.setTargetAtTime(spaciousness * 0.55 * environment.wetMul, now, 0.3);
   }
+  /** v1.105: 環境(森・川辺・雪原・開けた所)に合わせて、残響の量(wetMul 0.2〜1.5)と、高音域の上限(damp 1500〜16000Hz)を変える。ゆっくり変わる。 */
+  function setEnvironment(e) {
+    environment.wetMul = Math.max(0.2, Math.min(1.5, +e.wetMul || 1)); environment.damp = Math.max(1500, Math.min(16000, +e.damp || 8000));
+    if (!ctx) return;
+    const now = ctx.currentTime; wetLp.frequency.setTargetAtTime(environment.damp, now, 1.2);
+    wetGain.gain.setTargetAtTime(spaciousness * 0.55 * environment.wetMul, now, 1.2);
+  }
+  const getEnvironment = () => ({ ...environment });
 
   function getSpaciousness() {
     return spaciousness;
@@ -339,7 +351,7 @@
     bees:    { rolloff: 0.5, air: 20 },   // ごく近くだけ聞こえる羽音
     star:    { rolloff: 0.45, air: 35 },   // 小さく繊細な鈴・チャイム
     thunder: { air: 500 },
-    footstep: { rolloff: 1.0, air: 25 },  // 足音: 小さく局所的。離れるとはっきり小さくなる                // 遠雷は、もともと低く響くので、さらにこもらせない
+    footstep: { rolloff: 0.7, refDistance: 2, air: 60 },  // 足音: 近くでははっきり聞こえ、離れると小さくなる(v1.104: 小さすぎたので、基準距離を2mに)                // 遠雷は、もともと低く響くので、さらにこもらせない
   };
   const spatialProfiles = new WeakMap(); // panner → profile
   const AIR_MIN_HZ = 1800, AIR_MAX_HZ = 20000;
@@ -385,7 +397,7 @@
     panner._pos = { x, y, z };
     if (panner._air) { // 距離で、高音域を弱める(音源ごとの air で、強さが違う)
       const pf = spatialProfiles.get(panner) || SPATIAL_PROFILES.default;
-      panner._air.frequency.setTargetAtTime(airCutoff(Math.hypot(x, y, z), pf.air, spatialSettings.airAbsorption), c.currentTime, 0.2);
+      panner._air.frequency.setTargetAtTime(airCutoff(Math.hypot(x, y, z), pf.air, spatialSettings.airAbsorption) * (panner._occCut || 1), c.currentTime, 0.2);
     }
   }
 
@@ -401,10 +413,12 @@
     const panner = c.createPanner();
     // v1.102: パンナーの出口に、距離で高音域を弱めるローパスをつなぐ。呼ぶ側は、これまでどおり panner.connect(出口) と書けばよい。
     const air = c.createBiquadFilter(); air.type = 'lowpass'; air.Q.value = 0.5; air.frequency.value = AIR_MAX_HZ;
+    const occ = c.createGain(); occ.gain.value = 1; // v1.105: 遮蔽(丘・木の向こう)で、少し小さくする
     panner.connect(air); // (差し替える前の connect)
-    panner.connect = (dest, o, i) => { air.connect(dest, o, i); return dest; };
-    panner.disconnect = (...a) => air.disconnect(...a);
-    panner._air = air;
+    air.connect(occ);
+    panner.connect = (dest, o, i) => { occ.connect(dest, o, i); return dest; };
+    panner.disconnect = (...a) => occ.disconnect(...a);
+    panner._air = air; panner._occ = occ; panner._occAmt = 0; panner._occCut = 1;
     applyPannerCharacteristics(panner);
     applySpatialPositionImmediate(panner, x, y, z);
     if (persistent) {
@@ -416,7 +430,7 @@
   function applySpatialPositionImmediate(panner, x, y, z) {
     const pos = transformSpatialPosition(x, y, z);
     panner._pos = { x, y, z };
-    if (panner._air) { const pf = spatialProfiles.get(panner) || SPATIAL_PROFILES.default; panner._air.frequency.value = airCutoff(Math.hypot(x, y, z), pf.air, spatialSettings.airAbsorption); }
+    if (panner._air) { const pf = spatialProfiles.get(panner) || SPATIAL_PROFILES.default; panner._air.frequency.value = airCutoff(Math.hypot(x, y, z), pf.air, spatialSettings.airAbsorption) * (panner._occCut || 1); }
     if (panner.positionX) {
       panner.positionX.value = pos.x;
       panner.positionY.value = pos.y;
@@ -426,11 +440,31 @@
     }
   }
 
+  const PERSISTENT_PROFILES = new Set(['river', 'fire', 'bees', 'star']);
+  const profilePanners = new Map(), profileOcclusion = {};
+  /** v1.105: 遮蔽(0=見通せる〜1=すっかり遮られている)。音を、最大で約5dB小さく、高音域を4分の1まで、やわらげる。完全には消さない。 */
+  function setSpatialOcclusion(panner, amount) {
+    const a = Math.max(0, Math.min(1, +amount || 0)); panner._occAmt = a; panner._occCut = 1 - 0.75 * a;
+    if (!panner._occ || !ctx) return;
+    const now = ctx.currentTime; panner._occ.gain.setTargetAtTime(1 - 0.45 * a, now, 0.25);
+    if (panner._air && panner._pos) { const pf = spatialProfiles.get(panner) || SPATIAL_PROFILES.default; panner._air.frequency.setTargetAtTime(airCutoff(Math.hypot(panner._pos.x, panner._pos.y, panner._pos.z), pf.air, spatialSettings.airAbsorption) * panner._occCut, now, 0.25); }
+  }
+  /** 種類('river' 'fire' 'bees' 'star')ごとに、遮蔽をまとめて変える。 */
+  function setProfileOcclusion(name, amount) {
+    profileOcclusion[name] = Math.max(0, Math.min(1, +amount || 0));
+    const set = profilePanners.get(name); if (set) for (const p of set) setSpatialOcclusion(p, profileOcclusion[name]);
+  }
+
   /** v1.102: 音源の種類('river' 'fire' 'bird' 'insect' 'bees' 'star' 'thunder')を決めて、距離の聞こえ方を、その音源に合わせる。 */
   function setSpatialProfile(panner, nameOrProfile) {
     const pf = typeof nameOrProfile === 'string' ? (SPATIAL_PROFILES[nameOrProfile] || SPATIAL_PROFILES.default) : Object.assign({}, SPATIAL_PROFILES.default, nameOrProfile);
     spatialProfiles.set(panner, pf); applyPannerCharacteristics(panner);
-    if (panner._air && panner._pos) panner._air.frequency.value = airCutoff(Math.hypot(panner._pos.x, panner._pos.y, panner._pos.z), pf.air, spatialSettings.airAbsorption); // 位置が変わらない音源(鳥・虫・雷)も、種類に合わせる
+    if (panner._air && panner._pos) panner._air.frequency.value = airCutoff(Math.hypot(panner._pos.x, panner._pos.y, panner._pos.z), pf.air, spatialSettings.airAbsorption) * (panner._occCut || 1); // 位置が変わらない音源(鳥・虫・雷)も、種類に合わせる
+    if (typeof nameOrProfile === 'string' && PERSISTENT_PROFILES.has(nameOrProfile)) { // 長く鳴り続ける音源は、種類ごとに、遮蔽をまとめて変えられるよう、覚えておく
+      if (!profilePanners.has(nameOrProfile)) profilePanners.set(nameOrProfile, new Set());
+      profilePanners.get(nameOrProfile).add(panner); panner._profile = nameOrProfile;
+      if (profileOcclusion[nameOrProfile]) setSpatialOcclusion(panner, profileOcclusion[nameOrProfile]);
+    }
     return panner;
   }
 
@@ -458,6 +492,8 @@
 
   SoundEngine.createSpatialPanner = createSpatialPanner;
   SoundEngine.setSpatialProfile = setSpatialProfile; // v1.102
+  SoundEngine.setSpatialOcclusion = setSpatialOcclusion; SoundEngine.setProfileOcclusion = setProfileOcclusion; // v1.105: 遮蔽
+  SoundEngine.setEnvironment = setEnvironment; SoundEngine.getEnvironment = getEnvironment; // v1.105: 環境の残響
   SoundEngine.airCutoff = (d, name) => airCutoff(d, (SPATIAL_PROFILES[name] || SPATIAL_PROFILES.default).air, spatialSettings.airAbsorption);
   SoundEngine.SPATIAL_PROFILES = SPATIAL_PROFILES;
   SoundEngine.applySpatialPosition = applySpatialPosition;

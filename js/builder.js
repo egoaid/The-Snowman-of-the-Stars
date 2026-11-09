@@ -14,7 +14,7 @@ export const BUILD = {
 const range = (rng, [a, b]) => a + rng() * (b - a);
 
 /** 材料の種類 → 雪だるまが地形で集められる、拾えるものの種類(collectibles.js) */
-export const GATHER_KINDS = { log: ['dropped_log'], star: ['star'], stone: ['pebble'], coal: ['coal'] };
+export const GATHER_KINDS = { log: ['dropped_log'], star: ['star'], stone: ['pebble'], coal: ['coal'], twig: ['twig'] };
 
 /**
  * 目標(table / chest / campfire)に足りない材料。counts = 持ち物の数 { log, wood, star, star_shard, stone, coal }。
@@ -24,7 +24,9 @@ export function missingFor(goal, counts) {
   const c = (id) => counts[id] || 0, m = {};
   const add = (id, n) => { if (n > 0) m[id] = (m[id] || 0) + n; };
   if (goal === 'table') add('log', TENTATIVE.craftingTableLogs - c('log'));
-  else if (goal === 'chest') {
+  else if (goal === 'torch') { // v1.104: 炎の松明(松明の木1本が要る。松明の木・丸太があればよい。なければ小枝3本)
+    if (c('torch_wood') < 1 && c('log') < 1) add('twig', 3 - c('twig'));
+  } else if (goal === 'chest') {
     const logs = Math.ceil(Math.max(0, TENTATIVE.chestWood - c('wood')) / LOG_TO_WOOD), stars = Math.ceil(Math.max(0, TENTATIVE.chestShards - c('star_shard')) / STAR_TO_SHARDS);
     add('log', logs - c('log')); add('star', stars - c('star'));
   } else if (goal === 'campfire') { add('log', TENTATIVE.campfireLogs - c('log')); add('stone', TENTATIVE.campfireStones - c('stone')); add('coal', TENTATIVE.campfireCoals - c('coal')); }
@@ -40,6 +42,7 @@ export function createBuilder({ rng = Math.random } = {}) {
      * 次の目標を決める(いまの目標があれば、それを続ける)。
      * st = { now, needChest, tableCount, campfireCount }
      *   needChest: 回収した物があるのに、空きのあるチェストがない(収納できない)
+     *   needTorch: 夜なのに、炎の松明を持っていない(v1.104。ホームの木で、炎の松明を作って、夜の散歩をする)
      */
     goal(st) {
       if (goal && st.now - since > BUILD.abandonSec) { goal = null; cooldownUntil = st.now + range(rng, BUILD.cooldownSec); } // 集まらない: いったん、あきらめる
@@ -47,8 +50,10 @@ export function createBuilder({ rng = Math.random } = {}) {
       if (goal === 'table' && st.tableCount > 0 && !st.needChest) goal = null;
       if (goal === 'campfire' && st.campfireCount > 0) goal = null;
       if (goal === 'chest' && !st.needChest) goal = null;
+      if (goal === 'torch' && !st.needTorch) goal = null;
       if (!goal) {
         if (st.needChest) { goal = 'chest'; since = st.now; }
+        else if (st.needTorch) { goal = 'torch'; since = st.now; }
         else if (st.now >= cooldownUntil && rng() < BUILD.whimChance) {
           const options = []; if (st.tableCount === 0) options.push('table'); if (st.campfireCount === 0) options.push('campfire');
           if (options.length) { goal = options[Math.floor(rng() * options.length)]; since = st.now; }

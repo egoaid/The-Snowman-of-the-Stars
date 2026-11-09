@@ -39,7 +39,7 @@ export function createMidiKeyboard() {
   const pt = panelTexture();
   if (pt) { const pan = new THREE.Mesh(new THREE.PlaneGeometry(L - 0.14, 0.05), new THREE.MeshBasicMaterial({ map: pt, transparent: true, depthWrite: false })); pan.rotation.x = -Math.PI / 2; pan.position.set(0.0575, H + 0.0275, -D / 2 + 0.035); group.add(pan); }
   const halo = new THREE.Mesh(new THREE.BoxGeometry(L * 1.06, H + 0.05, D * 1.1), new THREE.MeshBasicMaterial({ color: 0x4cecff, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
-  halo.position.y = (H + 0.02) / 2; group.add(halo);
+  halo.position.y = (H + 0.02) / 2; halo.raycast = () => {}; group.add(halo); // 光の殻は、クリックの邪魔をしない
 
   // 左: ホイール2つ(ピッチ/アサイン)・紫のボタン・オクターブのボタンとLED
   for (let i = 0; i < 2; i++) {
@@ -60,7 +60,7 @@ export function createMidiKeyboard() {
     const black = BLACK_SEMITONES.includes(i % 12);
     const pivot = new THREE.Group();
     const mesh = new THREE.Mesh(new THREE.BoxGeometry(black ? kw * 0.6 : kw * 0.94, black ? 0.014 : 0.012, black ? keyLen * 0.62 : keyLen), black ? blackMat : whiteMat);
-    mesh.position.z = (black ? keyLen * 0.31 : keyLen / 2); pivot.add(mesh);
+    mesh.position.z = (black ? keyLen * 0.31 : keyLen / 2); pivot.add(mesh); mesh.userData.keyIndex = i; // クリックで押せる鍵盤の番号
     const cx = black ? x0 + wi * kw - kw * 0.02 : x0 + wi * kw + kw / 2; if (!black) wi++;
     pivot.position.set(cx, H + (black ? 0.016 : 0.007), keyZ0);
     group.add(pivot); keys.push({ pivot, black, down: false });
@@ -85,6 +85,18 @@ export function createMidiKeyboard() {
     /** 電池の状態('none' 'ok' 'low' 'dead')と時刻で、光らせる(少ない時は点滅)。 */
     tick(state, time) { api.setGlow(glowLevel(state, time)); },
     getGlow: () => glow,
+    /**
+     * レイ(視線やマウス)が当たったものを調べる。鍵盤なら { key: MIDIノート番号, distance }、本体(鍵盤以外)なら { key: null, distance }、外れなら null。
+     * 本体を押した時は、鍵盤を鳴らさず、長押しで拾えるようにする(scene3d.js)。
+     */
+    pick(raycaster) {
+      const hits = raycaster.intersectObject(group, true);
+      for (const h of hits) {
+        let o = h.object; while (o && o !== group && o.userData.keyIndex === undefined) o = o.parent;
+        return o && o.userData.keyIndex !== undefined ? { key: base + o.userData.keyIndex, distance: h.distance } : { key: null, distance: h.distance };
+      }
+      return null;
+    },
   };
   api.setGlow(0);
   return api;

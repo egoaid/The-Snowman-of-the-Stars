@@ -77,11 +77,13 @@ import { fireAction, fireStrength } from '../fire-rules.js';
 import { GAME_DAY_REAL_SEC } from '../snow-melt.js';
 import { findHit, hitSway, stepSway, newSway, torchFlickerMul, fireDipMul } from '../snowball-targets.js';
 import { createListenerRelative } from './listener-rel.js'; // v1.102
-import { pickNatureSource } from '../music/notes.js';
+import { occlusionAmount, classifyEnvironment } from './audio-fx.js'; // v1.105: 遮蔽・環境の残響
+import { pickNatureSource, keyToMidi } from '../music/notes.js';
 import { createBattery, degradation, planInsert, PLAY_GRACE_SEC } from '../music/battery.js';
 import { createMusicMemory } from '../music/memory.js';
 import { createPerformer, createRainWatcher, createSongPlayer } from '../music/performer.js';
 import { createBuilder, missingFor, gatherKindsFor } from '../builder.js';
+import { TORCH_STAGES, isFireTorch, nextStage, stageScale, lifeOfStage, stageFromLife, createTorchBurn, TORCH_TOTAL_SEC } from '../torch.js';
 import { canCraft, craft } from '../recipes.js';
 import { createMidiKeyboard } from './midi-keyboard.js';
 import { createMidiCable } from './midi-cable.js';
@@ -656,7 +658,8 @@ export function initScene(mountEl, options = {}) {
   const STUCK_MAX_NO_APPROACH_CHECKS = 3;
   // 目的地・経由点を障害物の衝突円の外へ押し出す時の余白。雪だるまの
   // 衝突半径 + 到着判定(目的地から0.3m以内)より大きい値にする。
-  const RIVER_MARGIN = 2.2, RIVER_SAFE = 3.2; // v1.103: 水際からの、近づかない距離 / 救出先の距離
+  const riverGuard = { t: 0 }; // 川に近づけなくて、止められ続けた時間
+  const RIVER_MARGIN = 1.6, RIVER_SAFE = 3.2; // v1.103: 水際からの、近づかない距離 / 救出先の距離
   const WANDER_ARRIVE_CLEARANCE = playerSnowman.collision.collisionRadius + 0.35;
   function sanitizeWaypoint(x, z) {
     return pushOutOfObstacles(x, z, aiObstacles(), WANDER_ARRIVE_CLEARANCE);
@@ -2332,12 +2335,44 @@ export function initScene(mountEl, options = {}) {
     getDome: () => (iglooActiveState ? { x: campX, y: terrainHeightAt(campX, campZ), z: campZ } : null),
     radius: iglooOuterRadiusPlanned,
   });
+  // v1.104: 自動カメラが、木の幹・岩・かまくら・置いた物・倒木などの、3Dポリゴンの内側に入って、中を撮ってしまう不具合の対策。
+  //   カメラの位置が、固体の中(か、ぎりぎり近く)なら、その固体の外へ押し出す。ショットを選ぶ時にも、固体の中の位置は選ばない。
+  let cameraSolidsAt = -1;
+  function refreshCameraSolids() { if (clock.elapsedTime - cameraSolidsAt > 1.0) { cameraSolidsAt = clock.elapsedTime; rebuildSnowballShapes(); } } // 1秒ごとに、固体の一覧を作り直す
+  const CAMERA_SOLID_PAD = 0.6; // カメラの手前の面(ニアクリップ)が、固体にめり込まない距離
+  function pushCameraOutOfSolids(pos) {
+    refreshCameraSolids();
+    for (let pass = 0; pass < 2; pass++) {
+      for (const s of snowShapes) {
+        if (s.shape === 'cyl') {
+          if (pos.y < s.y0 - 0.35 || pos.y > s.y1 + 0.35) continue;
+          const dx = pos.x - s.x, dz = pos.z - s.z, d = Math.hypot(dx, dz), R = s.r + CAMERA_SOLID_PAD;
+          if (d < R) { if (d > 1e-4) { pos.x = s.x + (dx / d) * R; pos.z = s.z + (dz / d) * R; } else pos.x = s.x + R; }
+        } else if (s.shape === 'sphere') {
+          const dx = pos.x - s.x, dy = pos.y - s.cy, dz = pos.z - s.z, d = Math.hypot(dx, dy, dz), R = s.r + 0.4;
+          if (d < R) { if (d > 1e-4) pos.set(s.x + (dx / d) * R, s.cy + (dy / d) * R, s.z + (dz / d) * R); else pos.y = s.cy + R; }
+        } else if (s.shape === 'dome') {
+          const dx = pos.x - s.x, dy = pos.y - s.baseY, dz = pos.z - s.z, d = Math.hypot(dx, dy, dz), R = s.r + 0.5;
+          if (pos.y > s.baseY - 0.35 && d < R) { if (d > 1e-4) pos.set(s.x + (dx / d) * R, Math.max(pos.y, s.baseY + (dy / d) * R), s.z + (dz / d) * R); else pos.y = s.baseY + R; }
+        }
+      }
+      for (const o of collisionObstacles) { // 倒木・テントなど、形のない低い障害物
+        if (pos.y > terrainHeightAt(o.x, o.z) + 1.8) continue;
+        const dx = pos.x - o.x, dz = pos.z - o.z, d = Math.hypot(dx, dz), R = o.radius + CAMERA_SOLID_PAD;
+        if (d < R) { if (d > 1e-4) { pos.x = o.x + (dx / d) * R; pos.z = o.z + (dz / d) * R; } else pos.x = o.x + R; }
+      }
+    }
+    cameraGround.constrainCameraPosition(pos); // 押し出したあとも、地面・水面の中には入らない
+  }
+  const _camSolidProbe = new THREE.Vector3();
+  function isCameraInsideSolid(pos) { _camSolidProbe.copy(pos); pushCameraOutOfSolids(_camSolidProbe); return _camSolidProbe.distanceToSquared(pos) > 1e-4; }
+  function constrainCameraWithSolids(pos) { constrainCameraPosition(pos); pushCameraOutOfSolids(pos); }
   function isCameraShotBlocked(pos, target) {
-    return isCameraPositionInFoliage(pos) || cameraGround.isShotBlockedByGround(pos, target) || domeGuard.isShotBlockedByDome(pos, target);
+    return isCameraPositionInFoliage(pos) || cameraGround.isShotBlockedByGround(pos, target) || domeGuard.isShotBlockedByDome(pos, target) || isCameraInsideSolid(pos);
   }
   const cameraDirector = createCameraDirector({
     isBlocked: isCameraShotBlocked,
-    constrainPosition: constrainCameraPosition,
+    constrainPosition: constrainCameraWithSolids,
   });
 
   // 2026-09: 「三人称視点の時に全身が見えるようにしてほしい」との要望を
@@ -2450,7 +2485,14 @@ export function initScene(mountEl, options = {}) {
     if (active && mode === 'walk') {
       exitWalkMode(); // v1.38: タッチ操作(ポインターロック無し)でも確実にorbitへ戻す
     }
+    const wasWander = wanderActive;
     wanderActive = !!active;
+    if (wanderActive && !wasWander) { // v1.104: 歩行モードと見守りモードの雪だるまの位置は、いつも同じ。切り替えた場所から、そのまま始める
+      const gp = playerSnowman.group.position;
+      wander.pos.set(gp.x, gp.z); wander.target.set(gp.x, gp.z); wander.heading = playerSnowman.group.rotation.y; wander.baseHeading = wander.heading;
+      wander.legs = []; wander.walking = false; wander.holdHeading = null; wander.waiting = true; wander.waitTimer = 1.0; wander.waitElapsed = 0;
+      prevSnowX = null; nonWalkVertical.forceY(gp.y);
+    }
     if (wanderActive) emoteBrain.adoptAuto(); // v1.73
     wander.collectTask = null; wander.baseTask = null; // v1.54: モードの切り替えで、途中の動作は終える
     if (!wanderActive) { cinemaMode = false; for (const pc of placedChests) if (pc !== uiChest) pc.close(); } // 見守りモードを切ったら自動カメラも切る
@@ -3011,6 +3053,7 @@ export function initScene(mountEl, options = {}) {
         fireSound.setCrackle(0.55 * fireSoundLevel);
       }
       if (near) {
+        audioWorld.fire = { x: near.x, y: near.mesh.position.y + 0.2, z: near.z, at: clock.elapsedTime };
         const r = listenerRelative(near.x, near.mesh.position.y + 0.2, near.z); // v1.102: カメラの上下の傾きも含めた、聞き手から見た位置
         fireSound.setListenerRelativePosition(r.x, r.y, r.z);
       }
@@ -3020,6 +3063,7 @@ export function initScene(mountEl, options = {}) {
     {
       const nearest = nearestRiverPoint(px, pz, riverSamplesForAvoid);
       const riverY = terrainHeightAt(nearest.x, nearest.z) + 0.1;
+      audioWorld.river = { x: nearest.x, y: riverY, z: nearest.z, at: clock.elapsedTime };
       const r = listenerRelative(nearest.x, riverY, nearest.z); // v1.102
       riverSound.setListenerRelativePosition(r.x, r.y, r.z);
     }
@@ -3035,6 +3079,7 @@ export function initScene(mountEl, options = {}) {
       const dy = beehiveWorldPos.y - py;
       const dz = beehiveWorldPos.z - pz;
       const dist = Math.hypot(dx, dy, dz);
+      audioWorld.bees = { x: beehiveWorldPos.x, y: beehiveWorldPos.y, z: beehiveWorldPos.z, at: clock.elapsedTime };
       const r = listenerRelative(beehiveWorldPos.x, beehiveWorldPos.y, beehiveWorldPos.z); // v1.102
       window.SoundEngine.Bees.setListenerRelativePosition(r.x, r.y, r.z);
       // 3.5m以内から聞こえ始め、1m以内でほぼ最大になる程度の近接感
@@ -3047,6 +3092,7 @@ export function initScene(mountEl, options = {}) {
     const star = window.SoundEngine && window.SoundEngine.StarBells && fallingStars.getActive();
     if (star) {
       const dx = star.x - px, dy = star.y - py, dz = star.z - pz;
+      audioWorld.star = { x: star.x, y: star.y, z: star.z, at: clock.elapsedTime };
       const r = listenerRelative(star.x, star.y, star.z); // v1.102
       window.SoundEngine.StarBells.setListenerRelativePosition(r.x, r.y, r.z);
     }
@@ -3067,6 +3113,7 @@ export function initScene(mountEl, options = {}) {
   // 位置は「いまのカメラから見た相対位置」(右・上・前=-Z)にして、HRTFで定位させる。
   // ================================================================
   const listenerRelative = createListenerRelative(camera);
+  const audioWorld = { fire: null, river: null, bees: null, star: null }; // v1.105: 長く鳴る音源の、世界の位置(遮蔽の判定に使う)
   const _sfxF = new THREE.Vector3(), _sfxR = new THREE.Vector3();
   function sfx() { return (audioOn && window.SoundEngine && window.SoundEngine.Sfx) || null; }
   function sfxRelative(x, y, z) { return listenerRelative(x, y, z); } // v1.102: カメラの向きすべて(上下の傾きも)を使う
@@ -3972,6 +4019,8 @@ export function initScene(mountEl, options = {}) {
     return !!(def && !(def.category === 'placeable' && !SOLID_PLACED[id]) && buildHeldItem(id));
   }
   function placeHeldItem(aim = false) {
+    if (mode === 'walk' && !emoteBrain.isBusy() && !emoteState.wheelOpen && isFireTorch(inventory.getSelected())) { placeHeldFireTorch(); return null; } // v1.104: 炎の松明を、地面に置く
+    if (mode === 'walk' && !emoteBrain.isBusy() && !emoteState.wheelOpen && inventory.getSelected() === 'midi_keyboard') { placeMusicStation(); return null; } // v1.104: MIDIキーボードは、3Dの楽器として設置する
     if (mode === 'walk' && !emoteBrain.isBusy() && !emoteState.wheelOpen && inventory.getSelected() === 'snowball') { throwSnowball(); return null; } // v1.94: Q・右クリックでも、雪玉は投げる
     if (!canPlaceHeld()) return null; // v1.73/v1.91
     const id = inventory.getSelected();
@@ -4096,6 +4145,7 @@ export function initScene(mountEl, options = {}) {
     // v1.88: ついている焚き火も、光の枠を分け合う(カメラに近い順)
     for (const it of placedItems) if (it.fire && it.fire.isLit()) lanternEmitters.push({ x: it.x, y: it.mesh.position.y + 0.55, z: it.z, intensity: 3.2 * (it.fireK === undefined ? 1 : it.fireK), distance: 10 * (0.85 + 0.15 * (it.fireK === undefined ? 1 : it.fireK)), color: 0xff9a4a }); // v1.96: 雨・雪玉で弱まる
     if (head === 'jack_o_lantern') { playerSnowman.headGroup.getWorldPosition(_lanternHeadPos); lanternEmitters.push({ x: _lanternHeadPos.x, y: _lanternHeadPos.y, z: _lanternHeadPos.z, ...LANTERN_WORN }); }
+    for (const f of firePlaced) lanternEmitters.push({ x: f.x, y: f.mesh.group.position.y + 0.55, z: f.z, intensity: 2.0 * (0.86 + Math.sin(clock.elapsedTime * 11 + f.x) * 0.1) * Math.min(1, f.life / 45), distance: 8, color: 0xff9a4a }); // v1.104: 置いた炎の松明(消える前に、弱まる)
     lanternLights.update(lanternEmitters, camera.position.x, camera.position.y, camera.position.z, clock.elapsedTime);
     // v1.75: 光の枠から外れた(遠い)松明にも、見た目だけの光のにじみを出す。枠をもらえた松明は、本物の光が周りを照らす
     for (const e of lanternEmitters) if (e.torch) setStarTorchFar(e.torch.mesh, !e.lit);
@@ -4182,21 +4232,128 @@ export function initScene(mountEl, options = {}) {
   });
 
   // ================================================================
+  // v1.104: 炎の松明(きまりは torch.js)
+  //   松明の木(小枝・丸太から作る)を手に持って、燃えている焚き火を叩くと着火して、炎の松明になる。
+  //   炎の松明は、手に持つ(左手)・地面に置ける。消耗品で、燃えている間に4段階で短くなり、最後は炎が消えて、アイテムも消える。
+  //   見守りモードの雪だるまは、夜になると、ホームの広葉樹で炎の松明を作って、夜の散歩をする。夜になっても、松明は自動では持たない。朝になっても、自動では消えない。
+  //   星の松明のない暗い所で寝る時は、炎の松明を持ったまま寝ず、近くに置いてから寝る。起きて動く時は、また持つ。
+  // ================================================================
+  const torchBurn = createTorchBurn();
+  const aiTorch = { held: false, placedRef: null, stowed: false, wasSleeping: false };
+  const firePlaced = []; // 地面に置いた炎の松明 { x, z, life, mesh, iid }
+  const torchBaseScale = torchOnBody.group.scale.x, torchHandsBaseScale = torchOnHands.group.scale.x;
+  const hasAnyFireTorch = () => TORCH_STAGES.some((id) => inventory.count(id) > 0);
+  const isNightNow = () => getTimeOfDay(gameHour) === 'night';
+  /** いま手に持っている炎の松明(段階のアイテム)。持っていなければ null。見守りモードでは、雪だるまが持っているかどうか。 */
+  function torchHeldId() {
+    if (!wanderActive) { const sel = inventory.getSelected(); return isFireTorch(sel) ? sel : null; }
+    if (!aiTorch.held) return null;
+    for (let i = TORCH_STAGES.length - 1; i >= 0; i--) if (inventory.count(TORCH_STAGES[i]) > 0) return TORCH_STAGES[i]; // 短い松明から、使う
+    return null;
+  }
+  function advanceTorch(id) { // 1段階、短くなる。最後は、燃え尽きて、消える
+    const nx = nextStage(id);
+    if (nx) inventory.convert(id, 1, nx, 1); else { inventory.remove(id, 1, { silent: true }); showPlaceNotice(tr('torch.burnedOut')); }
+    if (!hasAnyFireTorch()) aiTorch.held = false;
+  }
+  const groundYAt = (x, z) => terrainHeightAt(x, z) + Math.max(0, weather.getSnowDepth() - 0.05);
+  function addFirePlaced(x, z, life) {
+    const mesh = createTorch(1.0); const lt = mesh.group.children.find((c) => c.isLight); if (lt) mesh.group.remove(lt); // 光は、ランタンの光(lanternEmitters)で出す(光の数を増やさない)
+    mesh.group.position.set(x, groundYAt(x, z), z); mesh.setLit(true); scene.add(mesh.group);
+    const f = { x, z, life, mesh, iid: null };
+    f.iid = interaction.register({ kind: 'fireTorch', getPosition: () => ({ x: f.x, y: f.mesh.group.position.y + 0.5, z: f.z }), radius: 0.8, canInteract: () => true, onHold: () => pickUpFireTorch(f) });
+    firePlaced.push(f); return f;
+  }
+  function removeFirePlaced(f) {
+    const i = firePlaced.indexOf(f); if (i < 0) return;
+    firePlaced.splice(i, 1); scene.remove(f.mesh.group); interaction.unregister(f.iid); if (aiTorch.placedRef === f) aiTorch.placedRef = null;
+  }
+  function pickUpFireTorch(f) { // 長押しで拾う(残りの時間に合った、段階の松明に戻る)
+    const id = stageFromLife(f.life); if (!id) { removeFirePlaced(f); return; }
+    if (!inventory.canAdd(id, 1)) { showPlaceNotice(tr('notice.bagFull')); return; }
+    removeFirePlaced(f); inventory.add(id, 1);
+    const sf = sfx(); if (sf) sf.itemPickup('wood', sfxRelative(f.x, f.mesh.group.position.y + 0.3, f.z));
+  }
+  function placeHeldFireTorch() { // 右クリック: 目の前の地面に置く
+    const id = inventory.getSelected(); if (!isFireTorch(id) || mode !== 'walk') return null;
+    const d = new THREE.Vector3(); camera.getWorldDirection(d); d.y = 0; if (d.lengthSq() < 1e-4) d.set(0, 0, -1); d.normalize();
+    const p = playerSnowman.group.position; let spot = null, reason = 'blocked';
+    for (const dist of [1.3, 0.9]) { const x = p.x + d.x * dist, z = p.z + d.z * dist, ev = evaluateHeld('star_torch', x, z); if (ev.ok) { spot = { x, z }; break; } else reason = ev.reason; }
+    if (!spot) { showPlaceNotice(tr('notice.place.' + reason)); return null; }
+    const life = lifeOfStage(id); if (!inventory.remove(id, 1, { silent: true })) return null;
+    addFirePlaced(spot.x, spot.z, life);
+    const sf = sfx(); if (sf) sf.itemPickup('wood', sfxRelative(spot.x, groundYAt(spot.x, spot.z) + 0.3, spot.z));
+    return true;
+  }
+  /** 松明の木を手に持って、燃えている焚き火を叩くと、着火して、炎の松明になる。叩けた時だけ true。 */
+  function tryLightTorch() {
+    if (mode !== 'walk' || inventory.getSelected() !== 'torch_wood') return false;
+    const p = playerSnowman.group.position;
+    const fire = placedItems.find((it) => it.fire && it.fire.isLit() && Math.hypot(it.x - p.x, it.z - p.z) < 2.8);
+    if (!fire) return false; // 近くに、燃えている焚き火がなければ、ふつうの操作へ
+    if (!inventory.convert('torch_wood', 1, 'torch', 1)) return false;
+    fire.fireHitAge = 0; // 叩かれて、焚き火が少し揺れる
+    const sf = sfx(); if (sf) sf.itemPickup('wood', sfxRelative(fire.x, fire.mesh.position.y + 0.5, fire.z));
+    showPlaceNotice(tr('torch.lit'));
+    return true;
+  }
+  function aiNearLight(x, z) { // 星の松明・燃えている焚き火・置いた炎の松明の、明かりが、近くにあるか
+    for (const it of placedItems) { if (it.itemId === 'star_torch' && Math.hypot(it.x - x, it.z - z) < 14) return true; if (it.fire && it.fire.isLit() && Math.hypot(it.x - x, it.z - z) < 10) return true; }
+    return firePlaced.some((f) => Math.hypot(f.x - x, f.z - z) < 8);
+  }
+  function updateTorches(delta) {
+    const now = clock.elapsedTime, th = torchHeldId();
+    if (th) { // 手に持っている間だけ、燃えて、短くなる(見た目も、短くなる)
+      const k = stageScale(th); torchOnBody.group.scale.setScalar(torchBaseScale * k); torchOnHands.group.scale.setScalar(torchHandsBaseScale * k);
+      if ((mode === 'walk' || wanderActive) && torchBurn.tick(delta)) advanceTorch(th);
+    }
+    if (wanderActive && isNightNow() && !aiTorch.held && !aiTorch.stowed && !aiTorch.placedRef && hasAnyFireTorch()) aiTorch.held = true; // 夜に、炎の松明を持っていれば、持って歩く
+    for (let i = firePlaced.length - 1; i >= 0; i--) { // 置いた炎の松明: 燃えて、短くなり、最後は、消えてなくなる
+      const f = firePlaced[i]; f.life -= delta; f.mesh.update(now, delta);
+      if (f.life <= 0) { removeFirePlaced(f); continue; }
+      f.mesh.group.scale.setScalar(Math.max(0.55, Math.min(1, 0.55 + 0.45 * (f.life / TORCH_TOTAL_SEC)))); f.mesh.group.position.y = groundYAt(f.x, f.z);
+    }
+    // 寝る・起きる(見守りモード)
+    const sleeping = wanderActive && emoteBrain.isSleeping(), p = playerSnowman.group.position;
+    if (sleeping && !aiTorch.wasSleeping && aiTorch.held) {
+      const id = torchHeldId();
+      if (id && isNightNow() && !aiNearLight(p.x, p.z)) { // 明かりのない、暗い場所: 近くに炎の松明を置いてから、寝る
+        for (const a of [0.8, 2.4, 4.0, 5.5]) {
+          const x = p.x + Math.cos(a) * 1.4, z = p.z + Math.sin(a) * 1.4;
+          if (evaluateHeld('star_torch', x, z).ok && inventory.remove(id, 1, { silent: true })) { aiTorch.placedRef = addFirePlaced(x, z, lifeOfStage(id)); aiTorch.held = false; break; }
+        }
+      } else { aiTorch.held = false; aiTorch.stowed = true; } // 明るい所・昼: 手に持ったまま寝ない。しまう
+    }
+    if (!sleeping && aiTorch.wasSleeping) { // 起きた: 置いた炎の松明を拾って、また持つ
+      if (aiTorch.placedRef && firePlaced.includes(aiTorch.placedRef)) { const f = aiTorch.placedRef, id = stageFromLife(f.life); if (id && inventory.canAdd(id, 1)) { removeFirePlaced(f); inventory.add(id, 1); aiTorch.held = true; } }
+      else if (aiTorch.stowed && hasAnyFireTorch()) aiTorch.held = true;
+      aiTorch.stowed = false; aiTorch.placedRef = null;
+    }
+    aiTorch.wasSleeping = sleeping;
+    if (!wanderActive && aiTorch.held && !isFireTorch(inventory.getSelected())) { /* 歩行モード: 手に持つのは、ホットバーで選んだ物 */ }
+  }
+
+  // ================================================================
   // v1.103: 雪だるまのものづくり(見守りモード)。きまりは builder.js。
   //   回収した物は、チェストへ収納する。空きがなければ(または、なければ)、チェストを作る。材料がなければ、地形で集める。作ったら、地形に設置する。
   //   作業台・焚き火も、気まぐれに、集めて・作って・設置する(すでに設置されていれば、作らない)。
   // ================================================================
   const builderCtl = createBuilder();
-  const BUILD_ITEM = { table: 'crafting_table', chest: 'chest', campfire: 'campfire' };
+  const BUILD_ITEM = { table: 'crafting_table', chest: 'chest', campfire: 'campfire', torch: 'torch' };
   const countPlaced = (id) => placedItems.filter((q) => q.itemId === id).length;
-  const builderCounts = () => { const c = {}; for (const id of ['log', 'wood', 'star', 'star_shard', 'stone', 'coal']) c[id] = inventory.count(id); return c; };
+  const builderCounts = () => { const c = {}; for (const id of ['log', 'wood', 'star', 'star_shard', 'stone', 'coal', 'twig', 'torch_wood']) c[id] = inventory.count(id); return c; };
   /** いま作っている目標に、足りない材料か(足りなければ、拾う時に、必ず拾う)。 */
   function builderWants(itemId) {
     const g = builderCtl.current(); if (!g) return false;
     const goal = (g === 'chest' || g === 'campfire') && countPlaced('crafting_table') === 0 ? 'table' : g;
-    return inventory.count(BUILD_ITEM[goal]) < 1 && itemId in missingFor(goal, builderCounts());
+    return (goal === 'torch' ? !hasAnyFireTorch() : inventory.count(BUILD_ITEM[goal]) < 1) && itemId in missingFor(goal, builderCounts());
   }
   function pickBuildSpot(goal) { // 設置する場所(キャンプのまわりの、置ける所)と、そこへ立つ位置
+    if (goal === 'torch') { // 炎の松明は、ホームの広葉樹(大きな木)のそばで作る
+      const L = Math.hypot(wander.pos.x - treeCanopy.x, wander.pos.y - treeCanopy.z) || 1, r = STORM.trunkRadius + 1.3;
+      const stand = sanitizeWaypoint(treeCanopy.x + ((wander.pos.x - treeCanopy.x) / L) * r, treeCanopy.z + ((wander.pos.y - treeCanopy.z) / L) * r);
+      return stand ? { x: treeCanopy.x, z: treeCanopy.z, itemId: 'torch', stand: { x: stand.x, z: stand.z }, yaw: 0 } : null;
+    }
     const itemId = BUILD_ITEM[goal], hub = restHub();
     for (let k = 0; k < 16; k++) {
       const a = Math.random() * Math.PI * 2, r = 3 + Math.random() * 5, x = hub.x + Math.cos(a) * r, z = hub.z + Math.sin(a) * r;
@@ -4212,9 +4369,10 @@ export function initScene(mountEl, options = {}) {
     if (!wanderActive || perf.active || shockState.active || musicState.panelOpen || editMode.isEnabled()) return null;
     const now = clock.elapsedTime;
     const needChest = !pouch.isEmpty() && !pickStorageChest(); // 回収した物があるのに、収納できるチェストがない
-    const goal = builderCtl.goal({ now, needChest, tableCount: countPlaced('crafting_table'), campfireCount: countPlaced('campfire') });
+    const needTorch = isNightNow() && !aiTorch.held && !aiTorch.placedRef && !hasAnyFireTorch(); // 夜なのに、炎の松明がない
+    const goal = builderCtl.goal({ now, needChest, needTorch, tableCount: countPlaced('crafting_table'), campfireCount: countPlaced('campfire') });
     if (!goal) return null;
-    const have = inventory.count(BUILD_ITEM[goal]) > 0; // もう作ってあるのに、置けていない時は、置きに行く
+    const have = goal === 'torch' ? hasAnyFireTorch() : inventory.count(BUILD_ITEM[goal]) > 0; // もう作ってあるのに、置けていない時は、置きに行く
     const missing = have ? {} : missingFor(goal, builderCounts());
     if (Object.keys(missing).length) { // 材料を、地形で探して集める
       const br = bridgeAvailable();
@@ -4229,6 +4387,13 @@ export function initScene(mountEl, options = {}) {
   function beginBuildTask() { const bk = wander.buildTask; if (!bk) return; bk.phase = 'work'; bk.timer = 3.4; bk.tick = 0; wander.legs = []; }
   function executeBuild(bk) { // 作って、設置する。できたら true
     const inv = inventory;
+    if (bk.goal === 'torch') { // 炎の松明を作って、持つ(松明の木 → 火をつける)
+      if (inv.count('torch_wood') < 1) { if (canCraft(inv, 'torch_wood_log')) craft(inv, 'torch_wood_log'); else if (canCraft(inv, 'torch_wood_twig')) craft(inv, 'torch_wood_twig'); else return false; }
+      if (!inv.convert('torch_wood', 1, 'torch', 1)) return false;
+      aiTorch.held = true; aiTorch.stowed = false;
+      activityLog.event('build', { goal: 'torch' }); const sf = sfx(); if (sf) sf.itemPickup('wood', sfxRelative(bk.x, groundYAt(bk.x, bk.z) + 0.3, bk.z)); showPlaceNotice(tr('torch.lit'));
+      return true;
+    }
     if (inv.count(bk.itemId) < 1) {
       const tableOk = countPlaced('crafting_table') > 0;
       const craftIf = (id) => canCraft(inv, id) && craft(inv, id);
@@ -4298,9 +4463,8 @@ export function initScene(mountEl, options = {}) {
   const musicRt = { lastNoteAt: -99, held: new Set(), source: 'insect', condKey: '', targetAt: -1, anchor: new THREE.Vector3() };
   const musicInstrument = () => (window.SoundEngine && window.SoundEngine.NatureInstrument) || null;
   const musicPower = () => ({ state: kbBattery.state(), fraction: kbBattery.fraction() });
-  /** Pキー: 開く前の確認。キーボードを持っていて、電池が入っている(なければ、持っている電池を入れる)時だけ、開ける。 */
-  function prepareMusicOpen() {
-    if (inventory.count('midi_keyboard') < 1) { showPlaceNotice(tr('music.needKeyboard')); return false; }
+  /** 置く前の確認: 電池が入っている(なければ、持っている電池を入れる)時だけ、置ける。 */
+  function prepareStation() {
     const plan = planInsert({ batteryCount: inventory.count('battery'), state: kbBattery.state() });
     if (plan.action === 'need') { showPlaceNotice(tr('music.needBattery')); return false; }
     if (plan.action === 'insert') {
@@ -4311,13 +4475,103 @@ export function initScene(mountEl, options = {}) {
     }
     return true;
   }
-  function placePlayKb() {
-    const d = new THREE.Vector3(); camera.getWorldDirection(d); d.y = 0; if (d.lengthSq() < 1e-4) d.set(0, 0, -1); d.normalize();
-    const p = playerSnowman.group.position, x = p.x + d.x * 2.4, z = p.z + d.z * 2.4;
-    playKb.group.position.set(x, terrainHeightAt(x, z) + Math.max(0, weather.getSnowDepth() - 0.05) + 0.02, z);
-    playKb.group.rotation.y = Math.atan2(-d.x, -d.z); // 鍵盤の手前が、こちらを向く
-    playKb.group.visible = true; playKb.group.updateMatrixWorld(true);
+  // v1.104: MIDIキーボードは、ホットバーで選んで、対象物の近くで右クリックすると、対象物の前に、3Dの楽器として設置される(演奏可能な状態)。
+  //   歩行モードでは、3Dの鍵盤をクリックするか、PCキーボードで弾く(視線を、キーボードに合わせている間。歩かない)。外部のMIDIキーボードも、同じように弾ける。
+  //   本体を長押しすると、拾える。(2Dの演奏パネルは、廃止した)
+  const station = { active: false, x: 0, z: 0, yaw: 0, source: 'insect', target: null, octave: 0, held: new Map(), pointerNote: null, hit: null, iid: null };
+  const stationListeners = [];
+  const _stRay = new THREE.Raycaster(); _stRay.far = 7;
+  const stationGroundY = (x, z) => terrainHeightAt(x, z) + Math.max(0, weather.getSnowDepth() - 0.05) + 0.02;
+  function applyStationPose() {
+    playKb.group.position.set(station.x, stationGroundY(station.x, station.z), station.z);
+    playKb.group.rotation.y = station.yaw; playKb.group.visible = station.active; playKb.setBase(48 + station.octave * 12); playKb.group.updateMatrixWorld(true);
   }
+  function placeMusicStation() {
+    if (mode !== 'walk' || inventory.count('midi_keyboard') < 1) return null;
+    if (station.active) { showPlaceNotice(tr('music.stationAlready')); return null; }
+    if (!prepareStation()) return null;
+    const d = new THREE.Vector3(); camera.getWorldDirection(d); d.y = 0; if (d.lengthSq() < 1e-4) d.set(0, 0, -1); d.normalize();
+    const p = playerSnowman.group.position; let spot = null, reason = 'blocked';
+    for (const dist of [1.9, 1.4, 1.0]) { // 目の前の、置ける場所(水の中・ほかの物の上は、避ける)
+      const x = p.x + d.x * dist, z = p.z + d.z * dist, ev = evaluateHeld('chest', x, z);
+      if (ev.ok) { spot = { x, z }; break; } else reason = ev.reason;
+    }
+    if (!spot) { showPlaceNotice(tr('notice.place.' + reason)); return null; }
+    station.source = getMusicSource(); // 近くにある自然物(川・木・花・星の灯り・石、なければ虫・雪)
+    station.x = spot.x; station.z = spot.z; station.yaw = Math.atan2(-d.x, -d.z); // 鍵盤の手前が、こちらを向く
+    station.target = musicTargetFor(station.source, station.x, station.z, { x: d.x, z: d.z }); // ケーブルのつなぎ先
+    if (!inventory.remove('midi_keyboard', 1)) return null;
+    station.active = true; station.octave = 0; musicRt.targetAt = -1; applyStationPose();
+    const s = sfx(); if (s) s.itemPickup('tent', sfxRelative(station.x, playKb.group.position.y + 0.1, station.z));
+    debugLog.log('music.stationPlaced', { source: station.source });
+    for (const fn of stationListeners) { try { fn(); } catch (e) { /* 通知先の失敗は、設置を止めない */ } } // 外部MIDIキーボードへの、自動接続など
+    return true;
+  }
+  function pickUpStation() { // 本体を長押しで、拾う(電池は、中に入ったまま)
+    if (!station.active) return;
+    if (!inventory.canAdd('midi_keyboard', 1)) { showPlaceNotice(tr('notice.bagFull')); return; }
+    const ni = musicInstrument(); if (ni) ni.allOff();
+    for (const m of musicRt.held) musicMemory.noteOff(clock.elapsedTime, m);
+    musicRt.held.clear(); station.held.clear(); station.pointerNote = null; playKb.releaseAll();
+    station.active = false; playKb.group.visible = false; kbCable.hide(); musicState.panelOpen = false;
+    inventory.add('midi_keyboard', 1);
+    const s = sfx(); if (s) s.itemPickup('tent', sfxRelative(station.x, playKb.group.position.y + 0.1, station.z));
+  }
+  station.iid = interaction.register({
+    kind: 'midiStation',
+    getPosition: () => ({ x: station.x, y: playKb.group.position.y + 0.15, z: station.z }),
+    radius: 1.0,
+    canInteract: () => station.active,
+    onHold: () => pickUpStation(),
+  });
+  // --- 鳴らす・離す(クリック・PCキー・外部MIDIキーボードの、どれでも、ここを通る) ---
+  function stationNoteOn(m, vel) {
+    if (!station.active) return;
+    const ni = musicInstrument(), played = ni ? ni.noteOn(station.source, m, vel) : false;
+    musicRt.held.add(m); musicRt.lastNoteAt = clock.elapsedTime; playKb.setKeyDown(m, true);
+    if (played) { const p = playerSnowman.group.position; musicMemory.noteOn(clock.elapsedTime, m, vel, station.source, { x: p.x, z: p.z }); } // 鳴った音だけ、覚える
+  }
+  function stationNoteOff(m) {
+    const ni = musicInstrument(); if (ni) ni.noteOff(m);
+    musicRt.held.delete(m); playKb.setKeyDown(m, false); musicMemory.noteOff(clock.elapsedTime, m);
+  }
+  function shiftStationOctave(d) {
+    const next = Math.max(-2, Math.min(2, station.octave + d)); if (next === station.octave) return;
+    for (const m of station.held.values()) stationNoteOff(m); station.held.clear();
+    station.octave = next; applyStationPose();
+  }
+  /** 視線(画面の中心)が、3Dキーボードに合っているか。合っている間は、歩かず、PCキーで弾ける。 */
+  function updateStationAim() {
+    let aimed = false, hit = null;
+    if (station.active && mode === 'walk' && !wanderActive && !inventoryOpen && !emoteState.wheelOpen && !uiBusyForStation()) {
+      _stRay.setFromCamera({ x: 0, y: 0 }, camera); hit = playKb.pick(_stRay); aimed = !!hit && hit.distance < 6;
+    }
+    musicState.panelOpen = aimed; // (名前は古いが、「演奏の照準が合っている」ことを表す。歩行の停止などが、これを見る)
+    station.hit = aimed ? hit : null;
+  }
+  const uiBusyForStation = () => !!(window.__uiBusyForStation && window.__uiBusyForStation());
+  const stationApi = {
+    isStationActive: () => station.active, isStationAimed: () => musicState.panelOpen,
+    onStationPlaced: (fn) => { stationListeners.push(fn); },
+    /** マウス: 3Dの鍵盤を押す(down=true)/離す(false)。鍵盤を押せた時だけ true(本体は、長押しで拾えるように、受け取らない)。 */
+    stationPointer(down) {
+      if (!down) { if (station.pointerNote !== null) { stationNoteOff(station.pointerNote); station.pointerNote = null; return true; } return false; }
+      if (!station.hit || station.hit.key === null) return false;
+      station.pointerNote = station.hit.key; stationNoteOn(station.hit.key, 0.8); return true;
+    },
+    /** PCキー(視線がキーボードに合っている間だけ。離した時は、いつでも)。受け取ったら true。 */
+    stationKey(code, down, repeat) {
+      if (!down) { if (station.held.has(code)) { stationNoteOff(station.held.get(code)); station.held.delete(code); return true; } return false; }
+      if (!musicState.panelOpen) return false;
+      if (code === 'ArrowLeft' || code === 'ArrowRight') { if (!repeat) shiftStationOctave(code === 'ArrowLeft' ? -1 : 1); return true; }
+      const m = keyToMidi(code, station.octave); if (m === null) return false;
+      if (!repeat && !station.held.has(code)) { station.held.set(code, m); stationNoteOn(m, 0.8); }
+      return true;
+    },
+    /** 外部のMIDIキーボード。 */
+    stationMidi(note, velocity, on) { if (!station.active) return; if (on) stationNoteOn(note, velocity); else stationNoteOff(note); },
+  };
+
   /**
    * 演奏している自然物の、ケーブルをつなぐ場所。(fx,fz)=演奏している人の位置、dir=その人の向き。
    *   川=川の中(先が水に入る) / 木・石=幹・岩の根もと / 星の灯り=松明の根もと / 花=花の軸の部分 / 虫=地面 / 雪=雪面
@@ -4342,10 +4596,6 @@ export function initScene(mountEl, options = {}) {
     const side = source === 'snow' ? -1 : 1, x = fx + dir.x * 3.0 - dir.z * side * 1.0, z = fz + dir.z * 3.0 + dir.x * side * 1.0;
     if (source === 'snow') return { x, y: terrainHeightAt(x, z) + weather.getSnowDepth() - 0.02, z }; // 雪面へ
     return ground(x, z, 0.0); // 虫: 地面へ
-  }
-  function getMusicTarget(source) {
-    const p = playerSnowman.group.position, d = new THREE.Vector3(); camera.getWorldDirection(d); d.y = 0; d.normalize();
-    return musicTargetFor(source, p.x, p.z, { x: d.x, z: d.z });
   }
   // ================================================================
   // v1.101: 雪だるまの自律演奏(見守りモードだけ)。きまりは music/performer.js。
@@ -4503,21 +4753,37 @@ export function initScene(mountEl, options = {}) {
     }
   }
 
-  // v1.103: MIDIキーボードを持っている間だけ、ホットバー(など持ち物)に「演奏ボタン」が置かれる。選ぶと、キーボードが出る。
-  let musicButtonSyncing = false;
-  function syncMusicButton() {
-    if (musicButtonSyncing) return; musicButtonSyncing = true;
-    try {
-      const hasKb = inventory.count('midi_keyboard') > 0, hasBtn = inventory.count('music_button') > 0;
-      if (hasKb && !hasBtn) inventory.add('music_button', 1);
-      else if (!hasKb && hasBtn) inventory.remove('music_button', inventory.count('music_button'));
-      else if (hasBtn && inventory.count('music_button') > 1) inventory.remove('music_button', inventory.count('music_button') - 1);
-    } finally { musicButtonSyncing = false; }
+  // ================================================================
+  // v1.105: 立体音響 第3段階。きまりは audio-fx.js。
+  //   遮蔽: 聞き手(カメラ)と音源のあいだに、丘・木の幹・葉の茂みがあると、少し小さく・こもらせる(完全には消さない)。
+  //   環境: 聞き手のいる所(森・川辺・雪原・開けた所)に合わせて、残響の量と明るさを変える。
+  // ================================================================
+  const fxState = { occAt: 0, envAt: 0, env: '' };
+  const _fxCam = new THREE.Vector3();
+  function updateAudioFx(delta) {
+    if (!audioOn || !window.SoundEngine || !window.SoundEngine.setProfileOcclusion) return;
+    const now = clock.elapsedTime, SE = window.SoundEngine;
+    if (now - fxState.occAt > 0.25) { // 遮蔽: 0.25秒ごと
+      fxState.occAt = now; camera.getWorldPosition(_fxCam); refreshCameraSolids();
+      const cyls = [], spheres = []; for (const sh of snowShapes) { if (sh.shape === 'cyl' && (sh.kind === 'trunk' || sh.kind === 'rock')) cyls.push(sh); else if (sh.shape === 'sphere') spheres.push(sh); }
+      const opts = { heightAt: terrainHeightAt, cyls, spheres }, occ = (p) => (p && now - p.at < 0.6 ? occlusionAmount(_fxCam, p, opts) : 0);
+      SE.setProfileOcclusion('fire', occ(audioWorld.fire)); SE.setProfileOcclusion('river', occ(audioWorld.river)); SE.setProfileOcclusion('bees', occ(audioWorld.bees)); SE.setProfileOcclusion('star', occ(audioWorld.star));
+      const ni = musicInstrument();
+      if (ni && ni.setRemoteOcclusion) { // 演奏している場所(置いたキーボード・雪だるま)
+        const src = perf.active && perf.phase === 'play' ? playerSnowman.group.position : station.active ? playKb.group.position : null;
+        ni.setRemoteOcclusion(src ? occlusionAmount(_fxCam, { x: src.x, y: src.y + 0.5, z: src.z }, opts) : 0);
+      }
+    }
+    if (now - fxState.envAt > 1.0) { // 環境: 1秒ごと
+      fxState.envAt = now; camera.getWorldPosition(_fxCam);
+      let trees = 0; for (const t of livingTreePositions) if (Math.hypot(t.x - _fxCam.x, t.z - _fxCam.z) < 14) trees++;
+      const env = classifyEnvironment({ trees, riverClearance: riverClearance(_fxCam.x, _fxCam.z), snowDepth: weather.getSnowDepth() });
+      if (env.name !== fxState.env) { fxState.env = env.name; SE.setEnvironment(env); const ni = musicInstrument(); if (ni && ni.setEnvironment) ni.setEnvironment(env); debugLog.log('audio.environment', { env: env.name, trees }); }
+    }
   }
-  inventory.onChange(syncMusicButton);
-  syncMusicButton();
   function updateMusic(delta) {
-    const open = musicState.panelOpen, now = clock.elapsedTime;
+    const open = station.active, now = clock.elapsedTime;
+    updateStationAim(); // 視線が3Dキーボードに合っていれば、歩かず、PCキーで弾ける
     // 電池: 弾いている間(最後の音から10秒まで)だけ、現実の時間で減る
     const playing = open && (musicRt.held.size > 0 || now - musicRt.lastNoteAt < PLAY_GRACE_SEC);
     { const ni0 = musicInstrument(); if (ni0 && !musicRt.remoteSet && ni0.setRemoteDefault) { ni0.setRemoteDefault(true); musicRt.remoteSet = true; } } // v1.103: キーボードの音は、いつも、キーボードのある場所から聞こえる(遠い・近いの、音響の原理に従う)
@@ -4536,9 +4802,9 @@ export function initScene(mountEl, options = {}) {
     if (!open) return;
     { const ni1 = musicInstrument(), g = playKb.group.position; if (ni1 && ni1.setRemotePosition) ni1.setRemotePosition(sfxRelative(g.x, g.y + 0.1, g.z)); } // v1.103: 演奏中のキーボードの位置
     playKb.tick(st, now); // 光る(電池が入っている間)/点滅(少ない)/光らない(なくなった)
-    if (now - musicRt.targetAt > 0.25) { // ケーブル: キーボードと、演奏している自然物をつなぐ
-      musicRt.targetAt = now;
-      const tg = getMusicTarget(musicRt.source); playKb.cableAnchor.getWorldPosition(musicRt.anchor);
+    if (now - musicRt.targetAt > 0.25) { // ケーブル: キーボードと、演奏している自然物をつなぐ(雪が積もる・溶けるのに合わせて、置く高さも直す)
+      musicRt.targetAt = now; playKb.group.position.y = stationGroundY(station.x, station.z); playKb.group.updateMatrixWorld(true);
+      const tg = station.target; playKb.cableAnchor.getWorldPosition(musicRt.anchor);
       if (tg && Math.hypot(tg.x - musicRt.anchor.x, tg.z - musicRt.anchor.z) < 18) kbCable.set(musicRt.anchor, tg); else kbCable.hide();
     }
   }
@@ -5152,14 +5418,8 @@ export function initScene(mountEl, options = {}) {
     }
   }
   // --- v1.97: 演奏パネル(Pキー/🎹)。開いている間は歩かない。音は、近くの自然物に合わせる(music/notes.js の pickNatureSource) ---
-  const musicState = { panelOpen: false };
-  function setMusicPanelOpen(open) {
-    const want = !!open && mode === 'walk' && !inventoryOpen && !emoteState.wheelOpen;
-    if (want === musicState.panelOpen) return musicState.panelOpen;
-    musicState.panelOpen = want;
-    if (want) { walk.releasePointerForUi(); placePlayKb(); musicRt.targetAt = -1; } else { walk.endUiRelease(mode === 'walk'); playKb.group.visible = false; playKb.releaseAll(); for (const m of musicRt.held) musicMemory.noteOff(clock.elapsedTime, m); musicRt.held.clear(); kbCable.hide(); } // 閉じる時、押したままの音は、記憶の中でも離す
-    return want;
-  }
+  const musicState = { panelOpen: false }; // 演奏の照準が合っているか(updateStationAim)
+
   /** いま立っている場所の近くにある自然物 → 演奏する音('river' 'tree' 'flower' 'insect' 'snow' 'star' 'stone') */
   function getMusicSource() {
     const p = playerSnowman.group.position, x = p.x, z = p.z;
@@ -5246,11 +5506,23 @@ export function initScene(mountEl, options = {}) {
       const wg = traversal.guardWater(prevSnowX, prevSnowZ, snowX, snowZ, climbingNow ? null : feetNow);
       snowX = wg.x; snowZ = wg.z;
       if (wanderActive) { // v1.103: 川に降りて出られなくなる事故を防ぐため、水際から RIVER_MARGIN より近くへは、近づかない(離れる動きは、いつでもできる)
-        const cPrev = riverClearance(prevSnowX, prevSnowZ), cNext = riverClearance(snowX, snowZ);
-        if (cPrev >= 0 && cNext < RIVER_MARGIN && cNext < cPrev - 1e-4) {
-          const cx = riverClearance(snowX, prevSnowZ), cz = riverClearance(prevSnowX, snowZ);
-          if (cx >= RIVER_MARGIN || cx >= cPrev) snowZ = prevSnowZ; else if (cz >= RIVER_MARGIN || cz >= cPrev) snowX = prevSnowX; else { snowX = prevSnowX; snowZ = prevSnowZ; }
+        const cPrev = riverClearance(prevSnowX, prevSnowZ);
+        let acted = false;
+        if (cPrev >= 0) {
+          const cNext = riverClearance(snowX, snowZ);
+          if (cNext < RIVER_MARGIN && cNext < cPrev - 1e-4) {
+            acted = true; // 川へ向かう成分だけを取り除いて、岸にそって滑る(止めてしまうと、行き先へ進もうとする動きとぶつかって、震える)
+            const e = 0.35, gx = riverClearance(prevSnowX + e, prevSnowZ) - riverClearance(prevSnowX - e, prevSnowZ), gz = riverClearance(prevSnowX, prevSnowZ + e) - riverClearance(prevSnowX, prevSnowZ - e), gl = Math.hypot(gx, gz);
+            if (gl > 1e-5) {
+              const nx = gx / gl, nz = gz / gl; let mx = snowX - prevSnowX, mz = snowZ - prevSnowZ; const dot = mx * nx + mz * nz;
+              if (dot < 0) { mx -= nx * dot; mz -= nz * dot; }
+              snowX = prevSnowX + mx; snowZ = prevSnowZ + mz;
+              if (riverClearance(snowX, snowZ) < Math.min(cPrev, RIVER_MARGIN) - 1e-3) { snowX = prevSnowX; snowZ = prevSnowZ; }
+            } else { snowX = prevSnowX; snowZ = prevSnowZ; }
+          }
         }
+        riverGuard.t = acted ? riverGuard.t + delta : Math.max(0, riverGuard.t - delta);
+        if (riverGuard.t > 0.7) { riverGuard.t = 0; wander.legs = []; endTasks(); } // 川に向かう行き先をあきらめて、別の行き先を選び直す
       }
     }
     prevSnowX = snowX; prevSnowZ = snowZ;
@@ -5314,6 +5586,8 @@ export function initScene(mountEl, options = {}) {
     updateSnowStuff(delta);   // v1.94
     updateStormEvents(delta); // v1.96: 雨宿り・落雷・感電
     updateMusic(delta);       // v1.99: 電池・光・MIDIケーブル
+    updateTorches(delta);     // v1.104: 炎の松明(燃える・置く・夜の散歩)
+    updateAudioFx(delta);     // v1.105: 遮蔽・環境の残響
     updateRiverSafety(delta); // v1.103: 川に降りて出られなくなった時の、救出
     updateLanterns(delta);
     updateButterfly(delta, t); // v1.78: 鼻にとまる蝶
@@ -5339,6 +5613,7 @@ export function initScene(mountEl, options = {}) {
     if (cinemaMode && wanderActive) {
       const flowerP = poppyField && poppyField.patchCenters.length > 0 ? poppyField.patchCenters[0] : null;
       cameraDirector.update(delta, {
+      performing: perf.active && perf.phase === 'play', // v1.105: 雪だるまの演奏中は、遠くから撮る
         snowman: { x: snowX, y: snowGroundY, z: snowZ },
         camp: { x: campX, y: terrainHeightAt(campX, campZ), z: campZ },
         fire: (() => { const f = nearestLitFire(snowX, snowZ); return f ? { x: f.it.x, y: terrainHeightAt(f.it.x, f.it.z), z: f.it.z } : null; })(), // v1.89: ついている焚き火があれば、それを撮る
@@ -5437,10 +5712,11 @@ export function initScene(mountEl, options = {}) {
     firstPersonHands.update(delta, t);
     // 松明: 夜間だけ灯す(Snowman 3D Character.md 17節/
     // ambient-soundscape-concept-summary.md 20〜21節で構想していたもの)。
-    const isNight = getTimeOfDay(gameHour) === 'night';
-    torchOnBody.setLit(isNight);
-    torchOnHands.setLit(isNight);
-    firstPersonHands.setLeftHandVisible(isNight); // v1.44: 一人称は普段は右手だけ。左手は夜に松明を持つ時だけ見せる
+    // v1.104: 夜になっても、自動で松明を持たない。炎の松明を手に持っている時だけ、左手に炎が出る(updateTorches)。
+    const torchLitNow = torchHeldId() !== null;
+    torchOnBody.setLit(torchLitNow);
+    torchOnHands.setLit(torchLitNow);
+    firstPersonHands.setLeftHandVisible(torchLitNow); // v1.44: 一人称は普段は右手だけ。左手は夜に松明を持つ時だけ見せる
     keepTorchUpright(torchOnBody, playerSnowman.torchSocket);
     keepTorchUpright(torchOnHands, firstPersonHands.torchSocket);
     torchOnBody.update(t, delta);
@@ -5582,7 +5858,8 @@ export function initScene(mountEl, options = {}) {
       logs: logs.slice(0, 300),
       shards: shardSystem.serialize(), // v1.69: 星のかけら・月のかけらを貼った倒木と、接着した塊(倒木の番号で)
       tentBundleTaken: tentBundle.taken, // v1.92
-      music: { kbTaken: kbPickup.taken, battery: kbBattery.serialize(), copperTaken: copperField.pieces.filter((q) => q.taken).map((q) => q.index), memory: musicMemory.serialize() }, // v1.99 / v1.100: 音楽の記憶: 落ちているテントを拾ったか
+      torches: { placed: firePlaced.map((f) => ({ x: +f.x.toFixed(2), z: +f.z.toFixed(2), life: Math.round(f.life) })), aiHeld: aiTorch.held }, // v1.104: 置いた炎の松明・雪だるまが持っているか
+      music: { kbTaken: kbPickup.taken, battery: kbBattery.serialize(), copperTaken: copperField.pieces.filter((q) => q.taken).map((q) => q.index), memory: musicMemory.serialize(), station: station.active ? { x: +station.x.toFixed(2), z: +station.z.toFixed(2), yaw: +station.yaw.toFixed(3), source: station.source, octave: station.octave, target: station.target } : null }, // v1.99 / v1.100: 音楽の記憶 / v1.104: 設置したキーボード: 落ちているテントを拾ったか
       rockTaken: rockClusters.map((r, i) => (r.taken ? i : -1)).filter((i) => i >= 0), // v1.86: 回収した岩
       coalTaken: coalField.pieces.filter((q) => q.taken).map((q) => q.index), // v1.85: 回収した木炭
       moonTaken: moonBuried.map((m, i) => (moonStones.getLanded().some((s) => s.id === m.id) ? -1 : i)).filter((i) => i >= 0), // v1.69: 拾われた、埋まっていた月の石
@@ -5621,11 +5898,18 @@ export function initScene(mountEl, options = {}) {
     });
     guard(() => { if (st.shards) shardSystem.restore(st.shards); }); // v1.69: 倒木の位置を戻したあとに、かけらと接着を戻す
     guard(() => { if (st.tentBundleTaken) takeTentBundle(); }); // v1.92
+    guard(() => { // v1.104: 炎の松明
+      const tt = st.torches; if (!tt || typeof tt !== 'object') return;
+      for (const q of Array.isArray(tt.placed) ? tt.placed : []) if (Number.isFinite(q.x) && Number.isFinite(q.z) && q.life > 0) addFirePlaced(q.x, q.z, q.life);
+      aiTorch.held = !!tt.aiHeld && hasAnyFireTorch();
+    });
     guard(() => { // v1.99: キーボード・電池・銅鉱石
       const m = st.music; if (!m || typeof m !== 'object') return;
       if (m.kbTaken) takeKbPickup();
       kbBattery.restore(m.battery);
-      syncMusicButton(); // v1.103
+      if (inventory.count('music_button') > 0) inventory.remove('music_button', inventory.count('music_button'), { silent: true }); // v1.103の、演奏ボタン(アイテム)は、廃止した
+      const st0 = m.station; // v1.104: 設置してあったキーボードを、同じ場所へ
+      if (st0 && Number.isFinite(st0.x) && Number.isFinite(st0.z) && !station.active) { station.active = true; station.x = st0.x; station.z = st0.z; station.yaw = +st0.yaw || 0; station.source = typeof st0.source === 'string' ? st0.source : 'insect'; station.octave = Math.max(-2, Math.min(2, st0.octave | 0)); station.target = st0.target && Number.isFinite(st0.target.x) ? st0.target : null; musicRt.targetAt = -1; applyStationPose(); for (const fn of stationListeners) { try { fn(); } catch (e) { /* 通知先の失敗は、読み込みを止めない */ } } }
       if (m.memory) musicMemory.restore(m.memory); // v1.100
       for (const i of Array.isArray(m.copperTaken) ? m.copperTaken : []) { if (copperField.take(i)) interaction.unregister(copperField.pieces[i].iid); }
     });
@@ -5706,15 +5990,11 @@ export function initScene(mountEl, options = {}) {
     debugButterflyConfig: (patch) => Object.assign(BUTTERFLY_EVENT, patch || {}), // 検証用: 確率・時間帯などを変える
     debugEmoteConfig: (patch) => Object.assign(emoteBrain.config, patch || {}), // 検証用: 待ち時間などを短くする
     setEmoteWheelOpen,
-    setMusicPanelOpen, getMusicSource, // v1.97: 演奏パネル
-    prepareMusicOpen, getMusicPower: musicPower, // v1.99: キーボード・電池(v1.103: 開くのは、ホットバーの演奏ボタン)
-    musicNotePress: (m, played = true, vel = 0.8, src = musicRt.source) => {
-      musicRt.held.add(m); musicRt.lastNoteAt = clock.elapsedTime; playKb.setKeyDown(m, true);
-      if (played) { const p = playerSnowman.group.position; musicMemory.noteOn(clock.elapsedTime, m, vel, src, { x: p.x, z: p.z }); } // 鳴った音だけ、覚える
-    },
-    musicNoteRelease: (m) => { musicRt.held.delete(m); playKb.setKeyDown(m, false); musicMemory.noteOff(clock.elapsedTime, m); },
-    setMusicBase: (b) => playKb.setBase(b), setMusicSource: (src) => { musicRt.source = src; musicRt.targetAt = -1; },
+    getMusicSource, // v1.97: 近くの自然物(キーボードを置く時に使う)
+    tryLightTorch, // v1.104: 松明の木で、焚き火を叩く
+    getMusicPower: musicPower, ...stationApi, // v1.104: 3Dキーボードの設置・演奏
     debugMusic: { // 検証用
+      stationState: () => ({ active: station.active, x: +station.x.toFixed(1), z: +station.z.toFixed(1), source: station.source, aimed: musicState.panelOpen }), placeStation: () => placeMusicStation(),
       giveKit: () => { inventory.add('midi_keyboard', 1); inventory.add('battery', 2); inventory.add('coal', 4); inventory.add('copper_ore', 2); return true; },
       state: () => ({ ...musicPower(), pickupTaken: kbPickup.taken, pickup: { x: +kbPickup.x.toFixed(2), z: +kbPickup.z.toFixed(2) }, copper: copperField.pieces.map((p) => ({ x: +p.x.toFixed(1), z: +p.z.toFixed(1), taken: p.taken })), cable: kbCable.isVisible() }),
       setCharge: (f) => kbBattery.restore({ inserted: true, charge: f }),

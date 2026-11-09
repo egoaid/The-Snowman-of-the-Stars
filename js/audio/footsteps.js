@@ -101,7 +101,7 @@
       let output = this.ensureOutput();
       // v1.102: 足音も、位置のある音にする(足もとの位置から聞こえ、遠い雪だるまの足音は、遠くから小さく聞こえる)
       if (opts.rel && SoundEngine.createSpatialPanner) {
-        const g = ctx.createGain(); g.gain.value = 0.5;
+        const g = ctx.createGain(); g.gain.value = 1.8; // v1.104: 小さすぎて聞こえなかったので、上げた(距離で小さくなる分を見込む)
         const pn = SoundEngine.createSpatialPanner(opts.rel.x, opts.rel.y, opts.rel.z, false);
         SoundEngine.setSpatialProfile(pn, 'footstep'); g.connect(pn); pn.connect(SoundEngine.getSfxBus());
         output = g; setTimeout(() => { try { g.disconnect(); pn.disconnect(); } catch (e) { /* 片づけ済み */ } }, 1200);

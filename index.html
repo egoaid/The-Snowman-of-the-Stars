@@ -139,6 +139,20 @@
       </label>
       <div style="font-size:11px; opacity:0.75; margin-top:2px;" data-i18n="set.volume.note">Ambient sounds are the river, rain, wind, insects, birds, campfire and thunder. Sound effects are footsteps, picking up and placing things, the chest, logs and the star chimes.</div>
     </div>
+              <div class="set-block" id="midiSection">
+      <h3 class="set-h">🎹 <span data-i18n="set.midi.h">MIDI keyboard</span></h3>
+      <label class="field">
+        <span data-i18n="set.midi.auto">External MIDI keyboard:</span>
+        <select id="midiAutoSelect">
+          <option value="auto" data-i18n="set.midi.auto.on">Connect automatically when the keyboard is set down</option>
+          <option value="off" data-i18n="set.midi.auto.off">Do not connect automatically</option>
+        </select>
+      </label>
+      <details class="small-note" style="margin-top:6px;">
+        <summary data-i18n="set.midi.manualTitle">How to play the MIDI keyboard</summary>
+        <div data-i18n="set.midi.manual" style="white-space:pre-line; margin-top:4px;"></div>
+      </details>
+    </div>
       </section>
       <section class="set-page" data-page="screen" hidden>
         <div class="set-block"><h3 class="set-h" data-i18n="lang.heading">🌐 Language / 言語</h3><div class="lang-switch" data-lang-switch role="group" aria-label="Language / 言語"><button type="button" data-lang="en" aria-pressed="true">English</button><button type="button" data-lang="ja" aria-pressed="false">日本語</button></div><div class="small-note" data-i18n="lang.note">Your choice is remembered on this device.</div></div>
@@ -476,33 +490,6 @@
       <div class="emote-center"><div class="emote-title" data-i18n="emote.title">Emotes</div><div class="emote-hint" data-i18n="emote.hint">Click to choose · B / Esc: close</div></div>
     </div>
   </div>
-  <!-- v1.97: 演奏パネル(Pキー/スマホは🎹)。画面の鍵盤・PCキーボード・外部MIDIキーボードで、近くの自然物の音を演奏する。歩行モードの間だけ開ける。 -->
-  <div id="musicPanel" role="dialog" aria-label="Play music" data-i18n-aria-label="music.aria" aria-hidden="true">
-    <div class="music-head">
-      <div class="music-title" data-i18n="music.title">🎹 Play the world</div>
-      <div id="musicStatus" class="music-status"></div>
-      <button id="musicCloseX" class="inv-x" type="button" aria-label="Close" data-i18n-aria-label="common.close">✕</button>
-    </div>
-    <div id="musicSources" class="music-sources"></div>
-    <div class="music-tools">
-      <button id="musicMidiBtn" type="button" data-i18n="music.midiConnect">Connect a MIDI keyboard</button>
-      <span id="musicMidiStatus" class="music-midi-status"></span>
-      <span id="musicBattery" class="music-battery"></span>
-      <span class="music-oct"><button id="musicOctDown" type="button" aria-label="Octave down" data-i18n-aria-label="music.octDown">◀</button><span id="musicOctave"></span><button id="musicOctUp" type="button" aria-label="Octave up" data-i18n-aria-label="music.octUp">▶</button></span>
-    </div>
-    <div id="musicKb" class="music-kb dead">
-      <div class="kb-left">
-        <div class="kb-wheels"><i class="kb-wheel"></i><i class="kb-wheel"></i></div>
-        <div class="kb-shift"></div>
-        <div class="kb-oct"><span class="kb-led"></span><span class="kb-led"></span></div>
-      </div>
-      <div class="kb-main">
-        <div class="kb-legend"></div>
-        <div id="musicKeys" class="music-keys"></div>
-      </div>
-    </div>
-    <div class="music-hint" data-i18n="music.hint">Keys: Z S X D C V G B H N J M / Q 2 W 3 E R 5 T 6 Y 7 U I · ← → octave · P / Esc: close</div>
-  </div>
   <div id="inventoryPanel" role="dialog" aria-label="Inventory" data-i18n-aria-label="inv.aria">
     <div class="inv-head">
       <div class="inv-title" data-i18n="inv.title">👝 Inventory</div>
@@ -611,7 +598,7 @@
     import { clearCachesAndReload } from './js/app-update.js';
     import { createTitleFlow } from './js/title-flow.js';
     import { t as tr, initI18n, onLangChange } from './js/i18n.js'; // v1.72: 日本語/英語。tr('キー', {差し込み})
-import { createMusicPanel } from './js/music/piano-panel.js'; // v1.97: 演奏パネル
+import { createMidiInput } from './js/music/midi-input.js'; // v1.104: 外部MIDIキーボード(設置した3Dキーボードを弾く)
 
     // v1.57: 管理者・保存・ワールドの判定は main() の中で行う(読み込み時の外側では何もしない)。
     //   ADMIN の初期値 true は、main() が正しい値に置き換えるまでの仮の値。デバッグ表示は、CSS側で「管理者になるまで隠す」。
@@ -1653,7 +1640,7 @@ import { createMusicPanel } from './js/music/piano-panel.js'; // v1.97: 演奏�
     });
 
     function openInventory() {
-      if (!sceneRefForTouch || (window.__musicPanel && window.__musicPanel.isOpen())) return; // v1.97: 演奏中は開かない
+      if (!sceneRefForTouch) return; // v1.97: 演奏中は開かない
       if (!sceneRefForTouch.setInventoryOpen(true)) return;
       inventoryPanel.style.display = 'block';
       invSplitBtn.style.display = isTouchDevice ? 'block' : 'none';
@@ -1688,7 +1675,7 @@ import { createMusicPanel } from './js/music/piano-panel.js'; // v1.97: 演奏�
       }
     }
     function openEmoteWheel() {
-      if (!sceneRefForTouch || sceneRefForTouch.getMode() !== 'walk' || isInventoryOpen() || isEmoteWheelOpen() || (window.__musicPanel && window.__musicPanel.isOpen())) return;
+      if (!sceneRefForTouch || sceneRefForTouch.getMode() !== 'walk' || isInventoryOpen() || isEmoteWheelOpen()) return;
       if (!sceneRefForTouch.setEmoteWheelOpen(true)) return;
       emoteWheel.classList.add('open');
       emoteWheel.setAttribute('aria-hidden', 'false');
@@ -1710,21 +1697,25 @@ import { createMusicPanel } from './js/music/piano-panel.js'; // v1.97: 演奏�
     }
     emoteWheel.addEventListener('click', (e) => { if (e.target === emoteWheel) closeEmoteWheel(); }); // ホイールの外を押したら閉じる
     touchBtnEmote.addEventListener('touchstart', (e) => { e.preventDefault(); toggleEmoteWheel(); }, { passive: false });
-    // --- v1.97: 演奏パネル(Pキー/スマホは🎹)。近くの自然物(川・木・花・雪・星の灯り・石・虫)の音を、鍵盤で演奏する ---
-    const musicPanel = createMusicPanel({
-      root: document.getElementById('musicPanel'),
-      instrument: window.SoundEngine.NatureInstrument,
-      getAutoSource: () => (sceneRefForTouch && sceneRefForTouch.getMusicSource ? sceneRefForTouch.getMusicSource() : 'insect'),
-      getPower: () => (sceneRefForTouch && sceneRefForTouch.getMusicPower ? sceneRefForTouch.getMusicPower() : { state: 'none', fraction: 0 }),
-      canOpen: () => !!sceneRefForTouch && sceneRefForTouch.getMode() === 'walk' && !isInventoryOpen() && !isEmoteWheelOpen() && sceneRefForTouch.prepareMusicOpen(), // v1.99: キーボードと電池が必要
-      onPress: (m, played, vel, src) => { if (sceneRefForTouch && sceneRefForTouch.musicNotePress) sceneRefForTouch.musicNotePress(m, played, vel, src); },
-      onRelease: (m) => { if (sceneRefForTouch && sceneRefForTouch.musicNoteRelease) sceneRefForTouch.musicNoteRelease(m); },
-      onBaseChange: (b) => { if (sceneRefForTouch && sceneRefForTouch.setMusicBase) sceneRefForTouch.setMusicBase(b); },
-      onSource: (src) => { if (sceneRefForTouch && sceneRefForTouch.setMusicSource) sceneRefForTouch.setMusicSource(src); },
-      onOpenChange: (o) => { if (sceneRefForTouch && sceneRefForTouch.setMusicPanelOpen) sceneRefForTouch.setMusicPanelOpen(o); },
+    // --- v1.104: MIDIキーボードは、ホットバーで選んで、対象物の近くで右クリックすると、3Dの楽器として設置される(演奏可能)。---
+    //   歩行モードでは、3Dの鍵盤をクリックするか、PCキーボードで弾く(視線がキーボードに合っている間)。PCキーの説明は、設定画面のマニュアルにある。
+    //   設置すると、設定(初期は、自動)にしたがって、外部MIDIキーボードへ自動でつなぐ。
+    const MIDI_AUTO_KEY = 'snowman.midiAuto.v1';
+    const midiAutoMode = () => { try { return localStorage.getItem(MIDI_AUTO_KEY) === 'off' ? 'off' : 'auto'; } catch (e) { return 'auto'; } };
+    const midiInput = createMidiInput({
+      onNoteOn: (n, v) => { if (sceneRefForTouch && sceneRefForTouch.stationMidi) sceneRefForTouch.stationMidi(n, v, true); },
+      onNoteOff: (n) => { if (sceneRefForTouch && sceneRefForTouch.stationMidi) sceneRefForTouch.stationMidi(n, 0, false); },
+      onState: () => {},
     });
-    window.__musicPanel = musicPanel;
-    onLangChange(() => musicPanel.rebuild());
+    window.addEventListener('keydown', (e) => { // PCキーで弾く(捕捉フェーズ。ほかの操作より先に受け取る)
+      if (!sceneRefForTouch || !sceneRefForTouch.stationKey || e.ctrlKey || e.metaKey || e.altKey) return;
+      const tag = (document.activeElement && document.activeElement.tagName) || '';
+      if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
+      if (sceneRefForTouch.stationKey(e.code, true, e.repeat)) { e.preventDefault(); e.stopImmediatePropagation(); }
+    }, true);
+    const midiAutoSelect = document.getElementById('midiAutoSelect'); // 設定: 外部MIDIキーボードの自動接続(初期は、自動)
+    if (midiAutoSelect) { midiAutoSelect.value = midiAutoMode(); midiAutoSelect.addEventListener('change', () => { try { localStorage.setItem(MIDI_AUTO_KEY, midiAutoSelect.value); } catch (e) { /* 保存できなくても、使える */ } }); }
+    window.addEventListener('keyup', (e) => { if (sceneRefForTouch && sceneRefForTouch.stationKey && sceneRefForTouch.stationKey(e.code, false, false)) e.stopImmediatePropagation(); }, true);
     // v1.91: スマホの「置く」ボタン。手に持った物を、置く場所の枠(緑)のところに置く。置ける物を持っている時だけ出る。
     const touchBtnPlace = document.getElementById('touchBtnPlace');
     touchBtnPlace.addEventListener('touchstart', (e) => { e.preventDefault(); touchBtnPlace.classList.add('active'); if (sceneRefForTouch && sceneRefForTouch.placeHeldItem) sceneRefForTouch.placeHeldItem(true); }, { passive: false });
@@ -1815,11 +1806,13 @@ import { createMusicPanel } from './js/music/piano-panel.js'; // v1.97: 演奏�
     document.getElementById('stage').addEventListener('mousedown', (e) => {
       if (isInventoryOpen() || isEmoteWheelOpen()) return;
       if (!sceneRefForTouch || sceneRefForTouch.getMode() !== 'walk') return;
+      if (e.button === 0 && sceneRefForTouch.stationPointer && sceneRefForTouch.stationPointer(true)) return; // v1.104: 3Dキーボードの鍵盤を押した
+      if (e.button === 0 && sceneRefForTouch.tryLightTorch && sceneRefForTouch.tryLightTorch()) return; // v1.104: 松明の木で、燃えている焚き火を叩いて、着火した
       if (e.button === 0) sceneRefForTouch.interactPress(); // v1.81: 押した時。長押しのある対象(作業台)は、離した時にタップ扱い
       else if (e.button === 2) sceneRefForTouch.placeHeldItem(true); // v1.56: 右クリックで、手に持った物を狙った地面に置く(マイクラと同じ)
     });
     const releaseInteract = () => { if (sceneRefForTouch && sceneRefForTouch.interactRelease) sceneRefForTouch.interactRelease(); };
-    window.addEventListener('mouseup', (e) => { if (e.button === 0) releaseInteract(); });
+    window.addEventListener('mouseup', (e) => { if (e.button === 0) { if (sceneRefForTouch && sceneRefForTouch.stationPointer) sceneRefForTouch.stationPointer(false); releaseInteract(); } });
     window.addEventListener('blur', releaseInteract);
     // 歩行中は、右クリックでメニューを出さない(置く操作に使うため)
     document.getElementById('stage').addEventListener('contextmenu', (e) => {
@@ -1839,8 +1832,7 @@ import { createMusicPanel } from './js/music/piano-panel.js'; // v1.97: 演奏�
       walkExitBtn.style.display = isTouchDevice && uiWalking ? 'flex' : 'none';
       touchBtnAction.style.display = isTouchDevice && uiWalking ? 'flex' : 'none';
       touchBtnEmote.style.display = isTouchDevice && uiWalking ? 'flex' : 'none'; // v1.73
-      if (!uiWalking && window.__musicPanel && window.__musicPanel.isOpen()) window.__musicPanel.close(); // 歩行モードでなくなったら、演奏パネルは閉じる
-      hotbarBar.style.display = uiWalking ? 'flex' : 'none';
+            hotbarBar.style.display = uiWalking ? 'flex' : 'none';
       if (uiWalking) renderHotbar();
       applyUiVisibility();
       armUiTimer();
@@ -1931,16 +1923,8 @@ import { createMusicPanel } from './js/music/piano-panel.js'; // v1.97: 演奏�
         // 登録し直すと、見守り/歩行を行き来するたびにリスナーが増え続けてしまうため)。
         // v1.41: 併せて、選択スロットが実際に変わった時だけ、控えめな効果音を鳴らす
         // (拾って自動で空きスロットに入った時などは、選択自体は変わらないので鳴らさない)。
-        // v1.103: 演奏ボタン(ホットバー)を選ぶと、MIDIキーボードが出る。ほかのスロットを選ぶと、閉じる。(Pキー・スマホの🎹ボタンは廃止)
-        //   scene は main() の中でできるので、この監視も、ここ(シーンができたあと)で登録する。
-        let lastWasMusicButton = false;
-        scene.onInventoryChange((snap) => {
-          const sel = snap.hotbar[snap.selected];
-          const isBtn = !!sel && sel.id === 'music_button';
-          if (isBtn && !lastWasMusicButton) musicPanel.open();
-          else if (!isBtn && lastWasMusicButton && musicPanel.isOpen()) musicPanel.close();
-          lastWasMusicButton = isBtn;
-        });
+        // v1.104: 3Dキーボードを設置したら(読み込みで、設置してあった場合も)、設定にしたがって、外部MIDIキーボードへ自動でつなぐ
+        scene.onStationPlaced(() => { if (midiAutoMode() === 'auto') midiInput.connect(); });
         let lastHotbarSelected = null;
         scene.onInventoryChange((snapshot) => {
           if (lastHotbarSelected !== null && snapshot.selected !== lastHotbarSelected) {
