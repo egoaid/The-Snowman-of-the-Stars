@@ -4612,7 +4612,7 @@ export function initScene(mountEl, options = {}) {
   /** その場所で弾く時に、立つ(座る)場所。行けなければ null。 */
   function performSpotFor(place) {
     const fx = wander.pos.x, fz = wander.pos.y, MAXD = 55;
-    const BANK = RIVER_MARGIN + 0.6; // v1.103: 川の演奏の場所は、水際から離れた岸
+    const BANK = RIVER_MARGIN + 0.3; // v1.103: 川の演奏の場所は、水際に近い岸(v1.105.1: 川辺で弾く姿が自然になるよう、少し近づけた)
     const away = (cx, cz, d) => { const L = Math.hypot(fx - cx, fz - cz) || 1; return { x: cx + ((fx - cx) / L) * d, z: cz + ((fz - cz) / L) * d }; };
     const ok = (p) => { const q = sanitizeWaypoint(p.x, p.z); return q && !traversal.isWaterBlocked(q.x, q.z, null) ? { x: q.x, z: q.z } : null; };
     if (place === 'river') {
@@ -5030,7 +5030,7 @@ export function initScene(mountEl, options = {}) {
   //   救出: 水際(水の中・岸の穴)に、一定時間いたままなら、近くの安全な地面へ、ぽんっと移す(必ず抜け出せる最後の手段)。
   // ================================================================
   function riverClearance(x, z) { const r = distanceToRiver(x, z, riverSamplesForAvoid); return r.distance - getWaterEdgeDistance(r.width); }
-  const riverRescue = { t: 0, still: 0, lastX: 0, lastZ: 0, total: 0 };
+  const riverRescue = { t: 0, still: 0, lastX: 0, lastZ: 0, total: 0, glide: null };
   /** 川の穴(岸が囲んで、周りより低い所)にいるか。 */
   function inRiverPit(x, z) {
     const h = terrainHeightAt(x, z); let higher = 0;
@@ -5050,22 +5050,33 @@ export function initScene(mountEl, options = {}) {
     }
     return null;
   }
+  const GLIDE_SPEED = 3.2; // 抜け出す時の、歩く速さ(m/秒)
   function updateRiverSafety(delta) {
+    const gl = riverRescue.glide;
+    if (gl) { // 抜け出し中: 岸の上の地面へ、歩いて(よじ登って)上がる。瞬間移動はしない
+      if (!wanderActive || shockState.active) { riverRescue.glide = null; return; }
+      const px = wander.pos.x, pz = wander.pos.y, dx = gl.x - px, dz = gl.z - pz, d = Math.hypot(dx, dz);
+      gl.t += delta;
+      if (d < 0.5 || gl.t > 12) { riverRescue.glide = null; wander.holdHeading = null; wander.waiting = true; wander.waitTimer = 0.8; wander.waitElapsed = 0; wander.walking = false; return; }
+      const step = Math.min(d, GLIDE_SPEED * delta); wander.pos.set(px + (dx / d) * step, pz + (dz / d) * step);
+      wander.heading = stepHeading(wander.heading, Math.atan2(dx, dz), 8, delta); wander.walking = true; // 歩く動きのまま
+      return;
+    }
     if (!wanderActive || shockState.active || perf.active) { riverRescue.t = 0; riverRescue.still = 0; return; }
     riverRescue.t += delta; if (riverRescue.t < 1) return; const dt = riverRescue.t; riverRescue.t = 0;
     const x = wander.pos.x, z = wander.pos.y, c = riverClearance(x, z);
-    const risky = c < 0.6 || (c < RIVER_MARGIN + 1.5 && inRiverPit(x, z)); // 水の中・水際・岸の穴
-    if (!risky) { riverRescue.still = 0; riverRescue.lastX = x; riverRescue.lastZ = z; return; }
     const moved = Math.hypot(x - riverRescue.lastX, z - riverRescue.lastZ); riverRescue.lastX = x; riverRescue.lastZ = z;
-    riverRescue.still += moved < 0.6 ? dt * 1.6 : dt * 0.6; // ほとんど動けていない時は、早く救出する
-    if (riverRescue.still < 6) return;
+    const inWater = c < 0.1; // 水の中にいる(雪だるまは、自分では、入らない)
+    const resting = emoteBrain.isBusy() || wander.waiting || !wander.walking; // 休んでいる・座っている・待っている・演奏の支度中は、岸辺で過ごしているだけ(自然な姿)。助けない
+    const stuck = !resting && moved < 0.45 && c < RIVER_MARGIN + 1.2 && inRiverPit(x, z); // 歩こうとしているのに、岸の穴から、進めない
+    if (!inWater && !stuck) { riverRescue.still = 0; return; }
+    riverRescue.still += dt; if (riverRescue.still < (inWater ? 3 : 8)) return; // 水の中は、3秒。穴で進めない時は、8秒
     const dest = findSafeLandNear(x, z); riverRescue.still = 0;
     if (!dest) return;
-    riverRescue.total++;
-    spawnSnowPuff(x, terrainHeightAt(x, z) + 0.4, z, 14, 2.4);
-    wander.pos.set(dest.x, dest.z); wander.legs = []; wander.walking = false; endTasks(); resetEscapeWatch(); resetStuckCheck();
-    const gy = terrainHeightAt(dest.x, dest.z); spawnSnowPuff(dest.x, gy + 0.4, dest.z, 14, 2.4);
-    activityLog.event('riverRescue', { from: { x: +x.toFixed(1), z: +z.toFixed(1) }, to: { x: +dest.x.toFixed(1), z: +dest.z.toFixed(1) }, total: riverRescue.total });
+    riverRescue.total++; riverRescue.glide = { x: dest.x, z: dest.z, t: 0 };
+    wander.legs = []; endTasks(); resetEscapeWatch(); resetStuckCheck();
+    wander.waiting = true; wander.waitTimer = 9999; wander.holdHeading = null; // 抜け出すまで、ほかの行き先を選ばない
+    activityLog.event('riverRescue', { from: { x: +x.toFixed(1), z: +z.toFixed(1) }, to: { x: +dest.x.toFixed(1), z: +dest.z.toFixed(1) }, total: riverRescue.total, inWater });
   }
 
   // ================================================================
