@@ -4,7 +4,8 @@
 //   構想: 世界そのものが楽器。キーボードは音を作る装置ではなく、世界の音を奏でる入力装置(Music-and-3D-Audio-Concept.md)。
 
 /** 演奏できる自然物。木=木琴 / 川=水滴 / 花=幻想的な音 / 虫=虫の声 / 雪=澄んだベル / 星の灯り=鈴・チャイム / 石=打楽器 */
-export const SOURCES = ['tree', 'river', 'flower', 'insect', 'snow', 'star', 'stone'];
+export const SOURCES = ['tree', 'river', 'flower', 'insect', 'snow', 'star', 'stone']; // (保存した曲の番号と対応するので、順番は変えない。川の音色は、v1.106 で廃止)
+export const PLAYABLE_SOURCES = SOURCES.filter((s) => s !== 'river'); // 実際に弾ける、音色
 export const SOURCE_ICON = { tree: '🌳', river: '💧', flower: '🌸', insect: '🦗', snow: '❄️', star: '⭐', stone: '🪨' };
 
 export const midiToFreq = (m) => 440 * Math.pow(2, (m - 69) / 12);
@@ -50,7 +51,6 @@ export const NEAR = { river: 6, star: 4, stone: 2.5, tree: 4 }; // この距離(
 export function pickNatureSource(ctx) {
   const c = ctx || {};
   const cand = [
-    ['river', (c.riverDist ?? Infinity) / NEAR.river],
     ['star', (c.torchDist ?? Infinity) / NEAR.star],
     ['stone', (c.rockDist ?? Infinity) / NEAR.stone],
     ['tree', (c.treeDist ?? Infinity) / NEAR.tree],

@@ -184,6 +184,25 @@
       <div id="wakeLockNote" class="small-note"></div>
         </div>
         <div class="set-block"><h3 class="set-h" data-i18n="set.display.h">🖥️ Display</h3><button id="settingsFullscreenBtn" type="button" data-i18n="set.fullscreen">⛶ Enter fullscreen</button></div>
+              <div class="set-block" id="recSection">
+      <h3 class="set-h">🎬 <span data-i18n="set.rec.h">Video recording (for YouTube)</span></h3>
+      <label class="field"><span data-i18n="set.rec.res">Size:</span>
+        <select id="recRes"><option value="4k" data-i18n="set.rec.res.4k">4K (3840×2160)</option><option value="fhd" data-i18n="set.rec.res.fhd">Full HD (1920×1080)</option></select></label>
+      <label class="field"><span data-i18n="set.rec.quality">Quality:</span>
+        <select id="recQuality"><option value="normal" data-i18n="set.rec.q.normal">Normal</option><option value="high" data-i18n="set.rec.q.high">High</option></select></label>
+      <label class="field"><span data-i18n="set.rec.wipe">Wipe (small picture in a corner):</span>
+        <select id="recWipe"><option value="off" data-i18n="set.rec.wipe.off">Off</option><option value="auto" data-i18n="set.rec.wipe.auto">On: the snowman plays this game in his room (automatic)</option></select></label>
+      <div id="recWipeOpts" hidden>
+        <label class="field"><span data-i18n="set.rec.wipe.pos">Position:</span>
+          <select id="recWipePos"><option value="br" data-i18n="set.rec.wipe.pos.br">Bottom right</option><option value="bl" data-i18n="set.rec.wipe.pos.bl">Bottom left</option><option value="tr" data-i18n="set.rec.wipe.pos.tr">Top right</option><option value="tl" data-i18n="set.rec.wipe.pos.tl">Top left</option></select></label>
+        <label class="field"><span data-i18n="set.rec.wipe.size">Wipe size:</span>
+          <select id="recWipeSize"><option value="small" data-i18n="set.rec.wipe.size.small">Small (15% of the width)</option><option value="medium" selected data-i18n="set.rec.wipe.size.medium">Medium (20%)</option><option value="large" data-i18n="set.rec.wipe.size.large">Large (25%)</option></select></label>
+        <div class="small-note" style="margin-top:4px;" data-i18n="set.rec.wipe.note"></div>
+      </div>
+      <button id="recBtn" type="button" data-i18n="set.rec.start">● Start recording</button>
+      <div id="recStatus" class="small-note" style="margin-top:6px;"></div>
+      <div class="small-note" style="margin-top:4px;" data-i18n="set.rec.note"></div>
+    </div>
       </section>
       <section class="set-page" data-page="world" hidden>
         <div class="set-block">
@@ -490,6 +509,7 @@
       <div class="emote-center"><div class="emote-title" data-i18n="emote.title">Emotes</div><div class="emote-hint" data-i18n="emote.hint">Click to choose · B / Esc: close</div></div>
     </div>
   </div>
+  <div id="recIndicator" style="position:fixed; top:8px; left:8px; z-index:70; display:none; padding:3px 8px; border-radius:999px; background:rgba(180,20,20,0.85); color:#fff; font:12px/1.4 system-ui,sans-serif; pointer-events:none;">● REC <span id="recIndicatorTime">0:00:00</span></div>
   <div id="inventoryPanel" role="dialog" aria-label="Inventory" data-i18n-aria-label="inv.aria">
     <div class="inv-head">
       <div class="inv-title" data-i18n="inv.title">👝 Inventory</div>
@@ -598,6 +618,9 @@
     import { clearCachesAndReload } from './js/app-update.js';
     import { createTitleFlow } from './js/title-flow.js';
     import { t as tr, initI18n, onLangChange } from './js/i18n.js'; // v1.72: 日本語/英語。tr('キー', {差し込み})
+import { createVideoRecorder } from './js/video-recorder.js'; // v1.106: 軽量な4K長時間録画
+import { createStreamWipe } from './js/visual3d/stream-wipe.js'; // v1.107: 録画のワイプ(自動アバター)
+import { formatElapsed, formatBytes } from './js/video-recorder-core.js';
 import { createMidiInput } from './js/music/midi-input.js'; // v1.104: 外部MIDIキーボード(設置した3Dキーボードを弾く)
 
     // v1.57: 管理者・保存・ワールドの判定は main() の中で行う(読み込み時の外側では何もしない)。
@@ -1923,6 +1946,41 @@ import { createMidiInput } from './js/music/midi-input.js'; // v1.104: 外部MID
         // 登録し直すと、見守り/歩行を行き来するたびにリスナーが増え続けてしまうため)。
         // v1.41: 併せて、選択スロットが実際に変わった時だけ、控えめな効果音を鳴らす
         // (拾って自動で空きスロットに入った時などは、選択自体は変わらないので鳴らさない)。
+        // v1.106: 軽量な4K長時間録画。内部の描画(480×270)を、整数倍の最近傍で拡大して、動画にする。画面は、録画中だけ、16:9に固定する
+        {
+          const recBtn = document.getElementById('recBtn'), recStatus = document.getElementById('recStatus'), recRes = document.getElementById('recRes'), recQuality = document.getElementById('recQuality');
+          const recWipe = document.getElementById('recWipe'), recWipeOpts = document.getElementById('recWipeOpts'), recWipePos = document.getElementById('recWipePos'), recWipeSize = document.getElementById('recWipeSize');
+          recWipe.addEventListener('change', () => { recWipeOpts.hidden = recWipe.value === 'off'; }); // v1.107: 場所と大きさは、ワイプを使う時だけ出す
+          const recInd = document.getElementById('recIndicator'), recIndTime = document.getElementById('recIndicatorTime');
+          let recTimer = null;
+          const videoRec = createVideoRecorder({
+            getSourceCanvas: () => scene.getRenderCanvas(),
+            createWipe: () => createStreamWipe(), // v1.107: 録画を始める時だけ作り、止めたら捨てる
+            onState: (st, info) => {
+              if (st === 'recording' || st === 'resumed') { recBtn.textContent = tr('set.rec.stop'); recInd.style.display = 'block'; recInd.firstChild.nodeValue = '● REC '; recStatus.textContent = tr(info.fsMode ? 'set.rec.mode.fs' : 'set.rec.mode.mem'); }
+              else if (st === 'paused') { recInd.firstChild.nodeValue = '⏸ REC '; recStatus.textContent = tr('set.rec.paused'); } // 別のタブを見ている間は、自動で一時停止
+              else if (st === 'wipe-failed') { recStatus.textContent = tr('set.rec.wipe.failed'); } // ワイプだけ、やめた(録画は続く。ボタン・表示は、そのまま)
+              else { // stopped / error / limit / cancelled / unsupported
+                clearInterval(recTimer); recTimer = null; recBtn.textContent = tr('set.rec.start'); recInd.style.display = 'none'; scene.setRecordingMode(false);
+                if (st === 'stopped') recStatus.textContent = tr('set.rec.saved', { time: formatElapsed(info.seconds), size: formatBytes(info.bytes) });
+                else if (st === 'error') recStatus.textContent = tr('set.rec.error', { msg: info || '' });
+                else if (st === 'limit') recStatus.textContent = tr('set.rec.limit');
+                else if (st === 'cancelled') recStatus.textContent = tr('set.rec.cancelled');
+                else if (st === 'unsupported') recStatus.textContent = tr('set.rec.unsupported');
+              }
+            },
+          });
+          if (!videoRec.supported()) { recBtn.disabled = true; recStatus.textContent = tr('set.rec.unsupported'); }
+          scene.addAfterRender(() => videoRec.captureFrame());
+          recBtn.addEventListener('click', async () => {
+            if (videoRec.isRecording()) { await videoRec.stop(); return; }
+            scene.setRecordingMode(true); // 16:9(480×270)に固定してから、始める
+            const ok = await videoRec.start({ mode: recRes.value, quality: recQuality.value, wipe: { enabled: recWipe.value === 'auto', corner: recWipePos.value, size: recWipeSize.value } });
+            if (!ok) { scene.setRecordingMode(false); return; }
+            clearInterval(recTimer);
+            recTimer = setInterval(() => { const st = videoRec.stats(); recIndTime.textContent = formatElapsed(st.seconds); recStatus.textContent = tr('set.rec.status', { time: formatElapsed(st.seconds), size: formatBytes(st.fsMode ? st.bytes : st.bytes) }); }, 500);
+          });
+        }
         // v1.104: 3Dキーボードを設置したら(読み込みで、設置してあった場合も)、設定にしたがって、外部MIDIキーボードへ自動でつなぐ
         scene.onStationPlaced(() => { if (midiAutoMode() === 'auto') midiInput.connect(); });
         let lastHotbarSelected = null;

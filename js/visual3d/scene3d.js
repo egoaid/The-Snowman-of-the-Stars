@@ -3113,6 +3113,8 @@ export function initScene(mountEl, options = {}) {
   // 位置は「いまのカメラから見た相対位置」(右・上・前=-Z)にして、HRTFで定位させる。
   // ================================================================
   const listenerRelative = createListenerRelative(camera);
+  const afterRenderHooks = []; // v1.106: 描画のあとに呼ぶ関数(動画の録画が、画面を取り込む)
+  let recordingFixed = false;  // v1.106: 録画中は、内部の描画を、16:9(480×270)に固定する
   const audioWorld = { fire: null, river: null, bees: null, star: null }; // v1.105: 長く鳴る音源の、世界の位置(遮蔽の判定に使う)
   const _sfxF = new THREE.Vector3(), _sfxR = new THREE.Vector3();
   function sfx() { return (audioOn && window.SoundEngine && window.SoundEngine.Sfx) || null; }
@@ -4633,7 +4635,8 @@ export function initScene(mountEl, options = {}) {
   function planPerformance() {
     if (!wanderActive || shockState.active || musicState.panelOpen || perf.active || editMode.isEnabled()) return null;
     const songsByPlace = {}, feasible = {};
-    for (const p of ['tree', 'river', 'flower', 'insect', 'snow', 'star', 'stone']) { songsByPlace[p] = musicMemory.songs(p); feasible[p] = songsByPlace[p].length > 0 && !!performSpotFor(p); }
+    // v1.106: 川の音色は廃止(昔、川で弾いた曲は、記憶に残るが、再生しない)
+    for (const p of ['tree', 'flower', 'insect', 'snow', 'star', 'stone']) { songsByPlace[p] = musicMemory.songs(p); feasible[p] = songsByPlace[p].length > 0 && !!performSpotFor(p); }
     const inBag = inventory.count('midi_keyboard') > 0, chestIt = inBag ? null : findChestWith('midi_keyboard'), st = kbBattery.state();
     const plan = performer.plan({
       now: clock.elapsedTime, songsByPlace, feasible, keyboard: inBag ? 'bag' : chestIt ? 'chest' : null,
@@ -5456,8 +5459,13 @@ export function initScene(mountEl, options = {}) {
     return want;
   }
 
+  const MAX_FRAME_DELTA = 0.1;
   function renderFrame() {
-    const delta = clock.getDelta();
+    // v1.106.1: 1コマの時間の上限(0.1秒)。別のタブを見ている間は、ブラウザが描画を止めるので、戻った時の最初の1コマが、何分にもなり、
+    //   世界(歩行・物理・時間)が一度に進んで、雪だるまが見たことのないジャンプをしていた。上限を設けて、戻っても、そのまま続きから動く。
+    //   (描画なしの早送り(解析用)の間は、上限を設けない)
+    const rawDelta = clock.getDelta();
+    const delta = debugManual || simOnly ? rawDelta : Math.min(rawDelta, MAX_FRAME_DELTA);
     const t = clock.getElapsedTime();
 
     // --- プレイヤー/雪だるまの移動とカメラ配置 ---
@@ -5775,7 +5783,7 @@ export function initScene(mountEl, options = {}) {
 
     // v1.68: 川面に映す星空(天地を反転して、画面と同じ解像度で描く)。見えない時・オフの時は描かない。
     if (waterReflectionEnabled && getRiverQuality() !== 'off') starfield.renderReflection(renderer, camera);
-    if (!simOnly) renderer.render(scene, camera); // v1.80: 描画なしの早送り(解析用)の間は描かない
+    if (!simOnly) { renderer.render(scene, camera); for (const fn of afterRenderHooks) fn(renderer.domElement); } // v1.80: 描画なしの早送り(解析用)の間は描かない。v1.106: 描画のあとに、録画が画面を取り込む
 
     // --- デバッグ統計を間引いて通知 ---
     debugFrameCount++;
@@ -5832,7 +5840,9 @@ export function initScene(mountEl, options = {}) {
   function resize() {
     const cw = mountEl.clientWidth, ch = mountEl.clientHeight;
     if (!(cw > 0 && ch > 0)) return;
-    const { bufW: bw, bufH: bh, cssW, cssH } = computeBufferSize(cw, ch);
+    // v1.106: 録画中は、16:9(480×270)に固定する(動画の拡大を、整数倍にして、ゆがめないため)。画面には、収まる最大の大きさで、出す
+    const rs = Math.min(cw / BUFFER_WIDTH, ch / BUFFER_HEIGHT);
+    const { bufW: bw, bufH: bh, cssW, cssH } = recordingFixed ? { bufW: BUFFER_WIDTH, bufH: BUFFER_HEIGHT, cssW: Math.floor(BUFFER_WIDTH * rs), cssH: Math.floor(BUFFER_HEIGHT * rs) } : computeBufferSize(cw, ch);
     if (bw !== bufW || bh !== bufH) {
       bufW = bw; bufH = bh;
       renderer.setSize(bw, bh, false);
@@ -6003,6 +6013,8 @@ export function initScene(mountEl, options = {}) {
     setEmoteWheelOpen,
     getMusicSource, // v1.97: 近くの自然物(キーボードを置く時に使う)
     tryLightTorch, // v1.104: 松明の木で、焚き火を叩く
+    addAfterRender: (fn) => { afterRenderHooks.push(fn); }, getRenderCanvas: () => renderer.domElement, // v1.106: 動画の録画
+    setRecordingMode: (on) => { recordingFixed = !!on; resize(); },
     getMusicPower: musicPower, ...stationApi, // v1.104: 3Dキーボードの設置・演奏
     debugMusic: { // 検証用
       stationState: () => ({ active: station.active, x: +station.x.toFixed(1), z: +station.z.toFixed(1), source: station.source, aimed: musicState.panelOpen }), placeStation: () => placeMusicStation(),

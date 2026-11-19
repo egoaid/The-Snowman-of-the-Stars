@@ -14,9 +14,9 @@
 
   const MAX_VOICES = 20;
   // 自然物ごとに、鍵盤の音を何倍の高さで鳴らすか(その音色が気持ちよく聞こえる高さへ)
-  const FREQ_MUL = { tree: 1, river: 2, flower: 2, insect: 4, snow: 2, star: 4, stone: 1 };
+  const FREQ_MUL = { tree: 1, flower: 2, insect: 4, snow: 2, star: 4, stone: 1 };
   // 自然物ごとの、残響(リバーブ)の量。川は「ポチャン」の余韻、石は「ゴーン」の長い響きを、しっかり出す。
-  const REVERB_SEND = { tree: 0.12, river: 0.5, flower: 0.3, insect: 0.06, snow: 0.25, star: 0.3, stone: 0.8 };
+  const REVERB_SEND = { tree: 0.12, flower: 0.2, insect: 0.06, snow: 0.25, star: 0.3, stone: 0.8 };
   const SUSTAINED = { flower: true, insect: true }; // 押している間、鳴り続ける
   const midiToFreq = (m) => 440 * Math.pow(2, (m - 69) / 12);
 
@@ -56,6 +56,11 @@
   }
 
   // ---- 部品 ----
+  /** 押している間だけ鳴る音の、離し方。いまの音量から、なめらかに消す(予定の変化を消すと、音量が飛んで、ぷつっと鳴るため、「その時点で止める」方法を使う)。 */
+  function releaseGain(param, rt, tc) {
+    if (typeof param.cancelAndHoldAtTime === 'function') param.cancelAndHoldAtTime(rt); else param.cancelScheduledValues(rt);
+    param.setTargetAtTime(0, rt, tc);
+  }
   function gainEnv(t, peak, attack, decay) { // ぽん、と鳴って、指数的に消える
     const g = ctx.createGain();
     g.gain.setValueAtTime(0.0001, t);
@@ -93,38 +98,17 @@
       const cg = gainEnv(t, 0.1 * vel, 0.001, 0.025); click.connect(cg); cg.connect(out); noiseSrc(t, 0.05, click);
       return { endAt: end, release: null };
     },
-    // 川: 川の流れの音に、音階をつけた音。さらさらと流れる水を、鍵盤の高さで鳴らし、少しエコーさせる。
-    //     (「ポチャン」を、鍵盤で鳴らすのではなく、流れそのものを奏でる。水の流れらしい、ゆるやかな揺れ付き)
-    river(f, t, vel, out) {
-      const dur = 0.95;
-      const ripple = ctx.createGain(); ripple.gain.value = 0.7; // 流れのうねり(ゆるやかな揺れ)
-      const lfo = ctx.createOscillator(); lfo.type = 'sine'; lfo.frequency.value = 5.2 + (f % 3); const lg = ctx.createGain(); lg.gain.value = 0.3; lfo.connect(lg); lg.connect(ripple.gain); lfo.start(t); lfo.stop(t + dur + 0.2);
-      const env = gainEnv(t, 5.4 * vel, 0.045, dur); env.connect(ripple);
-      const sig = ctx.createGain(); ripple.connect(sig);
-      for (const [mul, q, amp] of [[1, 15, 1], [2.01, 11, 0.5], [3.02, 9, 0.22]]) { // 音階: 流れのノイズを、音の高さ(と倍音)の共鳴に通す
-        const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = f * mul; bp.Q.value = q;
-        const g = ctx.createGain(); g.gain.value = amp; bp.connect(g); g.connect(env); noiseSrc(t, dur + 0.1, bp);
-      }
-      const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 1800; // 水のさらさらした粒
-      const sg = gainEnv(t, 0.1 * vel, 0.05, dur * 0.8); hp.connect(sg); sg.connect(sig); noiseSrc(t, dur, hp);
-      sig.connect(out);
-      const dly = ctx.createDelay(1.0), fb = ctx.createGain(), dlp = ctx.createBiquadFilter(); // エコー: 少し遅れて、やわらかく返る
-      dly.delayTime.value = 0.27; fb.gain.value = 0.4; dlp.type = 'lowpass'; dlp.frequency.value = 2600;
-      const echoSend = ctx.createGain(); echoSend.gain.value = 0.55; sig.connect(echoSend); echoSend.connect(dly); dly.connect(dlp); dlp.connect(out); dlp.connect(fb); fb.connect(dly);
-      if (typeof setTimeout === 'function') setTimeout(() => { try { fb.disconnect(); dly.disconnect(); dlp.disconnect(); } catch (e) { /* 片づけ済み */ } }, (dur + 2.6) * 1000);
-      return { endAt: t + dur + 2.0, release: null };
-    },
-    // 花: 不思議で幻想的な音。ゆっくり立ち上がり、きらめきを重ねる。押している間、鳴り続ける。
+    // (川の音色は、v1.106 で廃止した)
+    // 花: 不思議で幻想的な音。やわらかい正弦波を、ほんの少しずらして重ね、ゆっくり立ち上がる。押している間、鳴り続ける。
+    //   (v1.106: 歪み・ノイズの原因を取り除いた。離した時に、音量が飛んでいた/ずれた倍音のうなり/重なりすぎ)
     flower(f, t, vel, out) {
-      const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 3200; lp.Q.value = 0.5; lp.connect(out);
-      const g = ctx.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.2 * vel, t + 0.06); g.gain.exponentialRampToValueAtTime(0.12 * vel, t + 0.9); g.connect(lp);
-      const lfo = ctx.createOscillator(); lfo.frequency.value = 4.6; const lg = ctx.createGain(); lg.gain.value = 0.035 * vel; lfo.connect(lg); lg.connect(g.gain); lfo.start(t);
-      const oscs = [osc('triangle', f, t, t + 30, g, -6), osc('triangle', f, t, t + 30, g, 6), osc('sine', f * 2, t, t + 30, g), osc('sine', f * 3.01, t, t + 30, g, 4)];
-      const sp = ctx.createGain(); sp.gain.setValueAtTime(0.0001, t + 0.12); sp.gain.exponentialRampToValueAtTime(0.05 * vel, t + 0.3); sp.gain.exponentialRampToValueAtTime(0.0001, t + 1.6); sp.connect(out);
-      oscs.push(osc('sine', f * 4, t + 0.12, t + 1.7, sp));
+      const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 2600; lp.Q.value = 0.3; lp.connect(out);
+      const g = ctx.createGain(); g.gain.setValueAtTime(0, t); g.gain.setTargetAtTime(0.16 * vel, t, 0.05); g.connect(lp); // なめらかに立ち上がる(指数のランプは、使わない)
+      const parts = [[1, 0, 0.6], [1, 7, 0.4], [2, 0, 0.16]]; // [倍率, ずれ(セント), 音量]: 正弦波だけ。ずれは小さく(うなりを、ゆるやかに)
+      const oscs = parts.map(([mul, cents, amp]) => { const pg = ctx.createGain(); pg.gain.value = amp; pg.connect(g); return osc('sine', f * mul, t, t + 30, pg, cents); });
       return {
         endAt: t + 30,
-        release(rt) { g.gain.cancelScheduledValues(rt); g.gain.setTargetAtTime(0.0001, rt, 0.35); for (const o of oscs) { try { o.stop(rt + 1.6); } catch (e) { /* 止まっていても大丈夫 */ } } try { lfo.stop(rt + 1.6); } catch (e) { /* 同上 */ } return rt + 1.7; },
+        release(rt) { releaseGain(g.gain, rt, 0.22); for (const o of oscs) { try { o.stop(rt + 1.6); } catch (e) { /* 止まっていても大丈夫 */ } } return rt + 1.7; },
       };
     },
     // 虫: 虫の声を音階にしたもの。細かく震える高い音(押している間、鳴り続ける)。
@@ -136,7 +120,7 @@
       const o1 = osc('sawtooth', f, t, t + 30, g), o2 = osc('sawtooth', f * 1.004, t, t + 30, g);
       return {
         endAt: t + 30,
-        release(rt) { g.gain.cancelScheduledValues(rt); g.gain.setTargetAtTime(0.0001, rt, 0.05); for (const o of [o1, o2, lfo]) { try { o.stop(rt + 0.4); } catch (e) { /* 同上 */ } } return rt + 0.45; },
+        release(rt) { releaseGain(g.gain, rt, 0.05); for (const o of [o1, o2, lfo]) { try { o.stop(rt + 0.4); } catch (e) { /* 同上 */ } } return rt + 0.45; },
       };
     },
     // 雪: 音階のある、そりの鈴(Sleigh bells)。小さな金属の鈴が、いくつも触れ合って、シャラシャラと鳴る。音の高さは、鍵盤のとおり。
