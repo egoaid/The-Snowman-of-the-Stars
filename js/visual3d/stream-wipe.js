@@ -12,7 +12,27 @@ import { getSmoothGradientMap } from './shading.js';
 
 const MAX_DT = 0.1; // 1コマの時間の上限(別のタブから戻った直後などに、動きが飛ばないように)
 
-export function createStreamWipe() {
+// ---- 固定カメラ(配信者の部屋に、固定カメラが3つあるという想定)。画角は、横長(16:9)での縦の画角(度)。 ----
+//   room=部屋全体 / monitor=モニターを見ている雪だるま / face=顔のアップ。切り替えは「カット」だけ(パン・徐々にズームは、しない)。
+export const WIPE_VIEWS = {
+  room: { pos: [-0.45, 1.8, 5.2], target: [-0.3, 1.05, 0.5], fov: 38 },
+  monitor: { pos: [0.05, 1.6, 3.7], target: [-0.35, 1.5, 0.55], fov: 36 },
+  face: { pos: [-0.55, 1.62, 2.05], target: [0.3, 1.62, 0.4], fov: 34 },
+};
+const VIEW_LIMITS = { pos: [[-3.3, 3.5], [0.3, 3.6], [-2.0, 6.5]], target: [[-3.3, 3.5], [0.2, 3.2], [-2.0, 4.0]], fov: [12, 70] };
+const clampN = (v, [lo, hi]) => Math.max(lo, Math.min(hi, v));
+const cloneView = (v) => ({ pos: [...v.pos], target: [...v.target], fov: v.fov });
+/** 設定の camCustom({px,py,pz,tx,ty,tz,fov})を、視点(pos・target・fov)へ。 */
+export function viewFromCustom(c) { return c ? { pos: [c.px, c.py, c.pz], target: [c.tx, c.ty, c.tz], fov: c.fov } : cloneView(WIPE_VIEWS.monitor); }
+/** 視点を、設定の camCustom の形へ。 */
+export function customFromView(v) { return { px: v.pos[0], py: v.pos[1], pz: v.pos[2], tx: v.target[0], ty: v.target[1], tz: v.target[2], fov: v.fov }; }
+/** 縦に長い形では、横に見える幅を、ほぼ保つよう、縦の画角を広げる(上限80度)。16:9より横長は、そのまま。 */
+export function fitFov(baseFov, aspect) {
+  if (aspect >= 16 / 9) return baseFov;
+  return Math.min(80, Math.max(baseFov, (2 * Math.atan((Math.tan((baseFov * Math.PI) / 360) * (16 / 9) * 0.85) / aspect) * 180) / Math.PI));
+}
+
+export function createStreamWipe(opts) {
   const canvas = document.createElement('canvas');
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'low-power' });
   renderer.setPixelRatio(1);
@@ -108,7 +128,6 @@ export function createStreamWipe() {
   snow.setMouthOpen(null); // ふだんは、口を閉じて、時々、小さくもごもご(本編の「自律もごもご」)。しゃべらない。
 
   // ---- カメラ: 少し斜め前から。雪だるまの横顔と、モニターの画面が、両方見える ----
-  camera.position.set(-0.45, 1.8, 5.2); camera.lookAt(-0.3, 1.05, 0.5);
 
   // ---- 動き(すべて自動) ----
   let t = 0, burstT = -1, nextBurst = 6 + Math.random() * 6, burstK = 0, size = { w: 192, h: 108 };
@@ -133,12 +152,28 @@ export function createStreamWipe() {
   }
   let glow = 0.5;
 
+  // ---- カメラ(固定。切り替えは、カットだけ) ----
+  let view = cloneView(WIPE_VIEWS.room), cam = 'room', camInterval = 15, autoNext = 0, autoCur = 'room';
+  function applyView(v) {
+    view = cloneView(v);
+    camera.position.set(v.pos[0], v.pos[1], v.pos[2]); camera.lookAt(v.target[0], v.target[1], v.target[2]);
+    camera.fov = fitFov(v.fov, camera.aspect); camera.updateProjectionMatrix();
+  }
+  /** 画角の設定を渡す。opts = { cam: 'room'|'monitor'|'face'|'custom'|'auto', camCustom, camInterval }(normalizeWipe の形) */
+  function setCameraPlan(o) {
+    o = o || {}; cam = o.cam || 'room'; camInterval = Math.max(3, +o.camInterval || 15);
+    if (cam === 'auto') { autoCur = Object.keys(WIPE_VIEWS)[Math.floor(Math.random() * 3)]; applyView(WIPE_VIEWS[autoCur]); autoNext = camInterval * (0.7 + 0.6 * Math.random()); }
+    else if (cam === 'custom') applyView(viewFromCustom(o.camCustom));
+    else applyView(WIPE_VIEWS[cam] || WIPE_VIEWS.room);
+  }
+  function autoCut(dt) { // 3つの固定カメラの、どれかへ、カット(同じ画角が続けて出ない)。パン・ズームは、しない
+    autoNext -= dt; if (autoNext > 0) return;
+    const names = Object.keys(WIPE_VIEWS).filter((n) => n !== autoCur); autoCur = names[Math.floor(Math.random() * names.length)];
+    applyView(WIPE_VIEWS[autoCur]); autoNext = camInterval * (0.7 + 0.6 * Math.random());
+  }
   function setSize(w, h) {
     size = { w, h }; renderer.setSize(w, h, false);
-    // 画角: 横長(16:9)は、これまでどおり(縦38度)。それより縦に長い形(4:3・1:1・縦長・円)は、横に見える幅を、ほぼ保つように縦の画角を広げる(上限80度)
-    const aspect = w / h; camera.aspect = aspect;
-    camera.fov = aspect >= 16 / 9 ? 38 : Math.min(80, (2 * Math.atan((Math.tan((38 * Math.PI) / 360) * (16 / 9) * 0.85) / aspect) * 180) / Math.PI);
-    camera.updateProjectionMatrix();
+    camera.aspect = w / h; applyView(view); // 形(縦横比)に合わせて、画角を調整
   }
   /** 1コマ進めて、描く。src = いま録画しているゲーム画面(あれば、パソコンの画面に映す)。 */
   function renderFrame(src, dtSec) {
@@ -149,12 +184,46 @@ export function createStreamWipe() {
         const px = gctx.getImageData(40, 25, 1, 1).data; glow += (((px[0] + px[1] + px[2]) / 765) - glow) * 0.1; // 画面の明るさ(昼は明るく、夜は暗い)→ 光に反映
       } catch (e) { /* 取り込めない時は、前のコマのまま */ }
     }
+    if (cam === 'auto') autoCut(dt);
     animate(dt);
     renderer.render(scene, camera);
   }
   function dispose() {
     try { scene.traverse((o) => { if (o.geometry) o.geometry.dispose(); }); for (const x of owned) if (x && x.dispose) x.dispose(); renderer.dispose(); renderer.forceContextLoss(); } catch (e) { /* もう、捨てられている */ }
   }
-  setSize(size.w, size.h);
-  return { canvas, setSize, renderFrame, dispose, snow, scene, camera, get size() { return { ...size }; } };
+  setSize(size.w, size.h); setCameraPlan(opts);
+  return { canvas, setSize, renderFrame, dispose, setCameraPlan, getView: () => cloneView(view), setView: (v) => { cam = 'custom'; applyView({ pos: v.pos.map((x, i) => clampN(x, VIEW_LIMITS.pos[i])), target: v.target.map((x, i) => clampN(x, VIEW_LIMITS.target[i])), fov: clampN(v.fov, VIEW_LIMITS.fov) }); }, currentViewName: () => (cam === 'auto' ? autoCur : cam), snow, scene, camera, get size() { return { ...size }; } };
+}
+
+/**
+ * 設定画面のプレビュー用: キャンバスを、ドラッグで回す・右ドラッグ(か Shift+ドラッグ)で平行移動・ホイールでズームして、画角を決める。
+ * 動かすたびに onChange(視点) を呼ぶ。録画の中では、カメラは動かさない(これは、設定画面の、画角を決める操作だけ)。
+ * canEdit() が false の間(自動切り替え中など)は、動かさない。戻り値: 外す関数。
+ */
+export function attachViewControls(canvas, wipe, onChange, canEdit = () => true) {
+  let drag = null;
+  const norm = (a) => { const l = Math.hypot(a[0], a[1], a[2]) || 1; return [a[0] / l, a[1] / l, a[2] / l]; };
+  const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+  const down = (e) => { if (!canEdit()) return; drag = { x: e.clientX, y: e.clientY, pan: e.button === 2 || e.shiftKey, v: wipe.getView() }; try { canvas.setPointerCapture(e.pointerId); } catch (err) { /* なくても動く */ } e.preventDefault(); };
+  const move = (e) => {
+    if (!drag) return;
+    const dx = e.clientX - drag.x, dy = e.clientY - drag.y, v = drag.v, off = [v.pos[0] - v.target[0], v.pos[1] - v.target[1], v.pos[2] - v.target[2]], r = Math.hypot(off[0], off[1], off[2]) || 1;
+    let nv;
+    if (drag.pan) { // 画面の左右・上下へ、カメラと注目点を、いっしょに動かす
+      const fwd = norm([-off[0], -off[1], -off[2]]), right = norm(cross(fwd, [0, 1, 0])), up = cross(right, fwd), k = r * 0.0022 * (v.fov / 38);
+      const m = [(-dx * right[0] + dy * up[0]) * k, (-dx * right[1] + dy * up[1]) * k, (-dx * right[2] + dy * up[2]) * k];
+      nv = { pos: [v.pos[0] + m[0], v.pos[1] + m[1], v.pos[2] + m[2]], target: [v.target[0] + m[0], v.target[1] + m[1], v.target[2] + m[2]], fov: v.fov };
+    } else { // 注目点のまわりを回る
+      let yaw = Math.atan2(off[0], off[2]) - dx * 0.008, pitch = Math.asin(Math.max(-1, Math.min(1, off[1] / r))) + dy * 0.006; pitch = Math.max(-0.5, Math.min(1.2, pitch));
+      nv = { pos: [v.target[0] + r * Math.cos(pitch) * Math.sin(yaw), v.target[1] + r * Math.sin(pitch), v.target[2] + r * Math.cos(pitch) * Math.cos(yaw)], target: v.target, fov: v.fov };
+    }
+    wipe.setView(nv); onChange(wipe.getView());
+  };
+  const up = () => { drag = null; };
+  const wheel = (e) => { if (!canEdit()) return; e.preventDefault(); const v = wipe.getView(); v.fov = v.fov * Math.exp(e.deltaY * 0.0012); wipe.setView(v); onChange(wipe.getView()); };
+  const menu = (e) => e.preventDefault();
+  canvas.style.touchAction = 'none';
+  canvas.addEventListener('pointerdown', down); canvas.addEventListener('pointermove', move); canvas.addEventListener('pointerup', up); canvas.addEventListener('pointercancel', up);
+  canvas.addEventListener('wheel', wheel, { passive: false }); canvas.addEventListener('contextmenu', menu);
+  return () => { canvas.removeEventListener('pointerdown', down); canvas.removeEventListener('pointermove', move); canvas.removeEventListener('pointerup', up); canvas.removeEventListener('pointercancel', up); canvas.removeEventListener('wheel', wheel); canvas.removeEventListener('contextmenu', menu); };
 }

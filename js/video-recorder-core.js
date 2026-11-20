@@ -90,6 +90,12 @@ export const WIPE_CORNERS = ['br', 'bl', 'tr', 'tl']; // 右下・左下・右�
 export const WIPE_SIZE_MIN = 10, WIPE_SIZE_MAX = 40, WIPE_SIZE_DEFAULT = 20; // 出力の幅に対する%
 export const WIPE_BORDER_MAX = 8, WIPE_BORDER_DEFAULT = 2; // 枠の幅(ワイプのピクセル数)
 export const WIPE_BORDER_COLOR_DEFAULT = '#f3efe6';
+// 画角(v1.109): 固定カメラ3つ(room=部屋全体・monitor=モニターを見ている雪だるま・face=顔のアップ)・custom=自分で決めた画角・auto=3つを時々カットで切り替え。
+//   標準は「1つの画角に固定」。パン・徐々にズームは、しない。
+export const WIPE_CAMS = ['room', 'monitor', 'face', 'custom', 'auto'];
+export const WIPE_CAM_INTERVAL_MIN = 5, WIPE_CAM_INTERVAL_MAX = 60, WIPE_CAM_INTERVAL_DEFAULT = 15; // 自動で切り替える間隔(秒)の目安(実際は、±30%ばらつく)
+export const WIPE_CUSTOM_DEFAULT = { px: 0.05, py: 1.6, pz: 3.7, tx: -0.35, ty: 1.5, tz: 0.55, fov: 36 }; // 「モニターを見ている雪だるま」と同じ
+const CUSTOM_RANGE = { px: [-3.3, 3.5], py: [0.3, 3.6], pz: [-2, 6.5], tx: [-3.3, 3.5], ty: [0.2, 3.2], tz: [-2, 4], fov: [12, 70] };
 /** 設定(画面からの入力・保存された値)を、安全な値にそろえる。知らない値は、既定へ。 */
 export function normalizeWipe(o) {
   o = o || {};
@@ -103,6 +109,9 @@ export function normalizeWipe(o) {
     frame: o.frame === undefined ? true : !!o.frame,
     borderWidth: num(o.borderWidth, 1, WIPE_BORDER_MAX, WIPE_BORDER_DEFAULT),
     borderColor: typeof o.borderColor === 'string' && /^#[0-9a-fA-F]{6}$/.test(o.borderColor) ? o.borderColor.toLowerCase() : WIPE_BORDER_COLOR_DEFAULT,
+    cam: WIPE_CAMS.includes(o.cam) ? o.cam : 'room', // 既定は、これまでと同じ「部屋全体」
+    camInterval: num(o.camInterval, WIPE_CAM_INTERVAL_MIN, WIPE_CAM_INTERVAL_MAX, WIPE_CAM_INTERVAL_DEFAULT),
+    camCustom: Object.fromEntries(Object.entries(CUSTOM_RANGE).map(([k, [lo, hi]]) => { const v = Number(o.camCustom && o.camCustom[k]); return [k, Number.isFinite(v) ? Math.max(lo, Math.min(hi, v)) : WIPE_CUSTOM_DEFAULT[k]]; })),
   };
 }
 /** ワイプの置き場所と大きさ。mode=出力の種類、opts=設定(normalizeWipe にかける)。 */

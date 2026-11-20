@@ -1,9 +1,9 @@
 // video-recorder.js (v1.106) — 軽量な4K長時間録画(画面と、MediaRecorder を使う部分)。きまりは video-recorder-core.js。
 //   内部の描画(480×270)を、整数倍の最近傍で拡大して、出力のキャンバスに描き、映像+音(マスター出力)を、MediaRecorder で、少しずつ書き出す。
 //   ファイルへは、File System Access API(Chrome・Edge)で、直接書く(数時間でも、メモリを使わない)。使えないブラウザでは、メモリに溜める(短時間だけ)。
-import { SOURCE, FPS, outputSize, bitrateFor, AUDIO_BPS, pickMimeType, fileName, estimateBytes, createFramePacer, createChunkSink, createMemorySink, createPauseClock, wipeLayout, wipeInside, wipeFramePixel } from './video-recorder-core.js';
+import { SOURCE, FPS, outputSize, bitrateFor, AUDIO_BPS, pickMimeType, fileName, estimateBytes, createFramePacer, createChunkSink, createMemorySink, createPauseClock, wipeLayout, normalizeWipe, wipeInside, wipeFramePixel } from './video-recorder-core.js';
 
-// createWipe: ワイプの映像を作る関数(省略可)。返すもの: { canvas, setSize(w,h), renderFrame(源のキャンバス, 経過秒), dispose() }。
+// createWipe(設定): ワイプの映像を作る関数(省略可。設定は normalizeWipe した値)。返すもの: { canvas, setSize(w,h), renderFrame(源のキャンバス, 経過秒), dispose() }。
 export function createVideoRecorder({ getSourceCanvas, createWipe = null, onState = () => {}, nowMs = () => performance.now() } = {}) {
   let wipe = null, wipeLayoutNow = null, lastWipeMs = 0, wipeFrameCv = null, wipeMaskCv = null, wipeTmpCv = null, wipeTmpCtx = null;
   let pauseClock = createPauseClock(), pausedByHidden = false;
@@ -63,7 +63,7 @@ export function createVideoRecorder({ getSourceCanvas, createWipe = null, onStat
     // ワイプ(任意): 作れなければ、ワイプなしで、録画を続ける(録画そのものは、止めない)
     wipe = null; wipeLayoutNow = null; lastWipeMs = 0;
     if (wipeOpt && wipeOpt.enabled && createWipe) {
-      try { wipeLayoutNow = wipeLayout(mode, wipeOpt); buildWipeShapes(wipeLayoutNow); wipe = createWipe(); wipe.setSize(wipeLayoutNow.rw, wipeLayoutNow.rh); }
+      try { wipeLayoutNow = wipeLayout(mode, wipeOpt); buildWipeShapes(wipeLayoutNow); wipe = createWipe(normalizeWipe(wipeOpt)); wipe.setSize(wipeLayoutNow.rw, wipeLayoutNow.rh); }
       catch (e) { disposeWipe(); onState('wipe-failed'); }
     }
     const stream = out.captureStream(FPS);
