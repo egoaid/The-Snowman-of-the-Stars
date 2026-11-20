@@ -193,10 +193,23 @@
       <label class="field"><span data-i18n="set.rec.wipe">Wipe (small picture in a corner):</span>
         <select id="recWipe"><option value="off" data-i18n="set.rec.wipe.off">Off</option><option value="auto" data-i18n="set.rec.wipe.auto">On: the snowman plays this game in his room (automatic)</option></select></label>
       <div id="recWipeOpts" hidden>
+        <label class="field"><span data-i18n="set.rec.wipe.shape">Shape:</span>
+          <select id="recWipeShape"><option value="rect" data-i18n="set.rec.wipe.shape.rect">Rectangle</option><option value="circle" data-i18n="set.rec.wipe.shape.circle">Circle</option></select></label>
+        <label class="field" id="recWipeAspectField"><span data-i18n="set.rec.wipe.aspect">Aspect ratio:</span>
+          <select id="recWipeAspect"><option value="16:9" selected>16:9</option><option value="4:3">4:3</option><option value="1:1">1:1</option><option value="3:4">3:4</option><option value="9:16">9:16</option></select></label>
         <label class="field"><span data-i18n="set.rec.wipe.pos">Position:</span>
           <select id="recWipePos"><option value="br" data-i18n="set.rec.wipe.pos.br">Bottom right</option><option value="bl" data-i18n="set.rec.wipe.pos.bl">Bottom left</option><option value="tr" data-i18n="set.rec.wipe.pos.tr">Top right</option><option value="tl" data-i18n="set.rec.wipe.pos.tl">Top left</option></select></label>
-        <label class="field"><span data-i18n="set.rec.wipe.size">Wipe size:</span>
-          <select id="recWipeSize"><option value="small" data-i18n="set.rec.wipe.size.small">Small (15% of the width)</option><option value="medium" selected data-i18n="set.rec.wipe.size.medium">Medium (20%)</option><option value="large" data-i18n="set.rec.wipe.size.large">Large (25%)</option></select></label>
+        <label class="field"><span data-i18n="set.rec.wipe.size">Wipe size (% of the screen width, longer side):</span>
+          <input id="recWipeSize" type="range" min="10" max="40" step="1" value="20"> <output id="recWipeSizeVal">20%</output></label>
+        <label class="field"><input id="recWipeFrame" type="checkbox" checked> <span data-i18n="set.rec.wipe.frame">Show a frame</span></label>
+        <div id="recWipeFrameOpts">
+          <label class="field"><span data-i18n="set.rec.wipe.frame.width">Frame width (in wipe pixels):</span>
+            <input id="recWipeBorderW" type="range" min="1" max="8" step="1" value="2"> <output id="recWipeBorderWVal">2</output></label>
+          <label class="field"><span data-i18n="set.rec.wipe.frame.color">Frame color:</span>
+            <input id="recWipeBorderColor" type="color" value="#f3efe6"></label>
+        </div>
+        <div class="small-note" data-i18n="set.rec.wipe.layout">Layout preview (16:9 screen):</div>
+        <div id="recWipeSketch" style="position:relative;width:160px;height:90px;background:linear-gradient(#7fb4e8,#cfe6f5);border:1px solid #888;overflow:hidden;"><div id="recWipeSketchBox" style="position:absolute;background:#3b3550;box-sizing:content-box;"></div></div>
         <div class="small-note" style="margin-top:4px;" data-i18n="set.rec.wipe.note"></div>
       </div>
       <button id="recBtn" type="button" data-i18n="set.rec.start">● Start recording</button>
@@ -620,6 +633,7 @@
     import { t as tr, initI18n, onLangChange } from './js/i18n.js'; // v1.72: 日本語/英語。tr('キー', {差し込み})
 import { createVideoRecorder } from './js/video-recorder.js'; // v1.106: 軽量な4K長時間録画
 import { createStreamWipe } from './js/visual3d/stream-wipe.js'; // v1.107: 録画のワイプ(自動アバター)
+import { normalizeWipe, wipeLayout } from './js/video-recorder-core.js'; // v1.108: ワイプの形・枠・大きさ
 import { formatElapsed, formatBytes } from './js/video-recorder-core.js';
 import { createMidiInput } from './js/music/midi-input.js'; // v1.104: 外部MIDIキーボード(設置した3Dキーボードを弾く)
 
@@ -1949,8 +1963,24 @@ import { createMidiInput } from './js/music/midi-input.js'; // v1.104: 外部MID
         // v1.106: 軽量な4K長時間録画。内部の描画(480×270)を、整数倍の最近傍で拡大して、動画にする。画面は、録画中だけ、16:9に固定する
         {
           const recBtn = document.getElementById('recBtn'), recStatus = document.getElementById('recStatus'), recRes = document.getElementById('recRes'), recQuality = document.getElementById('recQuality');
-          const recWipe = document.getElementById('recWipe'), recWipeOpts = document.getElementById('recWipeOpts'), recWipePos = document.getElementById('recWipePos'), recWipeSize = document.getElementById('recWipeSize');
-          recWipe.addEventListener('change', () => { recWipeOpts.hidden = recWipe.value === 'off'; }); // v1.107: 場所と大きさは、ワイプを使う時だけ出す
+          const recWipe = document.getElementById('recWipe'), recWipeOpts = document.getElementById('recWipeOpts');
+          // v1.108: ワイプの設定(形・縦横比・場所・大きさ・枠)。この端末に保存して、次も同じにする。
+          const WIPE_KEY = 'snowman.wipe.v1', wEl = (id) => document.getElementById(id);
+          const wipeUi = { shape: wEl('recWipeShape'), aspect: wEl('recWipeAspect'), corner: wEl('recWipePos'), size: wEl('recWipeSize'), frame: wEl('recWipeFrame'), borderWidth: wEl('recWipeBorderW'), borderColor: wEl('recWipeBorderColor') };
+          const readWipeUi = () => normalizeWipe({ shape: wipeUi.shape.value, aspect: wipeUi.aspect.value, corner: wipeUi.corner.value, size: wipeUi.size.value, frame: wipeUi.frame.checked, borderWidth: wipeUi.borderWidth.value, borderColor: wipeUi.borderColor.value });
+          function refreshWipeUi(save) {
+            const o = readWipeUi();
+            wEl('recWipeAspectField').hidden = o.shape === 'circle'; wEl('recWipeFrameOpts').hidden = !o.frame;
+            wEl('recWipeSizeVal').textContent = o.size + '%'; wEl('recWipeBorderWVal').textContent = String(o.borderWidth);
+            const L = wipeLayout('fhd', o), sc = 160 / 1920, box = wEl('recWipeSketchBox'), bw = L.b ? Math.max(1, Math.round(L.b * L.k * sc)) : 0; // 配置のイメージ(16:9の画面の縮図)
+            box.style.left = Math.round((L.x - L.b * L.k) * sc) + 'px'; box.style.top = Math.round((L.y - L.b * L.k) * sc) + 'px'; box.style.width = Math.round(L.w * sc) + 'px'; box.style.height = Math.round(L.h * sc) + 'px';
+            box.style.border = bw ? bw + 'px solid ' + o.borderColor : '0'; box.style.borderRadius = o.shape === 'circle' ? '50%' : '0';
+            if (save) { try { localStorage.setItem(WIPE_KEY, JSON.stringify({ ...o, on: recWipe.value === 'auto' })); } catch (e) { /* 保存できない環境では、保存しない */ } }
+          }
+          try { const sv = JSON.parse(localStorage.getItem(WIPE_KEY) || 'null'); if (sv) { const o = normalizeWipe(sv); wipeUi.shape.value = o.shape; wipeUi.aspect.value = o.aspect; wipeUi.corner.value = o.corner; wipeUi.size.value = o.size; wipeUi.frame.checked = o.frame; wipeUi.borderWidth.value = o.borderWidth; wipeUi.borderColor.value = o.borderColor; if (sv.on) recWipe.value = 'auto'; } } catch (e) { /* 読めなければ、既定 */ }
+          recWipeOpts.hidden = recWipe.value === 'off'; refreshWipeUi(false);
+          recWipe.addEventListener('change', () => { recWipeOpts.hidden = recWipe.value === 'off'; refreshWipeUi(true); }); // 場所・形・枠などは、ワイプを使う時だけ出す
+          for (const el of Object.values(wipeUi)) el.addEventListener('input', () => refreshWipeUi(true));
           const recInd = document.getElementById('recIndicator'), recIndTime = document.getElementById('recIndicatorTime');
           let recTimer = null;
           const videoRec = createVideoRecorder({
@@ -1975,7 +2005,7 @@ import { createMidiInput } from './js/music/midi-input.js'; // v1.104: 外部MID
           recBtn.addEventListener('click', async () => {
             if (videoRec.isRecording()) { await videoRec.stop(); return; }
             scene.setRecordingMode(true); // 16:9(480×270)に固定してから、始める
-            const ok = await videoRec.start({ mode: recRes.value, quality: recQuality.value, wipe: { enabled: recWipe.value === 'auto', corner: recWipePos.value, size: recWipeSize.value } });
+            const ok = await videoRec.start({ mode: recRes.value, quality: recQuality.value, wipe: { enabled: recWipe.value === 'auto', ...readWipeUi() } });
             if (!ok) { scene.setRecordingMode(false); return; }
             clearInterval(recTimer);
             recTimer = setInterval(() => { const st = videoRec.stats(); recIndTime.textContent = formatElapsed(st.seconds); recStatus.textContent = tr('set.rec.status', { time: formatElapsed(st.seconds), size: formatBytes(st.fsMode ? st.bytes : st.bytes) }); }, 500);

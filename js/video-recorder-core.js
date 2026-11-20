@@ -81,16 +81,51 @@ export function createMemorySink({ limitBytes = 1.5e9, onLimit = () => {} } = {}
   };
 }
 
-// ---- v1.107: ワイプ(画面の隅の小さな映像)。出力のキャンバスへ、毎コマ、描き足す。 ----
-//   ワイプの描画の大きさは、16:9。出力が4Kなら4倍、フルHDなら2倍に、「最近傍」で拡大する(ピクセル感を保つ)。
-//   大きさの割合(出力の幅に対して): 小=15% / 中=20% / 大=25%。ゲーム画面の1ピクセルの半分の細かさ(ワイプの中の部屋は、細かい物が多いため)。
-export const WIPE_SIZES = { small: 144, medium: 192, large: 240 }; // ワイプの内部の描画の幅(px)
+// ---- v1.107/v1.108: ワイプ(画面の隅の小さな映像)。出力のキャンバスへ、毎コマ、描き足す。 ----
+//   ワイプの内部の描画は、整数のピクセル数。出力が4Kなら4倍、フルHDなら2倍に、「最近傍」で拡大する(ピクセル感を保つ)。
+//   形: 四角(rect)か、円(circle)。四角は、縦横比を選べる。円は、ピクセルで、ぎざぎざに切り抜く(ぼかさない)。
+//   大きさ: 長いほうの辺(円は直径)が、出力の幅の何%か(10〜40)。 枠: 表示/非表示・幅(ワイプのピクセル数で1〜8)・色。
+export const WIPE_ASPECTS = { '16:9': [16, 9], '4:3': [4, 3], '1:1': [1, 1], '3:4': [3, 4], '9:16': [9, 16] };
 export const WIPE_CORNERS = ['br', 'bl', 'tr', 'tl']; // 右下・左下・右上・左上
-/** ワイプの置き場所。mode=出力の種類、size=small|medium|large、corner=br|bl|tr|tl。 */
-export function wipeLayout(mode, size = 'medium', corner = 'br') {
-  const o = outputSize(mode), rw = WIPE_SIZES[size] || WIPE_SIZES.medium, rh = (rw * 9) / 16, k = o.w / 960; // k: 4K=4 / フルHD=2
-  const w = rw * k, h = rh * k, margin = 20 * k, border = 2 * k; // 枠は、ワイプの2ピクセル分(外側の暗い線)+1ピクセル分(内側の明るい線)
-  const c = WIPE_CORNERS.includes(corner) ? corner : 'br';
-  const x = c === 'bl' || c === 'tl' ? margin : o.w - margin - w, y = c === 'tl' || c === 'tr' ? margin : o.h - margin - h;
-  return { x, y, w, h, rw, rh, k, border, corner: c };
+export const WIPE_SIZE_MIN = 10, WIPE_SIZE_MAX = 40, WIPE_SIZE_DEFAULT = 20; // 出力の幅に対する%
+export const WIPE_BORDER_MAX = 8, WIPE_BORDER_DEFAULT = 2; // 枠の幅(ワイプのピクセル数)
+export const WIPE_BORDER_COLOR_DEFAULT = '#f3efe6';
+/** 設定(画面からの入力・保存された値)を、安全な値にそろえる。知らない値は、既定へ。 */
+export function normalizeWipe(o) {
+  o = o || {};
+  const num = (v, lo, hi, d) => { v = Math.round(Number(v)); return Number.isFinite(v) ? Math.max(lo, Math.min(hi, v)) : d; };
+  const shape = o.shape === 'circle' ? 'circle' : 'rect';
+  return {
+    shape,
+    aspect: shape === 'circle' ? '1:1' : (WIPE_ASPECTS[o.aspect] ? o.aspect : '16:9'),
+    corner: WIPE_CORNERS.includes(o.corner) ? o.corner : 'br',
+    size: num(o.size, WIPE_SIZE_MIN, WIPE_SIZE_MAX, WIPE_SIZE_DEFAULT),
+    frame: o.frame === undefined ? true : !!o.frame,
+    borderWidth: num(o.borderWidth, 1, WIPE_BORDER_MAX, WIPE_BORDER_DEFAULT),
+    borderColor: typeof o.borderColor === 'string' && /^#[0-9a-fA-F]{6}$/.test(o.borderColor) ? o.borderColor.toLowerCase() : WIPE_BORDER_COLOR_DEFAULT,
+  };
+}
+/** ワイプの置き場所と大きさ。mode=出力の種類、opts=設定(normalizeWipe にかける)。 */
+export function wipeLayout(mode, opts) {
+  const c = normalizeWipe(opts), o = outputSize(mode), k = o.w / 960; // k: 4K=4 / フルHD=2(ワイプの1ピクセルが、出力の何ピクセルか)
+  const [aw, ah] = WIPE_ASPECTS[c.aspect], longer = Math.max(16, Math.round((o.w * c.size) / 100 / k));
+  let rw, rh;
+  if (aw >= ah) { rw = longer; rh = Math.max(1, Math.round((rw * ah) / aw)); } else { rh = longer; rw = Math.max(1, Math.round((rh * aw) / ah)); }
+  if (c.shape === 'circle') rh = rw; // 円は、正方形の中
+  const b = c.frame ? c.borderWidth : 0, w = rw * k, h = rh * k, margin = 20 * k; // 余白は、枠の最大(8)より大きい
+  const x = c.corner === 'bl' || c.corner === 'tl' ? margin : o.w - margin - w, y = c.corner === 'tl' || c.corner === 'tr' ? margin : o.h - margin - h;
+  return { x, y, w, h, rw, rh, k, b, shape: c.shape, aspect: c.aspect, corner: c.corner, color: c.borderColor };
+}
+/** ワイプの内側のピクセル(x,y: 0始まり)か。四角は、すべて内側。円は、中心からの距離で決める(ぼかさない)。 */
+export function wipeInside(shape, rw, rh, x, y) {
+  if (shape !== 'circle') return x >= 0 && y >= 0 && x < rw && y < rh;
+  const dx = x + 0.5 - rw / 2, dy = y + 0.5 - rh / 2, r = rw / 2;
+  return dx * dx + dy * dy <= r * r;
+}
+/** 枠のピクセルか。(x,y)は、枠を含めた外側の座標(0始まり。幅 rw+2b・高さ rh+2b)。内側のワイプの外で、幅 b の帯の中。 */
+export function wipeFramePixel(shape, rw, rh, b, x, y) {
+  if (b <= 0) return false;
+  if (shape !== 'circle') { const ix = x - b, iy = y - b; return !(ix >= 0 && iy >= 0 && ix < rw && iy < rh) && x >= 0 && y >= 0 && x < rw + 2 * b && y < rh + 2 * b; }
+  const dx = x + 0.5 - (rw + 2 * b) / 2, dy = y + 0.5 - (rh + 2 * b) / 2, r = rw / 2;
+  return dx * dx + dy * dy <= (r + b) * (r + b) && dx * dx + dy * dy > r * r;
 }

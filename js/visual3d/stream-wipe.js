@@ -35,8 +35,8 @@ export function createStreamWipe() {
   const wallMat = toon(0x6f7fa8), floorMat = toon(0x8b6b4e), trimMat = toon(0x3d3548), woodMat = toon(0x6a4a33), darkMat = toon(0x2b2f3a);
   keep(wallMat); keep(floorMat); keep(trimMat); keep(woodMat); keep(darkMat);
   const floor = new THREE.Mesh(keep(new THREE.PlaneGeometry(9, 7)), floorMat); floor.rotation.x = -Math.PI / 2; floor.position.set(-0.4, 0, 0.5); scene.add(floor);
-  box(9, 4, 0.1, wallMat, -0.4, 2, -2.3); // 奥の壁
-  box(0.1, 4, 7, wallMat, -3.6, 2, 0.5); // 左の壁
+  box(14, 9, 0.1, wallMat, -0.4, 4.5, -2.3); // 奥の壁(縦に長い形でも、天井の外が見えないよう、高く広く)
+  box(0.1, 9, 9, wallMat, -3.6, 4.5, 1.5); // 左の壁
   box(9, 0.18, 0.12, trimMat, -0.4, 0.09, -2.22); // 幅木
   const rug = new THREE.Mesh(keep(new THREE.CircleGeometry(1.25, 28)), toon(0xb03a48)); keep(rug.material); rug.rotation.x = -Math.PI / 2; rug.position.set(0.1, 0.012, 0.35); scene.add(rug);
   const rugIn = new THREE.Mesh(keep(new THREE.CircleGeometry(0.8, 28)), toon(0xe9d8b4)); keep(rugIn.material); rugIn.rotation.x = -Math.PI / 2; rugIn.position.set(0.1, 0.016, 0.35); scene.add(rugIn);
@@ -133,7 +133,13 @@ export function createStreamWipe() {
   }
   let glow = 0.5;
 
-  function setSize(w, h) { size = { w, h }; renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix(); }
+  function setSize(w, h) {
+    size = { w, h }; renderer.setSize(w, h, false);
+    // 画角: 横長(16:9)は、これまでどおり(縦38度)。それより縦に長い形(4:3・1:1・縦長・円)は、横に見える幅を、ほぼ保つように縦の画角を広げる(上限80度)
+    const aspect = w / h; camera.aspect = aspect;
+    camera.fov = aspect >= 16 / 9 ? 38 : Math.min(80, (2 * Math.atan((Math.tan((38 * Math.PI) / 360) * (16 / 9) * 0.85) / aspect) * 180) / Math.PI);
+    camera.updateProjectionMatrix();
+  }
   /** 1コマ進めて、描く。src = いま録画しているゲーム画面(あれば、パソコンの画面に映す)。 */
   function renderFrame(src, dtSec) {
     const dt = Math.max(0, Math.min(MAX_DT, +dtSec || 1 / 30));

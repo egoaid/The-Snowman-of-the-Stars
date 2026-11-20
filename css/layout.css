@@ -781,6 +781,7 @@ input, textarea, select, [contenteditable="true"], #error-banner {
   background: #2a1a0c; color: #f6e6c8; font: inherit; font-size: 16px;
 }
 .set-inv label.field { display: block; margin-bottom: 8px; }
+#settingsPanel .field[hidden], .set-inv label.field[hidden] { display: none !important; } /* v1.108: hidden を付けた欄が、display:block に負けて隠れない */
 .set-inv input[type="range"] { accent-color: #ffd36b; width: 58% !important; vertical-align: middle; }
 .set-inv input[type="checkbox"] { width: 20px; height: 20px; accent-color: #ffd36b; }
 .set-inv label { cursor: pointer; }

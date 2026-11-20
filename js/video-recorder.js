@@ -1,11 +1,11 @@
 // video-recorder.js (v1.106) — 軽量な4K長時間録画(画面と、MediaRecorder を使う部分)。きまりは video-recorder-core.js。
 //   内部の描画(480×270)を、整数倍の最近傍で拡大して、出力のキャンバスに描き、映像+音(マスター出力)を、MediaRecorder で、少しずつ書き出す。
 //   ファイルへは、File System Access API(Chrome・Edge)で、直接書く(数時間でも、メモリを使わない)。使えないブラウザでは、メモリに溜める(短時間だけ)。
-import { SOURCE, FPS, outputSize, bitrateFor, AUDIO_BPS, pickMimeType, fileName, estimateBytes, createFramePacer, createChunkSink, createMemorySink, createPauseClock, wipeLayout } from './video-recorder-core.js';
+import { SOURCE, FPS, outputSize, bitrateFor, AUDIO_BPS, pickMimeType, fileName, estimateBytes, createFramePacer, createChunkSink, createMemorySink, createPauseClock, wipeLayout, wipeInside, wipeFramePixel } from './video-recorder-core.js';
 
 // createWipe: ワイプの映像を作る関数(省略可)。返すもの: { canvas, setSize(w,h), renderFrame(源のキャンバス, 経過秒), dispose() }。
 export function createVideoRecorder({ getSourceCanvas, createWipe = null, onState = () => {}, nowMs = () => performance.now() } = {}) {
-  let wipe = null, wipeAt = null, wipeLayoutNow = null, lastWipeMs = 0;
+  let wipe = null, wipeLayoutNow = null, lastWipeMs = 0, wipeFrameCv = null, wipeMaskCv = null, wipeTmpCv = null, wipeTmpCtx = null;
   let pauseClock = createPauseClock(), pausedByHidden = false;
   let rec = null, out = null, octx = null, pacer = createFramePacer(FPS), sink = null, startedAt = 0, info = null, audioDest = null, masterRef = null, fsMode = false, failedMsg = '';
   const SE = () => (typeof window !== 'undefined' ? window.SoundEngine : null);
@@ -21,7 +21,25 @@ export function createVideoRecorder({ getSourceCanvas, createWipe = null, onStat
       pausedByHidden = false; pacer.reset(); lastWipeMs = 0; try { rec.resume(); } catch (e) { return; } pauseClock.resume(nowMs()); onState('resumed', info);
     }
   }
-  function disposeWipe() { if (wipe) { try { wipe.dispose(); } catch (e) { /* もう、捨てられている */ } } wipe = null; wipeLayoutNow = null; }
+  function disposeWipe() { if (wipe) { try { wipe.dispose(); } catch (e) { /* もう、捨てられている */ } } wipe = null; wipeLayoutNow = null; wipeFrameCv = wipeMaskCv = wipeTmpCv = wipeTmpCtx = null; }
+  /** 枠(帯)と、円の切り抜き(マスク)を、ワイプのピクセルの大きさで、いちど作る。毎コマは、拡大して描くだけ。 */
+  function buildWipeShapes(L) {
+    const hex = L.color, rgb = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+    wipeFrameCv = wipeMaskCv = wipeTmpCv = wipeTmpCtx = null;
+    if (L.b > 0) {
+      const W = L.rw + 2 * L.b, H = L.rh + 2 * L.b, cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+      const cx = cv.getContext('2d'), im = cx.createImageData(W, H);
+      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (wipeFramePixel(L.shape, L.rw, L.rh, L.b, x, y)) { const o = (y * W + x) * 4; im.data[o] = rgb[0]; im.data[o + 1] = rgb[1]; im.data[o + 2] = rgb[2]; im.data[o + 3] = 255; }
+      cx.putImageData(im, 0, 0); wipeFrameCv = cv;
+    }
+    if (L.shape === 'circle') {
+      const cv = document.createElement('canvas'); cv.width = L.rw; cv.height = L.rh;
+      const cx = cv.getContext('2d'), im = cx.createImageData(L.rw, L.rh);
+      for (let y = 0; y < L.rh; y++) for (let x = 0; x < L.rw; x++) if (wipeInside('circle', L.rw, L.rh, x, y)) im.data[(y * L.rw + x) * 4 + 3] = 255;
+      cx.putImageData(im, 0, 0); wipeMaskCv = cv;
+      wipeTmpCv = document.createElement('canvas'); wipeTmpCv.width = L.rw; wipeTmpCv.height = L.rh; wipeTmpCtx = wipeTmpCv.getContext('2d');
+    }
+  }
   function cleanupAudio() { try { if (masterRef && audioDest) masterRef.disconnect(audioDest); } catch (e) { /* もう外れている */ } audioDest = null; masterRef = null; }
 
   async function start({ mode = '4k', quality = 'normal', wipe: wipeOpt = null } = {}) {
@@ -45,7 +63,7 @@ export function createVideoRecorder({ getSourceCanvas, createWipe = null, onStat
     // ワイプ(任意): 作れなければ、ワイプなしで、録画を続ける(録画そのものは、止めない)
     wipe = null; wipeLayoutNow = null; lastWipeMs = 0;
     if (wipeOpt && wipeOpt.enabled && createWipe) {
-      try { wipeLayoutNow = wipeLayout(mode, wipeOpt.size, wipeOpt.corner); wipe = createWipe(); wipe.setSize(wipeLayoutNow.rw, wipeLayoutNow.rh); }
+      try { wipeLayoutNow = wipeLayout(mode, wipeOpt); buildWipeShapes(wipeLayoutNow); wipe = createWipe(); wipe.setSize(wipeLayoutNow.rw, wipeLayoutNow.rh); }
       catch (e) { disposeWipe(); onState('wipe-failed'); }
     }
     const stream = out.captureStream(FPS);
@@ -82,9 +100,12 @@ export function createVideoRecorder({ getSourceCanvas, createWipe = null, onStat
       const now = nowMs(), dt = lastWipeMs ? Math.min(0.1, (now - lastWipeMs) / 1000) : 1 / FPS; lastWipeMs = now;
       wipe.renderFrame(src, dt);
       const L = wipeLayoutNow, k = L.k;
-      octx.fillStyle = '#16151c'; octx.fillRect(L.x - 3 * k, L.y - 3 * k, L.w + 6 * k, L.h + 6 * k); // 外側の暗い線(2ピクセル分)
-      octx.fillStyle = '#f3efe6'; octx.fillRect(L.x - k, L.y - k, L.w + 2 * k, L.h + 2 * k); // 内側の明るい線(1ピクセル分)
-      octx.drawImage(wipe.canvas, 0, 0, L.rw, L.rh, L.x, L.y, L.w, L.h);
+      if (wipeFrameCv) octx.drawImage(wipeFrameCv, 0, 0, wipeFrameCv.width, wipeFrameCv.height, L.x - L.b * k, L.y - L.b * k, (L.rw + 2 * L.b) * k, (L.rh + 2 * L.b) * k); // 枠(最近傍で整数倍)
+      if (wipeMaskCv) { // 円: ワイプのピクセルの段階で、ぎざぎざに切り抜く(ぼかさない)
+        wipeTmpCtx.globalCompositeOperation = 'copy'; wipeTmpCtx.drawImage(wipe.canvas, 0, 0, L.rw, L.rh);
+        wipeTmpCtx.globalCompositeOperation = 'destination-in'; wipeTmpCtx.drawImage(wipeMaskCv, 0, 0); wipeTmpCtx.globalCompositeOperation = 'source-over';
+        octx.drawImage(wipeTmpCv, 0, 0, L.rw, L.rh, L.x, L.y, L.w, L.h);
+      } else octx.drawImage(wipe.canvas, 0, 0, L.rw, L.rh, L.x, L.y, L.w, L.h);
     } catch (e) { disposeWipe(); onState('wipe-failed'); }
   }
 
