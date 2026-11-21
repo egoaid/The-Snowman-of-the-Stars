@@ -961,3 +961,28 @@ html.i18n-pending #titleScreen, html.i18n-pending #settingsPanel { visibility: h
 }
 #inventoryPanel .inv-craft-btn:hover:not(:disabled) { background: #7a5230; border-color: #ffe9a8; }
 #inventoryPanel .inv-craft-btn:disabled { opacity: 0.45; cursor: default; }
+
+
+/* ===== v1.113: 起動の「部屋の演出」(js/intro-layer.js)。部屋が全画面で始まり、ゲームへ入ると、右下のワイプになる ===== */
+#introRoom {
+  position: fixed; left: 0; top: 0; width: 100vw; height: 100vh; z-index: 80; overflow: hidden; box-sizing: border-box;
+  background: #1c1a24; border: 0 solid rgba(243, 239, 230, 0.92); touch-action: none; user-select: none; -webkit-user-select: none;
+}
+#introRoom canvas { position: absolute; left: 0; top: 0; width: 100%; height: 100%; object-fit: cover; image-rendering: pixelated; display: block; }
+#introRoom.is-wipe { cursor: pointer; }
+#introRoom.is-wipe:hover { filter: brightness(1.12); }
+#introRoom .intro-hint {
+  position: fixed; z-index: 3; pointer-events: none; padding: 3px 9px; border-radius: 10px; font-size: 12px; white-space: nowrap;
+  background: rgba(20, 22, 32, 0.82); color: #f3efe6; border: 1px solid rgba(243, 239, 230, 0.35);
+}
+#introRoom .intro-guide {
+  position: absolute; left: 50%; top: 14px; transform: translateX(-50%); max-width: 88vw; text-align: center; font-size: 12px; line-height: 1.5;
+  padding: 5px 14px; border-radius: 14px; background: rgba(20, 22, 32, 0.6); color: #e9e4d6; opacity: 0; transition: opacity 0.8s ease; pointer-events: none;
+}
+#introRoom .intro-guide.show { opacity: 1; }
+#introRoom .intro-skip {
+  position: absolute; left: 14px; bottom: 14px; z-index: 2; font: inherit; font-size: 12px; padding: 6px 14px; border-radius: 16px; cursor: pointer;
+  background: rgba(20, 22, 32, 0.6); color: #e9e4d6; border: 1px solid rgba(243, 239, 230, 0.35);
+}
+#introRoom .intro-skip:hover { background: rgba(60, 66, 92, 0.85); }
+#introRoom:not(.is-room) .intro-skip, #introRoom:not(.is-room) .intro-guide { display: none; }

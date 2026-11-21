@@ -184,6 +184,7 @@
       <div id="wakeLockNote" class="small-note"></div>
         </div>
         <div class="set-block"><h3 class="set-h" data-i18n="set.display.h">🖥️ Display</h3><button id="settingsFullscreenBtn" type="button" data-i18n="set.fullscreen">⛶ Enter fullscreen</button></div>
+        <div class="set-block"><label class="field"><input type="checkbox" id="introRoomCheckbox" checked> <span data-i18n="set.intro.enable">Start from the snowman’s room when the app opens</span></label></div>
               <div class="set-block" id="recSection">
       <h3 class="set-h">🎬 <span data-i18n="set.rec.h">Video recording (for YouTube)</span></h3>
       <label class="field"><span data-i18n="set.rec.res">Size:</span>
@@ -644,6 +645,8 @@ import { createVideoRecorder } from './js/video-recorder.js'; // v1.106: 軽量�
 import { createStreamWipe, attachViewControls, customFromView } from './js/visual3d/stream-wipe.js'; // v1.107: 録画のワイプ(自動アバター)。v1.109: 画角のプレビュー
 import { normalizeWipe, wipeLayout } from './js/video-recorder-core.js'; // v1.108: ワイプの形・枠・大きさ
 import { formatElapsed, formatBytes } from './js/video-recorder-core.js';
+import { createIntroLayer } from './js/intro-layer.js'; // v1.113: 起動の「部屋の演出」(部屋が全画面で始まり、ゲームへ入ると右下のワイプになる)
+import { createIntroRoom } from './js/visual3d/intro-room.js';
 import { createMidiInput } from './js/music/midi-input.js'; // v1.104: 外部MIDIキーボード(設置した3Dキーボードを弾く)
 
     // v1.57: 管理者・保存・ワールドの判定は main() の中で行う(読み込み時の外側では何もしない)。
@@ -656,6 +659,14 @@ import { createMidiInput } from './js/music/midi-input.js'; // v1.104: 外部MID
     const live = [];
     initI18n();
     onLangChange(() => { for (const f of live) { try { f(); } catch (e) { console.warn('[i18n]', e); } } });
+
+    // v1.113: 起動の「部屋の演出」。ほかの入力の受け口より先に作る(部屋が全画面の間、ゲームへキーを渡さないため)。作れなくても、ゲームには影響しない
+    const introLayer = createIntroLayer({
+      createRoom: createIntroRoom, title: APP.titleJa, titleEn: APP.titleEn,
+      labels: () => ({ book: tr('intro.book'), keyboard: tr('intro.keyboard'), monitor: tr('intro.monitor'), sofa: tr('intro.sofa'), snowman: tr('intro.snowman'), wipe: tr('intro.wipe'), skip: tr('intro.skip'), guide: tr('intro.guide') }),
+    });
+    live.push(() => { if (introLayer.refreshTexts) introLayer.refreshTexts(); });
+    { const chk = document.getElementById('introRoomCheckbox'); if (chk) { chk.checked = introLayer.isEnabledSetting(); chk.addEventListener('change', () => introLayer.setEnabledSetting(chk.checked)); } }
 
     // --- v1.38: タイトル・バージョン・著作権表記は js/config.js の1か所から反映する ---
     document.title = tr('app.documentTitle'); // v1.72: 言語に合わせる(日本語: 星の雪だるま — …/ 英語: The Snowman of the Stars — …)
@@ -2084,6 +2095,9 @@ import { createMidiInput } from './js/music/midi-input.js'; // v1.104: 外部MID
           });
           if (!videoRec.supported()) { recBtn.disabled = true; recStatus.textContent = tr('set.rec.unsupported'); }
           scene.addAfterRender(() => videoRec.captureFrame());
+          // v1.113: 部屋の演出。モニターに、ゲーム画面を映す。録画のワイプ(や見守りモードの小窓)が出ている間は、部屋のワイプを隠す(同じ雪だるまの小窓が、2つ並ばないように)。録画されるのは、ゲーム画面だけで、部屋の層は、録画に入らない。
+          scene.addAfterRender((c) => introLayer.captureGame(c));
+          setInterval(() => introLayer.setSuppressed(!!wv || (videoRec.isRecording() && recWipe.value === 'auto')), 400);
           recBtn.addEventListener('click', async () => {
             if (videoRec.isRecording()) { await videoRec.stop(); return; }
             scene.setRecordingMode(true); // 16:9(480×270)に固定してから、始める

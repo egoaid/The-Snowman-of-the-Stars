@@ -1,4 +1,4 @@
-// stream-room.js (v1.112) — ワイプの「配信者(雪だるま)の部屋」の、壁・天井・本棚・飾り。
+// stream-room.js (v1.112 / v1.113: omit・shelves・kb を足した。録画のワイプには影響なし) — ワイプの「配信者(雪だるま)の部屋」の、壁・天井・本棚・飾り。
 //   窓の反対側(手前の壁・左右の壁・天井)まで、ぜんぶ作り込む。自分で決めた画角で、どちらを向いても、何かが映るように。
 //   読書家の部屋: 大きな本棚(本が、ぎっしり)・ゲームの中で使うMIDIキーボードが、壁に立てかけてある。
 //   壁には、動画サイトの「銀の盾」のような、記念の盾(銀色の板に、赤い再生ボタンの絵)。
@@ -17,10 +17,11 @@ const BOOK_COLORS = ['#8c3b3b', '#3b5c8c', '#3f7a55', '#c9a24a', '#6b4a8c', '#d2
 /**
  * 部屋の飾りを作って、scene へ足す。
  * ctx = { scene, toon(色) → 材質, keep(捨てるもの), box(w,h,d,材質,x,y,z,親), wallMat, trimMat, woodMat, darkMat }
- * 戻り値: { ceilingLight, floorLampLight, update(t) }
+ * 戻り値: { ceilingLight, floorLampLight, shelves(本棚4つ), kb(MIDIキーボード), update(t) }
  */
 export function buildStreamRoom(ctx) {
   const { scene, toon, keep, box, wallMat, trimMat, woodMat, darkMat } = ctx;
+  const omit = ctx.omit || {}; // v1.113: 置かない物の指定(例: { bean: true })。部屋の演出(intro-room.js)が、ソファを置く場所をあけるのに使う。録画のワイプは、何も指定しない=いままでどおり
   const W = ROOM.x1 - ROOM.x0, D = ROOM.z1 - ROOM.z0, cx = (ROOM.x0 + ROOM.x1) / 2, cz = (ROOM.z0 + ROOM.z1) / 2, H = ROOM.h;
   const add = (o) => { scene.add(o); return o; };
 
@@ -140,8 +141,10 @@ export function buildStreamRoom(ctx) {
   function plant(x, z, s) { const g = new THREE.Group(); g.position.set(x, 0, z); g.scale.setScalar(s); add(g); const pot = new THREE.Mesh(keep(new THREE.CylinderGeometry(0.2, 0.15, 0.3, 10)), potMat); pot.position.y = 0.15; g.add(pot);
     for (let i = 0; i < 9; i++) { const a = (i / 9) * Math.PI * 2, leaf = new THREE.Mesh(keep(new THREE.ConeGeometry(0.1, 0.62 + (i % 3) * 0.12, 5)), i % 2 ? leafMat : leafMat2); leaf.position.set(Math.cos(a) * 0.1, 0.55 + (i % 3) * 0.06, Math.sin(a) * 0.1); leaf.rotation.set(Math.sin(a) * 0.5, 0, -Math.cos(a) * 0.5); g.add(leaf); } return g; }
   plant(-3.2, 6.4, 1.15); plant(ROOM.x1 - 0.35, -1.7, 1.0); plant(-3.2, -1.7, 0.9);
-  const bean = new THREE.Mesh(keep(new THREE.SphereGeometry(0.5, 12, 9)), keep(toon(0x4a8c8c))); bean.scale.set(1, 0.62, 0.95); bean.position.set(-2.6, 0.31, 2.9); add(bean); // ビーンバッグ
-  const bean2 = new THREE.Mesh(keep(new THREE.SphereGeometry(0.22, 8, 6)), keep(toon(0xf2d34f))); bean2.scale.set(1, 0.5, 0.9); bean2.position.set(-2.5, 0.64, 2.8); add(bean2);
+  if (!omit.bean) { // ビーンバッグ(部屋の演出では、ソファを置くので、省く)
+    const bean = new THREE.Mesh(keep(new THREE.SphereGeometry(0.5, 12, 9)), keep(toon(0x4a8c8c))); bean.scale.set(1, 0.62, 0.95); bean.position.set(-2.6, 0.31, 2.9); add(bean); // ビーンバッグ
+    const bean2 = new THREE.Mesh(keep(new THREE.SphereGeometry(0.22, 8, 6)), keep(toon(0xf2d34f))); bean2.scale.set(1, 0.5, 0.9); bean2.position.set(-2.5, 0.64, 2.8); add(bean2);
+  }
 
   // ---- 天井の明かり(つり下げ電球) ----
   const pend = new THREE.Group(); pend.position.set(0.4, H, 3.6); add(pend);
@@ -150,5 +153,5 @@ export function buildStreamRoom(ctx) {
   const floorLampLight = new THREE.PointLight(0xffc27a, 3.2, 6, 1.6); floorLampLight.position.set(3.3, 1.65, 4.7); scene.add(floorLampLight);
   const sideLight = new THREE.PointLight(0xbfd2ff, 2.2, 7, 1.5); sideLight.position.set(-2.6, 2.4, 1.6); scene.add(sideLight); // 左がわを、うっすら青白く(窓の月明かり)
 
-  return { ceilingLight, floorLampLight, update(t) { for (let i = 0; i < bulbs.length; i++) bulbs[i].scale.setScalar(0.92 + 0.1 * Math.sin(t * 2 + i * 1.3)); } };
+  return { ceilingLight, floorLampLight, shelves: [shelfR, shelfF1, shelfF2, shelfL], kb, update(t) { for (let i = 0; i < bulbs.length; i++) bulbs[i].scale.setScalar(0.92 + 0.1 * Math.sin(t * 2 + i * 1.3)); } };
 }

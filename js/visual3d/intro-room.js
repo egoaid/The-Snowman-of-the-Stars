@@ -1,0 +1,461 @@
+// intro-room.js (v1.113) — 起動の「部屋の演出」の、3Dの部屋と、雪だるま。
+//   ・部屋は stream-room.js(録画のワイプと同じ部屋)を使う。ソファ(本棚のとなり)と机・椅子・モニターを足す。
+//   ・雪だるまは、本編と同じモデル(createSnowmanCharacter)。最初は、ソファでくつろいでいる。
+//   ・視点は、ドラッグで見まわす・ホイール/つまむ で寄り引き・WASD/矢印キーで、部屋の中を動く。
+//   ・クリック: 本棚 → 本を取って、ソファで読む / MIDIキーボード → 取って、ソファで弾く / ソファ → 座ってくつろぐ /
+//              モニター → 椅子に座り、ブラウザを開いてゲームのサイトへ(onLaunch が呼ばれ、部屋は右下のワイプになる)/ 雪だるま → ぴょん。
+//   ・録画には、いっさい触れない(録画のワイプは、stream-wipe.js の、別の部屋。録画されるのは、ゲーム画面だけ)。
+//   描画は、480×270 ふうの低解像度(呼び出し側が setSize で決める)。ピクセルの粗さは、ゲーム本編と同じ作品の表現。
+import * as THREE from 'three';
+import { createSnowmanCharacter } from './snowman.js';
+import { buildStreamRoom, ROOM } from './stream-room.js';
+import { getSmoothGradientMap } from './shading.js';
+import { WIPE_VIEWS, fitFov } from './stream-wipe.js';
+import { SPOTS, SHELVES, planAction, pathLength, pcSequence, pcTotal, easeInOutCubic, smoothstep, clamp01, lerp, lerpAngle, angleDiff } from '../intro-room-core.js';
+
+const MAX_DT = 0.1;
+const WALK_SPEED = 1.25; // m/s
+const DEFAULT_VIEW = { pos: [2.2, 1.6, 5.6], target: [-2.6, 0.75, 2.4], fov: 54 }; // 起動の画角: ソファ・低い本棚・机が、見える
+const FOV_RANGE = [24, 80];
+const ATOMIC = new Set(['sit', 'stand', 'pick', 'place']); // 途中で止めない手順(立つ・座る・取る・置く)
+
+export function createIntroRoom(opts = {}) {
+  const rand = opts.rand || Math.random;
+  const labels = opts.labels || (() => ({}));
+  const canvas = document.createElement('canvas');
+  const renderer = opts.renderer || new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'low-power' }); // opts.renderer: 試験用(WebGLの無いNodeで、動きだけ確かめる)
+  renderer.setPixelRatio(1);
+  renderer.setClearColor(0x1c1a24, 1);
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(54, 16 / 9, 0.1, 40);
+  camera.rotation.order = 'YXZ';
+  const grad = getSmoothGradientMap();
+  const toon = (color) => new THREE.MeshToonMaterial({ color, gradientMap: grad });
+  const owned = [];
+  const keep = (x) => { owned.push(x); return x; };
+  const box = (w, h, d, mat, x, y, z, parent = scene) => { const m = new THREE.Mesh(keep(new THREE.BoxGeometry(w, h, d)), mat); m.position.set(x, y, z); parent.add(m); return m; };
+  const tag = (obj, pick) => { obj.userData.pick = pick; return obj; };
+  const pickRoots = [];
+
+  // ---- 明かり(録画のワイプの部屋と同じ。夜の部屋) ----
+  scene.add(new THREE.HemisphereLight(0x8a9bd6, 0x4a3a30, 0.85));
+  const lampLight = new THREE.PointLight(0xffc27a, 7, 6, 1.6); lampLight.position.set(-1.7, 1.55, 0.6); scene.add(lampLight);
+  const screenLight = new THREE.PointLight(0x9fd0ff, 4.2, 4.5, 1.7); screenLight.position.set(-0.7, 1.1, 0.9); scene.add(screenLight);
+  const key = new THREE.DirectionalLight(0xdfe6ff, 0.55); key.position.set(2.5, 3, 4); scene.add(key);
+
+  // ---- 部屋 ----
+  const wallMat = keep(toon(0x6f7fa8)), trimMat = keep(toon(0x3d3548)), woodMat = keep(toon(0x6a4a33)), darkMat = keep(toon(0x2b2f3a)); keep(toon(0x8b6b4e));
+  const room = buildStreamRoom({ scene, toon, keep, box, wallMat, trimMat, woodMat, darkMat, grad, omit: { bean: true } });
+  box(9, 0.18, 0.12, trimMat, -0.4, 0.09, -2.22);
+  { const rug = new THREE.Mesh(keep(new THREE.CircleGeometry(1.25, 28)), keep(toon(0xb03a48))); rug.rotation.x = -Math.PI / 2; rug.position.set(0.1, 0.012, 0.35); scene.add(rug);
+    const rugIn = new THREE.Mesh(keep(new THREE.CircleGeometry(0.8, 28)), keep(toon(0xe9d8b4))); rugIn.rotation.x = -Math.PI / 2; rugIn.position.set(0.1, 0.016, 0.35); scene.add(rugIn); }
+  // 窓(夜空に、月と星)
+  { const wc = document.createElement('canvas'); wc.width = 64; wc.height = 80; const c = wc.getContext('2d'); const g = c.createLinearGradient(0, 0, 0, 80); g.addColorStop(0, '#0b1230'); g.addColorStop(1, '#27346b'); c.fillStyle = g; c.fillRect(0, 0, 64, 80);
+    c.fillStyle = '#fff6c8'; for (const [x, y] of [[8, 10], [22, 24], [48, 8], [40, 38], [14, 52], [54, 58], [30, 8], [58, 30]]) c.fillRect(x, y, 2, 2);
+    c.fillStyle = '#fff3b0'; c.beginPath(); c.arc(44, 22, 7, 0, Math.PI * 2); c.fill(); c.fillStyle = '#27346b'; c.beginPath(); c.arc(47, 20, 6.2, 0, Math.PI * 2); c.fill();
+    c.fillStyle = '#eef3ff'; c.beginPath(); c.arc(8, 74, 14, 0, Math.PI * 2); c.arc(30, 78, 16, 0, Math.PI * 2); c.arc(54, 76, 14, 0, Math.PI * 2); c.fill();
+    const tex = keep(new THREE.CanvasTexture(wc)); tex.colorSpace = THREE.SRGBColorSpace; tex.magFilter = THREE.NearestFilter; tex.minFilter = THREE.NearestFilter;
+    const win = new THREE.Mesh(keep(new THREE.PlaneGeometry(1.5, 1.9)), keep(new THREE.MeshBasicMaterial({ map: tex, toneMapped: false }))); win.position.set(-0.95, 1.75, -2.23); scene.add(win);
+    box(1.66, 0.08, 0.1, woodMat, -0.95, 2.74, -2.2); box(1.66, 0.08, 0.1, woodMat, -0.95, 0.8, -2.2); box(0.08, 2, 0.1, woodMat, -1.78, 1.77, -2.2); box(0.08, 2, 0.1, woodMat, -0.12, 1.77, -2.2); box(0.05, 1.9, 0.08, woodMat, -0.95, 1.77, -2.2); }
+  { const pm = keep(toon(0xf2d34f)); box(0.62, 0.8, 0.03, keep(toon(0x2a2f55)), 1.0, 2.0, -2.22); const st = new THREE.Mesh(keep(new THREE.CircleGeometry(0.2, 5)), pm); st.position.set(1.0, 2.04, -2.2); scene.add(st);
+    box(1.0, 0.05, 0.28, woodMat, -2.7, 1.55, -2.1); box(0.16, 0.22, 0.16, keep(toon(0x4a9a63)), -2.95, 1.69, -2.1); box(0.2, 0.14, 0.18, keep(toon(0xd2693a)), -2.55, 1.64, -2.1); }
+
+  // ---- ソファ(左の壁ぎわ。低い本棚のとなり。+x=部屋の中を向く) ----
+  const sofa = new THREE.Group(); sofa.position.set(-3.05, 0, 2.5); sofa.rotation.y = Math.PI / 2; scene.add(sofa);
+  { const fab = keep(toon(0x5f7f72)), fab2 = keep(toon(0x4d6a5e)), cush = keep(toon(0xd2a05a)), cush2 = keep(toon(0xc4604a));
+    box(2.0, 0.3, 1.1, fab2, 0, 0.2, 0, sofa); // 土台
+    box(1.74, 0.11, 0.84, fab, 0, 0.395, 0.1, sofa); // 座面のクッション(上面 y=0.45)
+    box(2.0, 0.72, 0.2, fab2, 0, 0.71, -0.45, sofa); // 背もたれ
+    box(0.9, 0.42, 0.14, fab, -0.45, 0.72, -0.3, sofa).rotation.x = -0.12; box(0.9, 0.42, 0.14, fab, 0.45, 0.72, -0.3, sofa).rotation.x = -0.12; // 背のクッション
+    box(0.14, 0.4, 1.0, fab2, -0.93, 0.5, 0.03, sofa); box(0.14, 0.4, 1.0, fab2, 0.93, 0.5, 0.03, sofa); // ひじかけ
+    for (const [lx, lz] of [[-0.9, -0.48], [0.9, -0.48], [-0.9, 0.48], [0.9, 0.48]]) box(0.07, 0.1, 0.07, darkMat, lx, 0.05, lz, sofa);
+    const c1 = box(0.34, 0.34, 0.1, cush, -0.7, 0.66, -0.12, sofa); c1.rotation.set(-0.3, 0.2, 0.15); const c2 = box(0.3, 0.3, 0.1, cush2, 0.68, 0.64, -0.13, sofa); c2.rotation.set(-0.3, -0.25, -0.1); }
+  tag(sofa, { type: 'sofa' }); pickRoots.push(sofa);
+  // ソファのわきの、床置きの小さなランプ(くつろぐ場所の、暖かい明かり)
+  { const g = new THREE.Group(); g.position.set(-3.3, 0, 1.2); scene.add(g); const base = new THREE.Mesh(keep(new THREE.CylinderGeometry(0.13, 0.15, 0.04, 12)), darkMat); base.position.y = 0.02; g.add(base);
+    const pole = new THREE.Mesh(keep(new THREE.CylinderGeometry(0.012, 0.012, 1.25, 6)), darkMat); pole.position.y = 0.65; g.add(pole);
+    const sh = new THREE.Mesh(keep(new THREE.CylinderGeometry(0.13, 0.19, 0.24, 12, 1, true)), keep(new THREE.MeshBasicMaterial({ color: 0xffdca0, side: THREE.DoubleSide, toneMapped: false }))); sh.position.y = 1.32; g.add(sh); }
+  const sofaLight = new THREE.PointLight(0xffc88a, 2.6, 5, 1.5); sofaLight.position.set(-3.0, 1.5, 1.5); scene.add(sofaLight);
+
+  // ---- 机・モニター・椅子・キーボード・マウス(録画のワイプの部屋と、同じ置き方。画角が、そのまま使える) ----
+  const deskTopY = 0.78;
+  const desk = new THREE.Group(); scene.add(desk);
+  box(2.0, 0.06, 1.4, woodMat, -1.1, deskTopY, 0.75, desk);
+  for (const [lx, lz] of [[-2.05, 0.12], [-0.2, 0.12], [-2.05, 1.38], [-0.2, 1.38]]) box(0.06, deskTopY, 0.06, darkMat, lx, deskTopY / 2, lz, desk);
+  const monitor = new THREE.Group(); monitor.position.set(-1.2, deskTopY + 0.03, 0.82); monitor.rotation.y = 0.96; scene.add(monitor);
+  box(0.26, 0.02, 0.18, darkMat, 0, 0.01, 0, monitor); box(0.04, 0.18, 0.04, darkMat, 0, 0.1, 0, monitor); box(0.86, 0.5, 0.05, darkMat, 0, 0.42, 0, monitor);
+  const scr = document.createElement('canvas'); scr.width = 160; scr.height = 90; const sctx = scr.getContext('2d'); sctx.imageSmoothingEnabled = true;
+  const scrTex = keep(new THREE.CanvasTexture(scr)); scrTex.colorSpace = THREE.SRGBColorSpace; scrTex.magFilter = THREE.NearestFilter; scrTex.minFilter = THREE.NearestFilter; scrTex.generateMipmaps = false;
+  const screenMesh = new THREE.Mesh(keep(new THREE.PlaneGeometry(0.78, 0.44)), keep(new THREE.MeshBasicMaterial({ map: scrTex, toneMapped: false }))); screenMesh.position.set(0, 0.42, 0.028); monitor.add(screenMesh);
+  { const lb = new THREE.Mesh(keep(new THREE.CylinderGeometry(0.09, 0.1, 0.03, 10)), darkMat); lb.position.set(-1.95, deskTopY + 0.045, 0.5); scene.add(lb);
+    const la = new THREE.Mesh(keep(new THREE.CylinderGeometry(0.012, 0.012, 0.62, 5)), darkMat); la.position.set(-1.95, deskTopY + 0.36, 0.5); la.rotation.z = -0.25; scene.add(la);
+    const ls = new THREE.Mesh(keep(new THREE.ConeGeometry(0.12, 0.14, 10, 1, true)), keep(new THREE.MeshBasicMaterial({ color: 0xffd9a0, side: THREE.DoubleSide, toneMapped: false }))); ls.position.set(-1.83, deskTopY + 0.66, 0.5); ls.rotation.z = 0.5; scene.add(ls); }
+  const seatY = SPOTS.chair.seatY, chairX = SPOTS.chair.seat.x, chairZ = SPOTS.chair.seat.z, faceYaw = SPOTS.chair.yaw;
+  const chair = new THREE.Group(); chair.position.set(chairX, 0, chairZ); chair.rotation.y = faceYaw; scene.add(chair);
+  { const cm = keep(toon(0x3b4a8a)); box(0.66, 0.08, 0.62, cm, 0, seatY - 0.04, 0, chair); box(0.6, 0.6, 0.08, cm, 0, seatY + 0.34, -0.34, chair).rotation.x = -0.08; box(0.05, seatY - 0.08, 0.05, darkMat, 0, (seatY - 0.08) / 2, 0, chair);
+    for (let a = 0; a < 5; a++) { const w = box(0.34, 0.03, 0.04, darkMat, Math.cos(a * 1.2566) * 0.17, 0.03, Math.sin(a * 1.2566) * 0.17, chair); w.rotation.y = -a * 1.2566; } }
+  const fx = Math.sin(faceYaw), fz = Math.cos(faceYaw), rx = -Math.cos(faceYaw), rz = Math.sin(faceYaw);
+  const deskPoint = (f, r, y) => new THREE.Vector3(chairX + fx * f + rx * r, y, chairZ + fz * f + rz * r);
+  const KB_F = 0.76, KB_Y = deskTopY + 0.045, MOUSE_F = 0.78, MOUSE_R = 0.43;
+  const deskKb = new THREE.Group(); deskKb.position.copy(deskPoint(KB_F, 0, KB_Y)); deskKb.rotation.y = faceYaw; scene.add(deskKb);
+  box(0.5, 0.025, 0.19, darkMat, 0, 0, 0, deskKb);
+  { const km = keep(toon(0x59607a)); for (let r = 0; r < 4; r++) for (let c = 0; c < 12; c++) box(0.031, 0.012, 0.029, km, (c - 5.5) * 0.039, 0.018, (r - 1.5) * 0.037, deskKb); }
+  const mouseP0 = deskPoint(MOUSE_F, MOUSE_R, deskTopY + 0.033);
+  { const pad = box(0.26, 0.006, 0.22, keep(toon(0x3a3350)), mouseP0.x, mouseP0.y, mouseP0.z); pad.rotation.y = faceYaw; }
+  const mouseMesh = box(0.07, 0.03, 0.11, keep(toon(0xe6e6ea)), mouseP0.x, deskTopY + 0.051, mouseP0.z); mouseMesh.rotation.y = faceYaw + 0.12;
+  tag(desk, { type: 'monitor' }); tag(monitor, { type: 'monitor' }); tag(chair, { type: 'monitor' }); tag(deskKb, { type: 'monitor' });
+  pickRoots.push(desk, monitor, chair, deskKb);
+
+  // ---- 本棚・MIDIキーボード(stream-room.js が返す) ----
+  const shelfGroups = new Map();
+  room.shelves.forEach((g, i) => { const id = ['R', 'F1', 'F2', 'L'][i]; shelfGroups.set(id, g); tag(g, { type: 'book', shelf: id }); pickRoots.push(g); });
+  const kbObj = room.kb.group; tag(kbObj, { type: 'keyboard' }); pickRoots.push(kbObj);
+  const kbHome = { parent: kbObj.parent, pos: kbObj.position.clone(), rot: kbObj.rotation.clone(), scale: kbObj.scale.clone() };
+  const kbHomeWorld = kbObj.getWorldPosition(new THREE.Vector3());
+
+  // ---- 本(雪だるまが、棚から取る) ----
+  const book = new THREE.Group(); book.visible = false; scene.add(book);
+  { box(0.24, 0.034, 0.32, keep(toon(0x3b5c8c)), 0, 0.017, 0, book); box(0.215, 0.026, 0.3, keep(toon(0xf2ecd8)), 0.006, 0.02, 0, book); box(0.012, 0.036, 0.32, keep(toon(0x2c4468)), -0.115, 0.018, 0, book); }
+  const flapPivot = new THREE.Group(); flapPivot.position.set(0, 0.036, 0); book.add(flapPivot); const flap = box(0.105, 0.003, 0.29, keep(toon(0xf7f3e4)), 0.055, 0, 0, flapPivot); flapPivot.visible = false;
+  book.userData.home = null;
+
+  // ---- 雪だるま(本編と同じモデル)。rig = 置き場所と向き(座る時の前のめりも、ここ) ----
+  const snow = createSnowmanCharacter(1);
+  const rig = new THREE.Group(); rig.rotation.order = 'YXZ'; scene.add(rig); rig.add(snow.group);
+  tag(snow.group, { type: 'snowman' }); pickRoots.push(snow.group);
+  const armL = snow.torchSocket.parent, armR = snow.itemSocket.parent; // 左(モデルのx>0側)・右
+  const ARM_LEN = 0.55;
+  const _lt = new THREE.Vector3(), _u = new THREE.Vector3(), _tip = new THREE.Vector3(), _tmp = new THREE.Vector3(), _tmp2 = new THREE.Vector3();
+  const clampN = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+  /** 腕を、狙いの点へ向ける(stream-wipe.js の aimArm と同じ式)。w=0〜1 で、ふだんの腕の動きと混ぜる。 */
+  function aimArm(arm, tip, target, w) {
+    const r0 = { x: arm.rotation.x, z: arm.rotation.z, sx: arm.scale.x, sy: arm.scale.y, sz: arm.scale.z };
+    arm.parent.updateWorldMatrix(true, false);
+    _lt.copy(target); arm.parent.worldToLocal(_lt); _u.copy(_lt).sub(arm.position);
+    const dist = _u.length() || 1; _u.divideScalar(dist);
+    const rz = clampN(-Math.asin(clampN(_u.x, -1, 1)), -2.6, 2.6), rx = Math.atan2(_u.z, _u.y);
+    const sy = clampN(dist / ARM_LEN, 0.7, 2.1), sxz = Math.sqrt(sy);
+    arm.rotation.x = lerp(r0.x, rx, w); arm.rotation.z = lerp(r0.z, rz, w); arm.scale.set(lerp(r0.sx, sxz, w), lerp(r0.sy, sy, w), lerp(r0.sz, sxz, w));
+    arm.updateMatrixWorld(true);
+  }
+
+  // ---- 雪だるまの、いまの状態 ----
+  const me = { x: SPOTS.sofa.seat.x, z: SPOTS.sofa.seat.z, y: SPOTS.sofa.seatY, yaw: SPOTS.sofa.yaw, sitK: 1, seat: 'sofa', carry: null, walking: false, activity: 'idle', lean: 0 };
+  let launched = !!opts.launched; // もう、ゲームのサイトへ行ったか(2回目以降は、短い流れ)
+  let t = 0, yawnT = -1, nextYawn = 12 + rand() * 14, joyT = 0, blinkTalk = 0;
+  let queue = [], cur = null, curStep = null, pending = null;
+  const armW = { L: 0, R: 0 }; const armTgt = { L: null, R: null }; // 腕の狙い(世界の点)と、混ぜる割合(なめらかに)
+  const tipPos = { L: new THREE.Vector3(), R: new THREE.Vector3() }, tipInit = { L: false, R: false };
+
+  // ---- カメラ(見まわす・動く・ゆっくり寄る) ----
+  const cam = { pos: new THREE.Vector3(), yaw: 0, pitch: 0, fov: 54, tween: null, locked: false };
+  function viewToCam(v) {
+    const pos = new THREE.Vector3(...v.pos), d = new THREE.Vector3(...v.target).sub(pos).normalize();
+    return { pos, pitch: Math.asin(clampN(d.y, -1, 1)), yaw: Math.atan2(-d.x, -d.z), fov: v.fov };
+  }
+  function setView(v) { const c = viewToCam(v); cam.pos.copy(c.pos); cam.yaw = c.yaw; cam.pitch = c.pitch; cam.fov = c.fov; cam.tween = null; applyCamera(); }
+  function tweenTo(v, dur = 1.2) { const c = viewToCam(v); cam.tween = { t: 0, dur, fp: cam.pos.clone(), tp: c.pos, fy: cam.yaw, ty: cam.yaw + angleDiff(cam.yaw, c.yaw), fpi: cam.pitch, tpi: c.pitch, ff: cam.fov, tf: c.fov }; }
+  let size = { w: 480, h: 270 };
+  function applyCamera() {
+    camera.position.copy(cam.pos); camera.rotation.set(cam.pitch, cam.yaw, 0);
+    camera.fov = fitFov(cam.fov, camera.aspect); camera.updateProjectionMatrix();
+  }
+  function updateCamera(dt) {
+    if (cam.tween) {
+      const tw = cam.tween; tw.t += dt; const k = easeInOutCubic(tw.t / tw.dur);
+      cam.pos.lerpVectors(tw.fp, tw.tp, k); cam.yaw = lerp(tw.fy, tw.ty, k); cam.pitch = lerp(tw.fpi, tw.tpi, k); cam.fov = lerp(tw.ff, tw.tf, k);
+      if (tw.t >= tw.dur) cam.tween = null;
+    }
+    // WASD/矢印: 部屋の中を動く(話の最中は、動かない)
+    if (interactive && !cam.locked && !cam.tween && keysDown.size) {
+      const sp = (keysDown.has('shift') ? 3.2 : 1.8) * dt, fwd = (keysDown.has('w') || keysDown.has('arrowup') ? 1 : 0) - (keysDown.has('s') || keysDown.has('arrowdown') ? 1 : 0), str = (keysDown.has('d') || keysDown.has('arrowright') ? 1 : 0) - (keysDown.has('a') || keysDown.has('arrowleft') ? 1 : 0);
+      cam.pos.x += (-Math.sin(cam.yaw) * fwd + Math.cos(cam.yaw) * str) * sp; cam.pos.z += (-Math.cos(cam.yaw) * fwd - Math.sin(cam.yaw) * str) * sp;
+    }
+    cam.pos.x = clampN(cam.pos.x, ROOM.x0 + 0.25, ROOM.x1 - 0.25); cam.pos.z = clampN(cam.pos.z, ROOM.z0 + 0.3, ROOM.z1 - 0.25); cam.pos.y = clampN(cam.pos.y, 0.4, ROOM.h - 0.25);
+    cam.pitch = clampN(cam.pitch, -1.25, 1.25); cam.fov = clampN(cam.fov, FOV_RANGE[0], FOV_RANGE[1]);
+    applyCamera();
+  }
+
+  // ---- 見まわし・クリック(ポインタ) ----
+  let interactive = true;
+  const keysDown = new Set();
+  const ptrs = new Map(); let drag = null, pinch = null, lastHoverAt = 0;
+  const ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
+  function pickAt(clientX, clientY) {
+    const r = canvas.getBoundingClientRect(); if (!r.width || !r.height) return null;
+    // canvas は、枠にあわせて、はみ出す(cover)ことがある。画面上の位置 → 描いた絵の中の位置
+    const k = Math.max(r.width / size.w, r.height / size.h), iw = size.w * k, ih = size.h * k, ox = r.left + (r.width - iw) / 2, oy = r.top + (r.height - ih) / 2;
+    ndc.set(((clientX - ox) / iw) * 2 - 1, -(((clientY - oy) / ih) * 2 - 1)); if (Math.abs(ndc.x) > 1 || Math.abs(ndc.y) > 1) return null;
+    scene.updateMatrixWorld(true); ray.setFromCamera(ndc, camera);
+    const hits = ray.intersectObjects(pickRoots, true);
+    for (const h of hits) { let o = h.object; while (o) { if (o.userData && o.userData.pick) return { ...o.userData.pick, dist: h.distance }; o = o.parent; } }
+    return null;
+  }
+  const labelOf = (p) => { if (!p) return null; const L = labels() || {}; return L[p.type] || null; };
+  function onDown(e) {
+    if (!interactive) return;
+    ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    try { canvas.setPointerCapture(e.pointerId); } catch (err) { /* 取れなくても、動く */ }
+    if (ptrs.size === 1) drag = { id: e.pointerId, sx: e.clientX, sy: e.clientY, lx: e.clientX, ly: e.clientY, moved: false };
+    else if (ptrs.size === 2) { const [a, b] = [...ptrs.values()]; pinch = { d: Math.hypot(a.x - b.x, a.y - b.y), fov: cam.fov }; if (drag) drag.moved = true; }
+    e.preventDefault();
+  }
+  function onMove(e) {
+    if (!interactive) return;
+    if (ptrs.has(e.pointerId)) ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pinch && ptrs.size >= 2) { const [a, b] = [...ptrs.values()]; const d = Math.hypot(a.x - b.x, a.y - b.y) || 1; if (!cam.locked) cam.fov = clampN(pinch.fov * (pinch.d / d), FOV_RANGE[0], FOV_RANGE[1]); return; }
+    if (drag && drag.id === e.pointerId) {
+      const dx = e.clientX - drag.lx, dy = e.clientY - drag.ly; drag.lx = e.clientX; drag.ly = e.clientY;
+      if (!drag.moved && Math.hypot(e.clientX - drag.sx, e.clientY - drag.sy) > 5) drag.moved = true;
+      if (drag.moved && !cam.locked) { const k = 0.0042 * (cam.fov / 54); cam.yaw += dx * k; cam.pitch += dy * k; cam.tween = null; }
+      if (opts.onHover) opts.onHover(null, 0, 0);
+      return;
+    }
+    const now = performance.now(); if (now - lastHoverAt < 70) return; lastHoverAt = now;
+    const p = pickAt(e.clientX, e.clientY); canvas.style.cursor = p ? 'pointer' : 'grab';
+    if (opts.onHover) opts.onHover(labelOf(p), e.clientX, e.clientY);
+  }
+  function onUp(e) {
+    const was = drag && drag.id === e.pointerId ? drag : null;
+    ptrs.delete(e.pointerId); if (ptrs.size < 2) pinch = null; if (ptrs.size === 0) drag = null; else if (drag && drag.id === e.pointerId) drag = null;
+    try { canvas.releasePointerCapture(e.pointerId); } catch (err) { /* もう、離れている */ }
+    if (!interactive || !was || was.moved) return;
+    const p = pickAt(e.clientX, e.clientY); if (p) api.act(p);
+  }
+  function onWheel(e) { if (!interactive || cam.locked) return; cam.fov = clampN(cam.fov * Math.exp(e.deltaY * 0.0012), FOV_RANGE[0], FOV_RANGE[1]); e.preventDefault(); }
+  /** キー入力は、intro-layer.js が(ゲーム本編へ渡さずに)ここへ渡す。WASD/矢印で動く・Shiftで速く。 */
+  function onKey(e, down) {
+    if (!interactive) return; const tg = e.target; if (tg && (tg.tagName === 'INPUT' || tg.tagName === 'TEXTAREA' || tg.tagName === 'SELECT' || tg.isContentEditable)) return;
+    const k = (e.key || '').toLowerCase(); if (['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright', 'shift'].includes(k)) { if (down) keysDown.add(k); else keysDown.delete(k); }
+  }
+  canvas.style.touchAction = 'none'; canvas.style.cursor = 'grab';
+  canvas.addEventListener('pointerdown', onDown); canvas.addEventListener('pointermove', onMove); canvas.addEventListener('pointerup', onUp); canvas.addEventListener('pointercancel', onUp);
+  canvas.addEventListener('wheel', onWheel, { passive: false }); canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+  canvas.addEventListener('pointerleave', () => { if (opts.onHover) opts.onHover(null, 0, 0); });
+
+  // ---- 行動(手順の実行) ----
+  const stateNow = () => ({ x: me.x, z: me.z, seat: me.seat, carry: me.carry, launched });
+  function begin(step) {
+    curStep = { ...step, k: 0, i: 0 };
+    if (step.t === 'walk') { const pts = [{ x: me.x, z: me.z }, ...step.path]; curStep.pts = pts; curStep.seg = 1; }
+    if (step.t === 'sit') { curStep.from = { x: me.x, z: me.z, yaw: me.yaw }; const S = SPOTS[step.seat]; curStep.to = { x: S.seat.x, z: S.seat.z, yaw: S.yaw, y: S.seatY }; }
+    if (step.t === 'stand') { const S = SPOTS[step.seat]; curStep.from = { x: me.x, z: me.z }; curStep.to = step.seat === 'sofa' ? { ...S.front } : { ...S.side }; curStep.yawTo = me.yaw; }
+    if (step.t === 'camera') { cam.locked = true; cam.tween = null; tweenTo(step.view === 'monitor' ? { ...WIPE_VIEWS.monitor } : DEFAULT_VIEW, 1.3); }
+    if (step.t === 'do') { me.activity = step.what; curStep.dur = step.what === 'pc' ? pcTotal(!launched) : (step.dur || 60); curStep.fresh = !launched; curStep.fired = false; if (step.what === 'pc') cam.locked = true; }
+    if (step.t === 'reach') { curStep.dur = 0.9; const nx = queue[0]; curStep.what = nx && nx.t === 'pick' ? nx.what : 'book'; curStep.shelf = nx && nx.shelf; }
+    if (step.t === 'place') { curStep.dur = 0.8; curStep.done = false; }
+    if (step.t === 'pick') { curStep.dur = 0.55; curStep.done = false; }
+  }
+  function finish() { curStep = null; }
+  function setQueue(steps) { queue = steps.slice(); curStep = null; me.walking = false; if (queue.some((q) => q.t === 'stand' || q.t === 'walk')) me.activity = 'idle'; } // 立つ・歩く手順があれば、いまの活動(読む・弾く・パソコン)は、終わり
+  function stepDone() { return curStep === null; }
+
+  function reachTarget(step) { // 手を伸ばす先(世界の点)
+    if (step.what === 'kb') return kbHomeWorld.clone().add(new THREE.Vector3(0, 0.2, -0.05));
+    const f = new THREE.Vector3(Math.sin(me.yaw), 0, Math.cos(me.yaw));
+    return new THREE.Vector3(me.x + f.x * 0.95, 1.05 + 0.12 * Math.sin((step.shelf ? step.shelf.length : 1) * 1.7 + me.x), me.z + f.z * 0.95);
+  }
+  function runStep(dt) {
+    const s = curStep; if (!s) return;
+    s.k += dt;
+    switch (s.t) {
+      case 'walk': {
+        const target = s.pts[s.seg]; if (!target) { me.walking = false; return finish(); }
+        const dx = target.x - me.x, dz = target.z - me.z, d = Math.hypot(dx, dz);
+        const want = d > 0.02 ? Math.atan2(dx, dz) : me.yaw, diff = angleDiff(me.yaw, want);
+        me.yaw += clampN(diff, -7 * dt, 7 * dt);
+        if (Math.abs(diff) > 0.7) { me.walking = false; return; } // 向きが合うまでは、その場で回る
+        me.walking = true; const step = Math.min(d, WALK_SPEED * dt); me.x += (dx / (d || 1)) * step; me.z += (dz / (d || 1)) * step;
+        if (d - step < 0.03) { s.seg++; if (s.seg >= s.pts.length) { me.walking = false; finish(); } }
+        break;
+      }
+      case 'face': { me.yaw += clampN(angleDiff(me.yaw, s.yaw), -5 * dt, 5 * dt); if (Math.abs(angleDiff(me.yaw, s.yaw)) < 0.03 && s.k > 0.15) finish(); break; }
+      case 'reach': { armTgt.R = reachTarget(s); if (s.k >= s.dur) finish(); break; }
+      case 'pick': {
+        const u = clamp01(s.k / s.dur);
+        if (s.what === 'kb') armTgt.L = armTgt.R = kbHomeWorld.clone().add(new THREE.Vector3(0, 0.2, -0.05)); else armTgt.R = reachTarget({ what: 'book', shelf: s.shelf });
+        if (u > 0.5 && !s.done) { s.done = true; me.carry = s.what; if (s.what === 'book') { book.visible = true; flapPivot.visible = false; } }
+        if (s.k >= s.dur) finish(); break;
+      }
+      case 'sit': {
+        const u = smoothstep(s.k / 1.15), T = s.to, F = s.from;
+        me.x = lerp(F.x, T.x, u); me.z = lerp(F.z, T.z, u); me.yaw = lerpAngle(F.yaw, T.yaw, u); me.sitK = u; me.y = T.y * u; me.walking = false;
+        if (s.k >= 1.15) { me.seat = s.seat; me.sitK = 1; me.y = T.y; me.x = T.x; me.z = T.z; me.yaw = T.yaw; finish(); }
+        break;
+      }
+      case 'stand': {
+        const u = smoothstep(s.k / 0.95), F = s.from, T = s.to, S = SPOTS[s.seat];
+        me.x = lerp(F.x, T.x, u); me.z = lerp(F.z, T.z, u); me.sitK = 1 - u; me.y = S.seatY * (1 - u);
+        if (s.k >= 0.95) { me.seat = null; me.sitK = 0; me.y = 0; me.x = T.x; me.z = T.z; finish(); }
+        break;
+      }
+      case 'place': {
+        const u = clamp01(s.k / s.dur);
+        if (s.what === 'kb') armTgt.L = armTgt.R = kbHomeWorld.clone().add(new THREE.Vector3(0, 0.2, -0.05)); else if (s.at === 'sofa') { armTgt.R = new THREE.Vector3(-2.75, 0.55, 2.0); }
+        if (u > 0.6 && !s.done) {
+          s.done = true;
+          if (s.what === 'kb') { kbHome.parent.add(kbObj); kbObj.position.copy(kbHome.pos); kbObj.rotation.copy(kbHome.rot); kbObj.scale.copy(kbHome.scale); }
+          else { scene.add(book); book.position.set(-2.95, 0.5, 2.05 + (rand() - 0.5) * 0.3); book.rotation.set(0, 0.6 + rand() * 0.5, 0); book.scale.setScalar(1); book.visible = true; flapPivot.visible = false; }
+          me.carry = null;
+        }
+        if (s.k >= s.dur) finish(); break;
+      }
+      case 'camera': { if (!cam.tween) finish(); break; }
+      case 'do': {
+        if (s.what === 'pc') {
+          const seq = pcSequence(s.k, s.fresh); screenState.seq = seq; screenState.mode = seq.stage === 'game' ? 'game' : 'pc';
+          if (seq.done && !s.fired) { s.fired = true; launched = true; screenState.mode = 'game'; me.activity = 'pcgame'; cam.locked = false; if (opts.onLaunch) opts.onLaunch(); finish(); }
+        } else if (s.k >= s.dur) { me.activity = 'idle'; finish(); }
+        break;
+      }
+      default: finish();
+    }
+  }
+  function advance(dt) {
+    if (!curStep && pending) { const a = pending; pending = null; setQueue(planAction(a, stateNow(), rand)); }
+    if (!curStep && queue.length) begin(queue.shift());
+    if (curStep) runStep(dt);
+    if (!curStep && queue.length) begin(queue.shift()); // 手順の切れ目で、動きが止まらないように
+  }
+
+  // ---- パソコンの画面 ----
+  const screenState = { mode: launched ? 'game' : 'desk', seq: null, gameFrame: null, cursor: { x: 80, y: 46 }, click: 0 };
+  const FONT = '"Hiragino Sans","Noto Sans JP","Yu Gothic",sans-serif';
+  function drawDesk(c) { const g = c.createLinearGradient(0, 0, 160, 90); g.addColorStop(0, '#1b2740'); g.addColorStop(1, '#2d3e66'); c.fillStyle = g; c.fillRect(0, 0, 160, 90);
+    c.fillStyle = 'rgba(255,255,255,0.14)'; for (let i = 0; i < 3; i++) { c.fillRect(8, 8 + i * 17, 11, 11); } c.fillStyle = '#10151f'; c.fillRect(0, 82, 160, 8); c.fillStyle = '#7fb4ff'; c.fillRect(3, 84, 6, 4); }
+  function drawPage(c, a = 1) { // ゲームの起動画面(ゲームのサイトの、見た目)
+    const g = c.createLinearGradient(0, 0, 0, 90); g.addColorStop(0, '#08102a'); g.addColorStop(1, '#27346b'); c.globalAlpha = a; c.fillStyle = g; c.fillRect(0, 0, 160, 90);
+    c.fillStyle = '#fff6c8'; for (const [x, y] of [[12, 10], [30, 24], [128, 8], [110, 30], [20, 52], [144, 50], [70, 8], [150, 24], [48, 14], [100, 14]]) c.fillRect(x, y, 2, 2);
+    c.fillStyle = '#fff3b0'; c.beginPath(); c.arc(128, 22, 8, 0, Math.PI * 2); c.fill(); c.fillStyle = '#1a2552'; c.beginPath(); c.arc(131, 20, 7.2, 0, Math.PI * 2); c.fill();
+    c.fillStyle = '#eef3ff'; c.beginPath(); c.arc(14, 88, 22, 0, Math.PI * 2); c.arc(54, 92, 26, 0, Math.PI * 2); c.arc(110, 90, 24, 0, Math.PI * 2); c.arc(150, 88, 20, 0, Math.PI * 2); c.fill();
+    c.fillStyle = '#fafaf8'; c.beginPath(); c.arc(80, 70, 11, 0, Math.PI * 2); c.fill(); c.beginPath(); c.arc(80, 55, 8, 0, Math.PI * 2); c.fill(); c.fillStyle = '#1a1612'; c.fillRect(74, 41, 12, 9); c.fillRect(72, 49, 16, 2); c.fillStyle = '#b03030'; c.fillRect(74, 47, 12, 2);
+    c.fillStyle = '#e8700a'; c.fillRect(81, 55, 6, 1); c.fillStyle = '#2c2822'; c.fillRect(77, 53, 1.5, 1.5); c.fillRect(82, 53, 1.5, 1.5);
+    c.fillStyle = '#ffffff'; c.font = `bold 13px ${FONT}`; c.textAlign = 'center'; c.fillText(opts.title || '星の雪だるま', 80, 30); c.font = `7px ${FONT}`; c.fillStyle = '#c9d6ff'; c.fillText(opts.titleEn || 'The Snowman of the Stars', 80, 40); c.globalAlpha = 1; }
+  function drawBrowser(c, seq) {
+    drawDesk(c); const k = easeInOutCubic(seq.open), w = lerp(40, 150, k), h = lerp(24, 80, k), x = 80 - w / 2, y = 44 - h / 2;
+    c.fillStyle = '#e9edf5'; c.fillRect(x, y, w, h); c.fillStyle = '#39445f'; c.fillRect(x, y, w, 7); c.fillStyle = '#ff6b6b'; c.fillRect(x + 3, y + 2.5, 2, 2); c.fillStyle = '#ffd166'; c.fillRect(x + 7, y + 2.5, 2, 2); c.fillStyle = '#7ddc8a'; c.fillRect(x + 11, y + 2.5, 2, 2);
+    if (seq.open < 0.85) return;
+    const url = 'snowman-of-the-stars'; c.fillStyle = '#ffffff'; c.fillRect(x + 4, y + 9, w - 8, 8); c.strokeStyle = '#9aa6c0'; c.lineWidth = 0.6; c.strokeRect(x + 4, y + 9, w - 8, 8);
+    const n = Math.floor(seq.typed * url.length); c.fillStyle = '#1c2438'; c.font = `6px ${FONT}`; c.textAlign = 'left'; c.fillText(url.slice(0, n) + (seq.stage === 'type' && Math.floor(t * 4) % 2 ? '|' : ''), x + 7, y + 15);
+    if (seq.enter) { c.fillStyle = '#7fe8ff'; c.fillRect(x + w - 16, y + 10, 10, 6); c.fillStyle = '#10151f'; c.fillText('Enter', x + w - 15, y + 15); }
+    if (seq.stage === 'load') { c.fillStyle = '#d5dbea'; c.fillRect(x + 4, y + 22, w - 8, h - 26); c.fillStyle = '#7fb4ff'; c.fillRect(x + 4, y + 18, (w - 8) * seq.load, 2); }
+    if (seq.stage === 'page') { c.save(); c.beginPath(); c.rect(x + 4, y + 18, w - 8, h - 22); c.clip(); c.translate(x + 4 - 80 * (1 - 1) + 0, y + 18); c.scale((w - 8) / 160, (h - 22) / 90); drawPage(c, seq.page); c.restore(); }
+  }
+  function drawCursor(c, x, y, click) { x = Math.round(x); y = Math.round(y);
+    if (click > 0.02) { c.strokeStyle = `rgba(255,255,255,${click})`; c.lineWidth = 1; c.beginPath(); c.arc(x, y, 3 + (1 - click) * 7, 0, Math.PI * 2); c.stroke(); }
+    c.beginPath(); c.moveTo(x, y); c.lineTo(x, y + 10); c.lineTo(x + 2.6, y + 7.6); c.lineTo(x + 4.6, y + 12); c.lineTo(x + 6.4, y + 11.2); c.lineTo(x + 4.4, y + 6.9); c.lineTo(x + 7.6, y + 6.9); c.closePath(); c.fillStyle = '#fff'; c.fill(); c.lineWidth = 1; c.strokeStyle = '#000'; c.stroke(); }
+  let mouseDf = 0, mouseDr = 0, clickT = 9, nextClick = 1.3;
+  function drawScreen(dt) {
+    const sm = screenState; sctx.save();
+    if (sm.mode === 'pc' && sm.seq) drawBrowser(sctx, sm.seq);
+    else if (sm.mode === 'game') { if (sm.gameFrame && sm.gameFrame.width > 0) { try { sctx.drawImage(sm.gameFrame, 0, 0, 160, 90); } catch (e) { drawPage(sctx); } } else drawPage(sctx); }
+    else drawDesk(sctx);
+    if (sm.mode === 'game' || sm.mode === 'pc') { sm.cursor.x = 80 + mouseDr * 420; sm.cursor.y = 46 - mouseDf * 300; sm.click = Math.max(0, sm.click - dt * 4); if (!(sm.mode === 'pc' && sm.seq && sm.seq.stage !== 'open')) drawCursor(sctx, sm.cursor.x, sm.cursor.y, sm.click); }
+    sctx.restore(); scrTex.needsUpdate = true;
+  }
+
+  // ---- 毎コマ ----
+  function applyCarry() {
+    if (me.carry === 'book') {
+      if (me.activity === 'read' && me.seat === 'sofa') { if (book.parent !== snow.group) { snow.group.add(book); } book.position.set(0, 0.7, 0.5); book.rotation.set(-1.0, 0, 0); book.scale.setScalar(1.25); }
+      else { if (book.parent !== snow.itemSocket) snow.itemSocket.add(book); book.position.set(0, 0.04, 0.07); book.rotation.set(-0.5, 0.3, 0.1); book.scale.setScalar(0.9); }
+    } else if (me.carry === 'kb') {
+      if (kbObj.parent !== snow.group) { snow.group.add(kbObj); kbObj.rotation.set(0.18, 0, 0); kbObj.scale.setScalar(1); }
+      kbObj.position.set(0, me.seat === 'sofa' ? 0.5 : 0.62, 0.58); kbObj.rotation.set(me.seat === 'sofa' ? 0.12 : 0.22, 0, 0);
+    }
+  }
+  function handTargets(dt) {
+    armTgt.L = armTgt.L || null; armTgt.R = armTgt.R || null;
+    const hold = (obj, lx, lz, ly = 0.02) => obj.localToWorld(new THREE.Vector3(lx, ly, lz));
+    if (me.carry === 'book' && me.activity === 'read' && me.seat === 'sofa') { armTgt.L = hold(book, 0.09, 0.1, 0.04); armTgt.R = hold(book, -0.09, 0.1, 0.04); }
+    else if (me.carry === 'kb') {
+      if (me.activity === 'play') { const a = Math.sin(t * 3.1), b = Math.sin(t * 2.6 + 1.3); armTgt.L = hold(kbObj, 0.14 + 0.1 * a, 0.0, 0.05); armTgt.R = hold(kbObj, -0.14 - 0.1 * b, 0.0, 0.05); }
+      else { armTgt.L = hold(kbObj, 0.27, 0.0, 0.03); armTgt.R = hold(kbObj, -0.27, 0.0, 0.03); }
+    } else if (me.seat === 'chair' && (me.activity === 'pc' || me.activity === 'pcgame')) {
+      const amp = 1; const tdf = (0.05 * Math.sin(t * 0.7 + 1) + 0.035 * Math.sin(t * 1.9)) * amp, tdr = (0.07 * Math.sin(t * 0.9) + 0.045 * Math.sin(t * 2.3 + 2)) * amp;
+      mouseDf += (tdf - mouseDf) * Math.min(1, dt * 6); mouseDr += (tdr - mouseDr) * Math.min(1, dt * 6);
+      nextClick -= dt; if (nextClick <= 0) { clickT = 0; screenState.click = 1; nextClick = 0.8 + rand() * 2.2; }
+      clickT += dt; const click = clickT < 0.14 ? Math.sin((clickT / 0.14) * Math.PI) : 0;
+      const mp = deskPoint(MOUSE_F + mouseDf, MOUSE_R + mouseDr, deskTopY + 0.051); mouseMesh.position.set(mp.x, mp.y, mp.z); mouseMesh.rotation.y = faceYaw + 0.12 + mouseDr * 1.5;
+      armTgt.R = new THREE.Vector3(mp.x, deskTopY + 0.085 - 0.02 * click, mp.z);
+      const kl = deskPoint(KB_F + 0.02 * Math.sin(t * 5.3) + 0.01, 0.1 + 0.06 * Math.sin(t * 1.7), deskTopY + 0.1 - 0.012 * Math.max(0, Math.sin(t * 9))); armTgt.L = kl;
+    } else if (!curStep || (curStep.t !== 'reach' && curStep.t !== 'pick' && curStep.t !== 'place')) { armTgt.L = armTgt.R = null; }
+  }
+  function updateSnowman(dt) {
+    const onSofa = me.seat === 'sofa';
+    rig.position.set(me.x, me.y, me.z); rig.rotation.y = me.yaw;
+    const chairNow = me.seat === 'chair' || (curStep && curStep.t === 'sit' && curStep.seat === 'chair'); const leanT = (chairNow ? 0.14 : 0) * me.sitK; me.lean += (leanT - me.lean) * Math.min(1, dt * 5); rig.rotation.x = me.lean + (me.seat === 'chair' ? 0.03 * Math.sin(t * 0.6) : 0);
+    let yawn = 0;
+    if (yawnT >= 0) { yawnT += dt; yawn = Math.sin(clamp01(yawnT / 2.6) * Math.PI); if (yawnT > 2.6) { yawnT = -1; nextYawn = 18 + rand() * 20; } }
+    else if (onSofa && me.activity === 'idle' && !curStep) { nextYawn -= dt; if (nextYawn <= 0) yawnT = 0; }
+    const reading = me.activity === 'read', playing = me.activity === 'play', pc = me.activity === 'pc' || me.activity === 'pcgame';
+    snow.setIntensity(playing ? 0.5 : pc ? 0.2 + 0.1 * Math.sin(t * 0.8) : joyT > 0 ? 0.5 : 0.08);
+    snow.setPerform(playing ? { pat: 0.7, sway: 0.7, arms: 0, t } : pc ? { pat: 0.25, sway: 0.25, arms: 0, t } : null);
+    snow.setEmote({ sit: me.sitK, breath: 1, breathPhase: t, yawn: me.seat && !playing && !pc ? yawn : 0, drowsy: onSofa && me.activity === 'idle' && !curStep ? 0.25 : 0 });
+    snow.setWalking(me.walking); snow.setJoyful(joyT > 0);
+    joyT = Math.max(0, joyT - dt);
+    snow.group.position.set(0, 0, 0); snow.update(dt, t); snow.group.rotation.y = Math.sin(t * 0.35) * 0.03;
+    if (pc) { snow.headGroup.rotation.x += 0.1 - 0.14 * 0.6 + 0.06 * Math.sin(t * 0.9); snow.headGroup.rotation.y += Math.sin(t * 0.5) * 0.05; }
+    if (reading) snow.headGroup.rotation.x += 0.28 + 0.02 * Math.sin(t * 0.7); // 本をのぞきこむ
+    if (playing) snow.headGroup.rotation.x += 0.16;
+    rig.updateMatrixWorld(true); applyCarry(); book.updateMatrixWorld(true); kbObj.updateMatrixWorld(true); handTargets(dt); rig.updateMatrixWorld(true);
+    for (const [h, arm, tip] of [['L', armL, snow.torchSocket], ['R', armR, snow.itemSocket]]) {
+      const tg = armTgt[h]; armW[h] += ((tg ? 1 : 0) - armW[h]) * Math.min(1, dt * 7);
+      if (armW[h] < 0.01) { tipInit[h] = false; continue; }
+      if (tg) { if (!tipInit[h]) { tip.getWorldPosition(tipPos[h]); tipInit[h] = true; } tipPos[h].lerp(tg, Math.min(1, dt * 12)); }
+      aimArm(arm, tip, tipPos[h], armW[h]);
+    }
+    if (me.carry === 'book' && me.activity === 'read') { // ときどき、ページをめくる
+      const cycle = (t % 7.5); if (cycle < 0.6 && me.seat === 'sofa') { flapPivot.visible = true; flapPivot.rotation.z = -Math.PI * easeInOutCubic(cycle / 0.6); } else flapPivot.visible = false;
+    }
+  }
+
+  function update(dtSec) {
+    const dt = Math.max(0, Math.min(MAX_DT, +dtSec || 1 / 30)); t += dt;
+    advance(dt); updateCamera(dt); updateSnowman(dt); drawScreen(dt);
+    const glow = screenState.mode === 'game' ? 0.7 : 0.4; screenLight.intensity = 3.6 + 1.2 * glow + 0.3 * Math.sin(t * 9); lampLight.intensity = 6.5 + 0.2 * Math.sin(t * 1.3); room.update(t);
+  }
+
+  // ---- 外へ見せるもの ----
+  const api = {
+    canvas, renderer, scene, camera, snow, me,
+    update,
+    render() { renderer.render(scene, camera); },
+    setSize(w, h) { size = { w: Math.max(2, w | 0), h: Math.max(2, h | 0) }; renderer.setSize(size.w, size.h, false); camera.aspect = size.w / size.h; applyCamera(); },
+    keyEvent(e, down) { onKey(e, down); },
+    clearKeys() { keysDown.clear(); },
+    setInteractive(v) { interactive = !!v; if (!interactive) { drag = null; pinch = null; ptrs.clear(); keysDown.clear(); if (opts.onHover) opts.onHover(null, 0, 0); } canvas.style.cursor = interactive ? 'grab' : 'pointer'; },
+    /** クリックされたもの { type:'book'|'keyboard'|'monitor'|'sofa'|'snowman', shelf? } に応じて、雪だるまを動かす。 */
+    act(p) {
+      if (!p) return;
+      if (p.type === 'snowman') { if (!curStep && !queue.length) { joyT = 1.6; snow.triggerActionSwing(); } return; }
+      if (curStep && curStep.t === 'do' && curStep.what === 'pc' && !(me.activity === 'pcgame')) return; // ゲームのサイトへ行く最中は、ほかの操作を受けない(数秒)
+      let action = p;
+      if (p.type === 'sofa') { if (me.seat === 'sofa' && !curStep && !queue.length) return; action = { type: 'sofa' }; }
+      if (curStep && ATOMIC.has(curStep.t)) { pending = action; queue = []; return; } // 立つ・座る・取る・置く の途中は、終わってから
+      const steps = planAction(action, stateNow(), rand);
+      if (!steps.length) return;
+      if (curStep && curStep.t === 'do' && curStep.what !== 'pc') me.activity = 'idle';
+      cam.locked = false; setQueue(steps); pending = null;
+    },
+    /** ゲームの画面(160×90 の縮小コピー)を、パソコンの画面に映す。 */
+    setGameFrame(c) { screenState.gameFrame = c; },
+    /** ゲームを遊んでいる状態にする(部屋の演出を、とばして始める時)。雪だるまは、椅子に座って、ゲームを遊んでいる。 */
+    startAtPc() {
+      launched = true; screenState.mode = 'game'; Object.assign(me, { seat: 'chair', x: SPOTS.chair.seat.x, z: SPOTS.chair.seat.z, y: SPOTS.chair.seatY, yaw: SPOTS.chair.yaw, sitK: 1, activity: 'pcgame', carry: null, walking: false });
+      queue = []; curStep = null; setView(WIPE_VIEWS.monitor); cam.locked = false;
+    },
+    isLaunched: () => launched,
+    getActivity: () => me.activity,
+    isBusy: () => !!curStep || queue.length > 0,
+    /** カメラが、いま、決まった画角に固定されているか(モニターの場面)。 */
+    isCameraLocked: () => cam.locked,
+    debug: { pickAt, setView, kbObj, book, kbHome, screenState, get launchedFlag() { return launched; }, get queue() { return queue.map((s) => s.t); }, get step() { return curStep && curStep.t; }, cam, SHELVES, pathLength },
+    dispose() {
+      try { scene.traverse((o) => { if (o.geometry) o.geometry.dispose(); }); for (const x of owned) if (x && x.dispose) x.dispose(); renderer.dispose(); renderer.forceContextLoss(); } catch (e) { /* もう、捨てられている */ }
+    },
+  };
+  setView(DEFAULT_VIEW); api.setSize(size.w, size.h);
+  if (opts.startAtPc) api.startAtPc();
+  return api;
+}
