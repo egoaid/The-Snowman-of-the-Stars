@@ -289,16 +289,16 @@ export function createStreamWipe(opts) {
 /**
  * 設定画面のプレビュー用: キャンバスを、ドラッグで回す・右ドラッグ(か Shift+ドラッグ)で平行移動・ホイールでズームして、画角を決める。
  * 動かすたびに onChange(視点) を呼ぶ。録画の中では、カメラは動かさない(これは、設定画面の、画角を決める操作だけ)。
- * canEdit() が false の間(自動切り替え中など)は、動かさない。戻り値: 外す関数。
+ * canEdit() が false の間(自動切り替え中など)は、動かさない。getFlip() が true(プレビューが左右反転)の間は、左右のドラッグの向きを、絵にあわせて逆にする。戻り値: 外す関数。
  */
-export function attachViewControls(canvas, wipe, onChange, canEdit = () => true) {
+export function attachViewControls(canvas, wipe, onChange, canEdit = () => true, getFlip = () => false) {
   let drag = null;
   const norm = (a) => { const l = Math.hypot(a[0], a[1], a[2]) || 1; return [a[0] / l, a[1] / l, a[2] / l]; };
   const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
   const down = (e) => { if (!canEdit()) return; drag = { x: e.clientX, y: e.clientY, pan: e.button === 2 || e.shiftKey, v: wipe.getView() }; try { canvas.setPointerCapture(e.pointerId); } catch (err) { /* なくても動く */ } e.preventDefault(); };
   const move = (e) => {
     if (!drag) return;
-    const dx = e.clientX - drag.x, dy = e.clientY - drag.y, v = drag.v, off = [v.pos[0] - v.target[0], v.pos[1] - v.target[1], v.pos[2] - v.target[2]], r = Math.hypot(off[0], off[1], off[2]) || 1;
+    const dx = (e.clientX - drag.x) * (getFlip() ? -1 : 1), dy = e.clientY - drag.y, v = drag.v, off = [v.pos[0] - v.target[0], v.pos[1] - v.target[1], v.pos[2] - v.target[2]], r = Math.hypot(off[0], off[1], off[2]) || 1;
     let nv;
     if (drag.pan) { // 画面の左右・上下へ、カメラと注目点を、いっしょに動かす
       const fwd = norm([-off[0], -off[1], -off[2]]), right = norm(cross(fwd, [0, 1, 0])), up = cross(right, fwd), k = r * 0.0022 * (v.fov / 38);

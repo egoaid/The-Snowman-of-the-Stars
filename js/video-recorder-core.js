@@ -109,6 +109,8 @@ export function normalizeWipe(o) {
     frame: o.frame === undefined ? true : !!o.frame,
     borderWidth: num(o.borderWidth, 1, WIPE_BORDER_MAX, WIPE_BORDER_DEFAULT),
     borderColor: typeof o.borderColor === 'string' && /^#[0-9a-fA-F]{6}$/.test(o.borderColor) ? o.borderColor.toLowerCase() : WIPE_BORDER_COLOR_DEFAULT,
+    flip: !!o.flip, // 左右反転(鏡のように)。左に置いて、顔を右向きにしたい時に
+    watch: !!o.watch, // 見守りモードの間も、画面の隅に表示する(録画のワイプと同じ設定)
     cam: WIPE_CAMS.includes(o.cam) ? o.cam : 'room', // 既定は、これまでと同じ「部屋全体」
     camInterval: num(o.camInterval, WIPE_CAM_INTERVAL_MIN, WIPE_CAM_INTERVAL_MAX, WIPE_CAM_INTERVAL_DEFAULT),
     camCustom: Object.fromEntries(Object.entries(CUSTOM_RANGE).map(([k, [lo, hi]]) => { const v = Number(o.camCustom && o.camCustom[k]); return [k, Number.isFinite(v) ? Math.max(lo, Math.min(hi, v)) : WIPE_CUSTOM_DEFAULT[k]]; })),
@@ -123,7 +125,7 @@ export function wipeLayout(mode, opts) {
   if (c.shape === 'circle') rh = rw; // 円は、正方形の中
   const b = c.frame ? c.borderWidth : 0, w = rw * k, h = rh * k, margin = 20 * k; // 余白は、枠の最大(8)より大きい
   const x = c.corner === 'bl' || c.corner === 'tl' ? margin : o.w - margin - w, y = c.corner === 'tl' || c.corner === 'tr' ? margin : o.h - margin - h;
-  return { x, y, w, h, rw, rh, k, b, shape: c.shape, aspect: c.aspect, corner: c.corner, color: c.borderColor };
+  return { x, y, w, h, rw, rh, k, b, shape: c.shape, aspect: c.aspect, corner: c.corner, color: c.borderColor, flip: c.flip };
 }
 /** ワイプの内側のピクセル(x,y: 0始まり)か。四角は、すべて内側。円は、中心からの距離で決める(ぼかさない)。 */
 export function wipeInside(shape, rw, rh, x, y) {

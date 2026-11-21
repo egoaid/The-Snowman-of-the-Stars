@@ -363,6 +363,8 @@ export default {
   "set.rec.wipe.cam.help": "On the preview: drag = orbit / right-drag (or Shift+drag) = move sideways / wheel = zoom. Moving it makes it \"my own angle\". While recording, the camera never moves; it stays on the angle you chose.",
   "set.rec.wipe.cam.help.auto": "Cuts now and then between the 3 fixed cameras in the streamer's room (whole room, snowman at the monitor, face close-up). No panning and no slow zooming. The same angle never comes up twice in a row. The preview cannot be moved in this mode.",
   "set.rec.wipe.cam.reset": "Reset my own angle",
+  "set.rec.wipe.flip": "Mirror the picture (flip left and right; handy when the wipe is on the left and you want the snowman to face right)",
+  "set.rec.wipe.watch": "Also show the wipe in a corner of the screen while watching (same settings as the recorded wipe; it pauses while recording, because the recorded wipe is the one that counts)",
   "set.rec.wipe.layout": "Layout preview (16:9 screen):",
   "set.rec.wipe.note": "A snowman with headphones quietly plays a game at his computer. The computer screen shows the game you are recording. No camera or microphone is used (everything moves on its own). It is created when recording starts and removed when it stops.",
   "set.rec.wipe.failed": "Could not create the wipe; recording continues without it",

@@ -190,6 +190,7 @@
         <select id="recRes"><option value="4k" data-i18n="set.rec.res.4k">4K (3840×2160)</option><option value="fhd" data-i18n="set.rec.res.fhd">Full HD (1920×1080)</option></select></label>
       <label class="field"><span data-i18n="set.rec.quality">Quality:</span>
         <select id="recQuality"><option value="normal" data-i18n="set.rec.q.normal">Normal</option><option value="high" data-i18n="set.rec.q.high">High</option></select></label>
+      <label class="field"><input id="recWipeWatch" type="checkbox"> <span data-i18n="set.rec.wipe.watch">Also show the wipe in a corner of the screen while watching (watch mode)</span></label>
       <label class="field"><span data-i18n="set.rec.wipe">Wipe (small picture in a corner):</span>
         <select id="recWipe"><option value="off" data-i18n="set.rec.wipe.off">Off</option><option value="auto" data-i18n="set.rec.wipe.auto">On: the snowman plays this game in his room (automatic)</option></select></label>
       <div id="recWipeOpts" hidden>
@@ -199,6 +200,7 @@
           <select id="recWipeAspect"><option value="16:9" selected>16:9</option><option value="4:3">4:3</option><option value="1:1">1:1</option><option value="3:4">3:4</option><option value="9:16">9:16</option></select></label>
         <label class="field"><span data-i18n="set.rec.wipe.pos">Position:</span>
           <select id="recWipePos"><option value="br" data-i18n="set.rec.wipe.pos.br">Bottom right</option><option value="bl" data-i18n="set.rec.wipe.pos.bl">Bottom left</option><option value="tr" data-i18n="set.rec.wipe.pos.tr">Top right</option><option value="tl" data-i18n="set.rec.wipe.pos.tl">Top left</option></select></label>
+        <label class="field"><input id="recWipeFlip" type="checkbox"> <span data-i18n="set.rec.wipe.flip">Mirror the picture (flip left and right)</span></label>
         <label class="field"><span data-i18n="set.rec.wipe.size">Wipe size (% of the screen width, longer side):</span>
           <input id="recWipeSize" type="range" min="10" max="40" step="1" value="20"> <output id="recWipeSizeVal">20%</output></label>
         <label class="field"><input id="recWipeFrame" type="checkbox" checked> <span data-i18n="set.rec.wipe.frame">Show a frame</span></label>
@@ -1974,21 +1976,21 @@ import { createMidiInput } from './js/music/midi-input.js'; // v1.104: 外部MID
           // v1.108: ワイプの設定(形・縦横比・場所・大きさ・枠)。この端末に保存して、次も同じにする。
           const WIPE_KEY = 'snowman.wipe.v1', wEl = (id) => document.getElementById(id);
           let camCustom = normalizeWipe({}).camCustom; // 自分で決めた画角(プレビューで動かして決める)
-          const wipeUi = { cam: wEl('recWipeCam'), camInterval: wEl('recWipeInterval'), shape: wEl('recWipeShape'), aspect: wEl('recWipeAspect'), corner: wEl('recWipePos'), size: wEl('recWipeSize'), frame: wEl('recWipeFrame'), borderWidth: wEl('recWipeBorderW'), borderColor: wEl('recWipeBorderColor') };
-          const readWipeUi = () => normalizeWipe({ shape: wipeUi.shape.value, aspect: wipeUi.aspect.value, corner: wipeUi.corner.value, size: wipeUi.size.value, frame: wipeUi.frame.checked, borderWidth: wipeUi.borderWidth.value, borderColor: wipeUi.borderColor.value, cam: wipeUi.cam.value, camInterval: wipeUi.camInterval.value, camCustom });
+          const wipeUi = { flip: wEl('recWipeFlip'), watch: wEl('recWipeWatch'), cam: wEl('recWipeCam'), camInterval: wEl('recWipeInterval'), shape: wEl('recWipeShape'), aspect: wEl('recWipeAspect'), corner: wEl('recWipePos'), size: wEl('recWipeSize'), frame: wEl('recWipeFrame'), borderWidth: wEl('recWipeBorderW'), borderColor: wEl('recWipeBorderColor') };
+          const readWipeUi = () => normalizeWipe({ shape: wipeUi.shape.value, aspect: wipeUi.aspect.value, corner: wipeUi.corner.value, size: wipeUi.size.value, frame: wipeUi.frame.checked, borderWidth: wipeUi.borderWidth.value, borderColor: wipeUi.borderColor.value, cam: wipeUi.cam.value, camInterval: wipeUi.camInterval.value, camCustom, flip: wipeUi.flip.checked, watch: wipeUi.watch.checked });
 // ---- v1.109: 画角のプレビュー(設定画面を開いている間だけ動く。録画中・見えない間は、止めて、捨てる) ----
           let pv = null, pvDetach = null, pvRaf = 0, pvTimer = 0, pvLast = 0, pvFailed = false, pvSize = '';
           const pvBox = wEl('recWipePreviewBox');
           // ゲーム画面は、描画の直後でないと読めない(描いたあとは消える)ため、描画のたびに(プレビューがある時だけ、0.1秒に1回)、小さなコピーを取っておく
           const pvSrc = document.createElement('canvas'); pvSrc.width = 160; pvSrc.height = 90; const pvSrcCtx = pvSrc.getContext('2d'); let pvSrcAt = 0;
-          scene.addAfterRender((c) => { if (!pv) return; const t = performance.now(); if (t - pvSrcAt < 100) return; pvSrcAt = t; try { pvSrcCtx.drawImage(c, 0, 0, 160, 90); } catch (e) { /* 取れなければ、前のまま */ } });
-          const pvVisible = () => recWipe.value !== 'off' && pvBox.offsetParent !== null && !document.hidden && !recTimer && !pvFailed;
+          scene.addAfterRender((c) => { if (!pv && !wv) return; const t = performance.now(); if (t - pvSrcAt < 100) return; pvSrcAt = t; try { pvSrcCtx.drawImage(c, 0, 0, 160, 90); } catch (e) { /* 取れなければ、前のまま */ } });
+          const pvVisible = () => !recWipeOpts.hidden && pvBox.offsetParent !== null && !document.hidden && !recTimer && !pvFailed;
           function pvApply(o) { // 設定が変わったら、プレビューに反映する(形・大きさ・枠・画角)
             if (!pv) return;
             const L = wipeLayout('fhd', o), key = L.rw + 'x' + L.rh; if (key !== pvSize) { pv.setSize(L.rw, L.rh); pvSize = key; }
             const sc = Math.min(360 / L.rw, 260 / L.rh), cv = pv.canvas;
             cv.style.width = Math.round(L.rw * sc) + 'px'; cv.style.height = Math.round(L.rh * sc) + 'px'; cv.style.imageRendering = 'pixelated'; cv.style.display = 'block'; cv.style.boxSizing = 'content-box';
-            cv.style.borderRadius = o.shape === 'circle' ? '50%' : '0'; cv.style.border = o.frame ? Math.max(1, Math.round(o.borderWidth * sc)) + 'px solid ' + o.borderColor : '0'; cv.style.cursor = o.cam === 'auto' ? 'default' : 'grab';
+            cv.style.borderRadius = o.shape === 'circle' ? '50%' : '0'; cv.style.border = o.frame ? Math.max(1, Math.round(o.borderWidth * sc)) + 'px solid ' + o.borderColor : '0'; cv.style.cursor = o.cam === 'auto' ? 'default' : 'grab'; cv.style.transform = o.flip ? 'scaleX(-1)' : '';
             pv.setCameraPlan(o);
           }
           function pvStop() { if (pvDetach) pvDetach(); pvDetach = null; if (pv) { pv.canvas.remove(); pv.dispose(); } pv = null; pvSize = ''; }
@@ -1998,7 +2000,7 @@ import { createMidiInput } from './js/music/midi-input.js'; // v1.104: 外部MID
             try {
               if (!pv) {
                 const o = readWipeUi(); pv = createStreamWipe(o); pvBox.appendChild(pv.canvas); pvLast = performance.now(); pvApply(o);
-                pvDetach = attachViewControls(pv.canvas, pv, (v) => { camCustom = customFromView(v); wipeUi.cam.value = 'custom'; refreshWipeUi(true); }, () => wipeUi.cam.value !== 'auto');
+                pvDetach = attachViewControls(pv.canvas, pv, (v) => { camCustom = customFromView(v); wipeUi.cam.value = 'custom'; refreshWipeUi(true); }, () => wipeUi.cam.value !== 'auto', () => wipeUi.flip.checked);
               }
               const now = performance.now();
               if (now - pvLast >= 40) { const dt = (now - pvLast) / 1000; pvLast = now; pv.renderFrame(pvSrc, dt); }
@@ -2006,27 +2008,57 @@ import { createMidiInput } from './js/music/midi-input.js'; // v1.104: 外部MID
             } catch (e) { pvFailed = true; pvStop(); } // プレビューが作れなくても、録画には、影響しない
           }
           wEl('recWipeCamReset').addEventListener('click', () => { camCustom = normalizeWipe({}).camCustom; wipeUi.cam.value = 'custom'; refreshWipeUi(true); });
+// ---- v1.111: 見守りモード中の表示。画面の隅に、録画のワイプと同じ設定(形・縦横比・場所・大きさ・枠・画角・左右反転)で出す(録画には入らない) ----
+          let wv = null, wvBox = null, wvRaf = 0, wvTimer = 0, wvLast = 0, wvFailed = false, wvSize = '';
+          const isOpen = (id) => { const e = document.getElementById(id); return !!(e && getComputedStyle(e).display !== 'none' && getComputedStyle(e).visibility !== 'hidden'); }; // 画面に固定の欄は offsetParent が空なので、表示の状態で調べる
+          const wvActive = () => wipeUi.watch.checked && scene.getMode() === 'orbit' && document.getElementById('titleScreen').classList.contains('hidden') && !isOpen('settingsPanel') && !document.hidden && !recTimer && !wvFailed;
+          function wvApply(o) { // 設定や、画面の大きさが変わったら、置き直す
+            if (!wv) return;
+            const R = scene.getRenderCanvas().getBoundingClientRect(), L = wipeLayout('fhd', o), u = R.width / 1920, key = L.rw + 'x' + L.rh;
+            if (key !== wvSize) { wv.setSize(L.rw, L.rh); wvSize = key; }
+            const bw = L.b ? Math.max(1, Math.round(L.b * L.k * u)) : 0, w = Math.round(L.w * u), h = Math.round(L.h * u);
+            Object.assign(wvBox.style, { left: Math.round(R.left + L.x * u - bw) + 'px', top: Math.round(R.top + L.y * u - bw) + 'px', width: w + 'px', height: h + 'px', border: bw ? bw + 'px solid ' + o.borderColor : '0', borderRadius: o.shape === 'circle' ? '50%' : '0' });
+            Object.assign(wv.canvas.style, { width: w + 'px', height: h + 'px', transform: o.flip ? 'scaleX(-1)' : '', display: 'block' });
+            wv.setCameraPlan(o);
+          }
+          function wvStop() { if (wv) { wv.dispose(); } if (wvBox) wvBox.remove(); wv = null; wvBox = null; wvSize = ''; }
+          function wvTick() {
+            wvRaf = 0; wvTimer = 0;
+            if (!wvActive()) { wvStop(); wvTimer = setTimeout(wvTick, 500); return; }
+            try {
+              const o = readWipeUi();
+              if (!wv) {
+                wv = createStreamWipe(o); wvBox = document.createElement('div'); wvLast = performance.now();
+                Object.assign(wvBox.style, { position: 'fixed', zIndex: '11', pointerEvents: 'none', overflow: 'hidden', boxSizing: 'content-box', imageRendering: 'pixelated' });
+                wv.canvas.style.imageRendering = 'pixelated'; wvBox.appendChild(wv.canvas); document.body.appendChild(wvBox); wvApply(o);
+              }
+              const now = performance.now();
+              if (now - wvLast >= 34) { const dt = (now - wvLast) / 1000; wvLast = now; wv.renderFrame(pvSrc, dt); }
+              if (now - (wvTick.lastLayout || 0) > 500) { wvTick.lastLayout = now; wvApply(o); } // 画面の大きさが変わっても、追いかける
+              wvRaf = requestAnimationFrame(wvTick);
+            } catch (e) { wvFailed = true; wvStop(); } // 作れなくても、ゲームにも録画にも、影響しない
+          }
           function refreshWipeUi(save) {
             const o = readWipeUi();
             wEl('recWipeAspectField').hidden = o.shape === 'circle'; wEl('recWipeFrameOpts').hidden = !o.frame;
             wEl('recWipeSizeVal').textContent = o.size + '%'; wEl('recWipeBorderWVal').textContent = String(o.borderWidth);
             wEl('recWipeIntervalField').hidden = o.cam !== 'auto'; wEl('recWipeIntervalVal').textContent = String(o.camInterval); wEl('recWipeCamHelp').textContent = tr(o.cam === 'auto' ? 'set.rec.wipe.cam.help.auto' : 'set.rec.wipe.cam.help');
-            pvApply(o);
+            pvApply(o); wvApply(o);
             const L = wipeLayout('fhd', o), sc = 160 / 1920, box = wEl('recWipeSketchBox'), bw = L.b ? Math.max(1, Math.round(L.b * L.k * sc)) : 0; // 配置のイメージ(16:9の画面の縮図)
             box.style.left = Math.round((L.x - L.b * L.k) * sc) + 'px'; box.style.top = Math.round((L.y - L.b * L.k) * sc) + 'px'; box.style.width = Math.round(L.w * sc) + 'px'; box.style.height = Math.round(L.h * sc) + 'px';
             box.style.border = bw ? bw + 'px solid ' + o.borderColor : '0'; box.style.borderRadius = o.shape === 'circle' ? '50%' : '0';
             if (save) { try { localStorage.setItem(WIPE_KEY, JSON.stringify({ ...o, on: recWipe.value === 'auto' })); } catch (e) { /* 保存できない環境では、保存しない */ } }
           }
-          try { const sv = JSON.parse(localStorage.getItem(WIPE_KEY) || 'null'); if (sv) { const o = normalizeWipe(sv); camCustom = o.camCustom; wipeUi.cam.value = o.cam; wipeUi.camInterval.value = o.camInterval; wipeUi.shape.value = o.shape; wipeUi.aspect.value = o.aspect; wipeUi.corner.value = o.corner; wipeUi.size.value = o.size; wipeUi.frame.checked = o.frame; wipeUi.borderWidth.value = o.borderWidth; wipeUi.borderColor.value = o.borderColor; if (sv.on) recWipe.value = 'auto'; } } catch (e) { /* 読めなければ、既定 */ }
-          recWipeOpts.hidden = recWipe.value === 'off'; refreshWipeUi(false);
-          recWipe.addEventListener('change', () => { recWipeOpts.hidden = recWipe.value === 'off'; refreshWipeUi(true); }); // 場所・形・枠などは、ワイプを使う時だけ出す
-          for (const el of Object.values(wipeUi)) el.addEventListener('input', () => refreshWipeUi(true));
-          pvTimer = setTimeout(pvTick, 300);
+          try { const sv = JSON.parse(localStorage.getItem(WIPE_KEY) || 'null'); if (sv) { const o = normalizeWipe(sv); camCustom = o.camCustom; wipeUi.cam.value = o.cam; wipeUi.camInterval.value = o.camInterval; wipeUi.flip.checked = o.flip; wipeUi.watch.checked = o.watch; wipeUi.shape.value = o.shape; wipeUi.aspect.value = o.aspect; wipeUi.corner.value = o.corner; wipeUi.size.value = o.size; wipeUi.frame.checked = o.frame; wipeUi.borderWidth.value = o.borderWidth; wipeUi.borderColor.value = o.borderColor; if (sv.on) recWipe.value = 'auto'; } } catch (e) { /* 読めなければ、既定 */ }
+          recWipeOpts.hidden = recWipe.value === 'off' && !wipeUi.watch.checked; refreshWipeUi(false);
+          recWipe.addEventListener('change', () => { recWipeOpts.hidden = recWipe.value === 'off' && !wipeUi.watch.checked; refreshWipeUi(true); }); // 場所・形・枠などは、ワイプを使う時だけ出す
+          for (const el of Object.values(wipeUi)) el.addEventListener('input', () => { recWipeOpts.hidden = recWipe.value === 'off' && !wipeUi.watch.checked; refreshWipeUi(true); });
+          pvTimer = setTimeout(pvTick, 300); wvTimer = setTimeout(wvTick, 600);
           const recInd = document.getElementById('recIndicator'), recIndTime = document.getElementById('recIndicatorTime');
           let recTimer = null;
           const videoRec = createVideoRecorder({
             getSourceCanvas: () => scene.getRenderCanvas(),
-            createWipe: () => createStreamWipe(), // v1.107: 録画を始める時だけ作り、止めたら捨てる
+            createWipe: (o) => createStreamWipe(o), // v1.107: 録画を始める時だけ作り、止めたら捨てる。v1.111: 設定(画角・左右反転など)を、必ず渡す(以前は、捨てていて、画角が録画に反映されなかった)
             onState: (st, info) => {
               if (st === 'recording' || st === 'resumed') { recBtn.textContent = tr('set.rec.stop'); recInd.style.display = 'block'; recInd.firstChild.nodeValue = '● REC '; recStatus.textContent = tr(info.fsMode ? 'set.rec.mode.fs' : 'set.rec.mode.mem'); }
               else if (st === 'paused') { recInd.firstChild.nodeValue = '⏸ REC '; recStatus.textContent = tr('set.rec.paused'); } // 別のタブを見ている間は、自動で一時停止

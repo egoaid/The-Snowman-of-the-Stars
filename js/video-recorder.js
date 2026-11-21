@@ -32,12 +32,12 @@ export function createVideoRecorder({ getSourceCanvas, createWipe = null, onStat
       for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (wipeFramePixel(L.shape, L.rw, L.rh, L.b, x, y)) { const o = (y * W + x) * 4; im.data[o] = rgb[0]; im.data[o + 1] = rgb[1]; im.data[o + 2] = rgb[2]; im.data[o + 3] = 255; }
       cx.putImageData(im, 0, 0); wipeFrameCv = cv;
     }
+    if (L.flip || L.shape === 'circle') { wipeTmpCv = document.createElement('canvas'); wipeTmpCv.width = L.rw; wipeTmpCv.height = L.rh; wipeTmpCtx = wipeTmpCv.getContext('2d'); } // 左右反転・円の切り抜き用の、ワイプと同じ大きさの一時キャンバス
     if (L.shape === 'circle') {
       const cv = document.createElement('canvas'); cv.width = L.rw; cv.height = L.rh;
       const cx = cv.getContext('2d'), im = cx.createImageData(L.rw, L.rh);
       for (let y = 0; y < L.rh; y++) for (let x = 0; x < L.rw; x++) if (wipeInside('circle', L.rw, L.rh, x, y)) im.data[(y * L.rw + x) * 4 + 3] = 255;
       cx.putImageData(im, 0, 0); wipeMaskCv = cv;
-      wipeTmpCv = document.createElement('canvas'); wipeTmpCv.width = L.rw; wipeTmpCv.height = L.rh; wipeTmpCtx = wipeTmpCv.getContext('2d');
     }
   }
   function cleanupAudio() { try { if (masterRef && audioDest) masterRef.disconnect(audioDest); } catch (e) { /* もう外れている */ } audioDest = null; masterRef = null; }
@@ -101,9 +101,12 @@ export function createVideoRecorder({ getSourceCanvas, createWipe = null, onStat
       wipe.renderFrame(src, dt);
       const L = wipeLayoutNow, k = L.k;
       if (wipeFrameCv) octx.drawImage(wipeFrameCv, 0, 0, wipeFrameCv.width, wipeFrameCv.height, L.x - L.b * k, L.y - L.b * k, (L.rw + 2 * L.b) * k, (L.rh + 2 * L.b) * k); // 枠(最近傍で整数倍)
-      if (wipeMaskCv) { // 円: ワイプのピクセルの段階で、ぎざぎざに切り抜く(ぼかさない)
-        wipeTmpCtx.globalCompositeOperation = 'copy'; wipeTmpCtx.drawImage(wipe.canvas, 0, 0, L.rw, L.rh);
-        wipeTmpCtx.globalCompositeOperation = 'destination-in'; wipeTmpCtx.drawImage(wipeMaskCv, 0, 0); wipeTmpCtx.globalCompositeOperation = 'source-over';
+      if (wipeTmpCtx) { // 左右反転と、円の切り抜きは、ワイプのピクセルの段階で行う(ぼかさない)
+        wipeTmpCtx.globalCompositeOperation = 'copy';
+        if (L.flip) { wipeTmpCtx.save(); wipeTmpCtx.translate(L.rw, 0); wipeTmpCtx.scale(-1, 1); wipeTmpCtx.drawImage(wipe.canvas, 0, 0, L.rw, L.rh); wipeTmpCtx.restore(); }
+        else wipeTmpCtx.drawImage(wipe.canvas, 0, 0, L.rw, L.rh);
+        if (wipeMaskCv) { wipeTmpCtx.globalCompositeOperation = 'destination-in'; wipeTmpCtx.drawImage(wipeMaskCv, 0, 0); }
+        wipeTmpCtx.globalCompositeOperation = 'source-over';
         octx.drawImage(wipeTmpCv, 0, 0, L.rw, L.rh, L.x, L.y, L.w, L.h);
       } else octx.drawImage(wipe.canvas, 0, 0, L.rw, L.rh, L.x, L.y, L.w, L.h);
     } catch (e) { disposeWipe(); onState('wipe-failed'); }
