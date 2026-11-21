@@ -94,7 +94,7 @@ export const WIPE_BORDER_COLOR_DEFAULT = '#f3efe6';
 //   標準は「1つの画角に固定」。パン・徐々にズームは、しない。
 export const WIPE_CAMS = ['room', 'monitor', 'face', 'custom', 'auto'];
 export const WIPE_CAM_INTERVAL_MIN = 5, WIPE_CAM_INTERVAL_MAX = 60, WIPE_CAM_INTERVAL_DEFAULT = 15; // 自動で切り替える間隔(秒)の目安(実際は、±30%ばらつく)
-export const WIPE_CUSTOM_DEFAULT = { px: 0.05, py: 1.6, pz: 3.7, tx: -0.35, ty: 1.5, tz: 0.55, fov: 36 }; // 「モニターを見ている雪だるま」と同じ
+export const WIPE_CUSTOM_DEFAULT = { px: 0.45, py: 1.65, pz: 4.6, tx: -0.3, ty: 1.38, tz: 0.55, fov: 38 }; // 「モニターを見ている雪だるま」と同じ
 const CUSTOM_RANGE = { px: [-3.3, 3.5], py: [0.3, 3.6], pz: [-2, 6.5], tx: [-3.3, 3.5], ty: [0.2, 3.2], tz: [-2, 4], fov: [12, 70] };
 /** 設定(画面からの入力・保存された値)を、安全な値にそろえる。知らない値は、既定へ。 */
 export function normalizeWipe(o) {

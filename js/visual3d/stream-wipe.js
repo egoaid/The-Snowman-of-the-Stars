@@ -16,8 +16,8 @@ const MAX_DT = 0.1; // 1コマの時間の上限(別のタブから戻った直�
 //   room=部屋全体 / monitor=モニターを見ている雪だるま / face=顔のアップ。切り替えは「カット」だけ(パン・徐々にズームは、しない)。
 export const WIPE_VIEWS = {
   room: { pos: [-0.45, 1.8, 5.2], target: [-0.3, 1.05, 0.5], fov: 38 },
-  monitor: { pos: [0.05, 1.6, 3.7], target: [-0.35, 1.5, 0.55], fov: 36 },
-  face: { pos: [-0.55, 1.62, 2.05], target: [0.3, 1.62, 0.4], fov: 34 },
+  monitor: { pos: [0.45, 1.65, 4.6], target: [-0.3, 1.38, 0.55], fov: 38 },
+  face: { pos: [-0.6, 1.62, 2.2], target: [0.2, 1.55, 0.5], fov: 34 },
 };
 const VIEW_LIMITS = { pos: [[-3.3, 3.5], [0.3, 3.6], [-2.0, 6.5]], target: [[-3.3, 3.5], [0.2, 3.2], [-2.0, 4.0]], fov: [12, 70] };
 const clampN = (v, [lo, hi]) => Math.max(lo, Math.min(hi, v));
@@ -31,6 +31,9 @@ export function fitFov(baseFov, aspect) {
   if (aspect >= 16 / 9) return baseFov;
   return Math.min(80, Math.max(baseFov, (2 * Math.atan((Math.tan((baseFov * Math.PI) / 360) * (16 / 9) * 0.85) / aspect) * 180) / Math.PI));
 }
+
+// 操作の姿勢の調整値(前のめり・キーボードの手前からの距離)。試験で、値を変えて確かめる。
+export const OP_TUNE = { lean: 0.14, kbF: 0.76 };
 
 export function createStreamWipe(opts) {
   const canvas = document.createElement('canvas');
@@ -79,19 +82,19 @@ export function createStreamWipe(opts) {
 
   // ---- 机・パソコン・キーボード・マグカップ・スタンド ----
   const deskTopY = 0.78;
-  box(1.8, 0.06, 0.85, woodMat, -1.25, deskTopY, 0.72); // 天板
-  for (const [lx, lz] of [[-2.05, 0.34], [-0.45, 0.34], [-2.05, 1.1], [-0.45, 1.1]]) box(0.06, deskTopY, 0.06, darkMat, lx, deskTopY / 2, lz);
+  box(2.0, 0.06, 1.1, woodMat, -1.1, deskTopY, 0.6); // 天板(雪だるまのおなかのすぐ前まで。右手のマウスの場所も、ある)
+  for (const [lx, lz] of [[-2.05, 0.12], [-0.2, 0.12], [-2.05, 1.08], [-0.2, 1.08]]) box(0.06, deskTopY, 0.06, darkMat, lx, deskTopY / 2, lz);
   // モニター: 画面は、いま録画しているゲーム画面(毎コマ、更新)。画面の向きは、雪だるまのほうへ。
   const monitor = new THREE.Group(); monitor.position.set(-1.2, deskTopY + 0.03, 0.82); monitor.rotation.y = 0.96; scene.add(monitor); // 画面は、雪だるまのほうへ、少しカメラ寄りに
   box(0.26, 0.02, 0.18, darkMat, 0, 0.01, 0, monitor); box(0.04, 0.18, 0.04, darkMat, 0, 0.1, 0, monitor);
   box(0.86, 0.5, 0.05, darkMat, 0, 0.42, 0, monitor); // ふち
   const gameCanvas2 = document.createElement('canvas'); gameCanvas2.width = 160; gameCanvas2.height = 90; // 画面の中身(ゲーム画面の縮小コピー)
   const gctx = gameCanvas2.getContext('2d', { alpha: false, willReadFrequently: true }); gctx.imageSmoothingEnabled = true; gctx.fillStyle = '#10151f'; gctx.fillRect(0, 0, 160, 90);
+  const gameBuf = document.createElement('canvas'); gameBuf.width = 160; gameBuf.height = 90; // 最後に受け取った、ゲーム画面(カーソルは、毎コマ、この上に描き直す)
+  const gbctx = gameBuf.getContext('2d', { alpha: false, willReadFrequently: true }); gbctx.imageSmoothingEnabled = true; gbctx.fillStyle = '#10151f'; gbctx.fillRect(0, 0, 160, 90);
   const screenTex = keep(new THREE.CanvasTexture(gameCanvas2)); screenTex.colorSpace = THREE.SRGBColorSpace; screenTex.magFilter = THREE.NearestFilter; screenTex.minFilter = THREE.NearestFilter; screenTex.generateMipmaps = false;
   const screenMat = keep(new THREE.MeshBasicMaterial({ map: screenTex, toneMapped: false }));
   const screen = new THREE.Mesh(keep(new THREE.PlaneGeometry(0.78, 0.44)), screenMat); screen.position.set(0, 0.42, 0.028); monitor.add(screen);
-  const kb = box(0.44, 0.025, 0.16, darkMat, -0.66, deskTopY + 0.045, 0.62); kb.rotation.y = 1.45;
-  box(0.07, 0.03, 0.1, toon(0xdedede), -0.62, deskTopY + 0.05, 0.98); // マウス
   const mug = new THREE.Mesh(keep(new THREE.CylinderGeometry(0.05, 0.045, 0.1, 10)), toon(0xe9d8b4)); keep(mug.material); mug.position.set(-1.85, deskTopY + 0.08, 1.0); scene.add(mug);
   const lampBase = new THREE.Mesh(keep(new THREE.CylinderGeometry(0.09, 0.1, 0.03, 10)), darkMat); lampBase.position.set(-1.95, deskTopY + 0.045, 0.5); scene.add(lampBase);
   const lampArm = new THREE.Mesh(keep(new THREE.CylinderGeometry(0.012, 0.012, 0.62, 5)), darkMat); lampArm.position.set(-1.95, deskTopY + 0.36, 0.5); lampArm.rotation.z = -0.25; scene.add(lampArm);
@@ -107,10 +110,26 @@ export function createStreamWipe(opts) {
   box(0.05, seatY - 0.08, 0.05, darkMat, 0, (seatY - 0.08) / 2, 0, chair);
   for (let a = 0; a < 5; a++) { const w = box(0.34, 0.03, 0.04, darkMat, Math.cos(a * 1.2566) * 0.17, 0.03, Math.sin(a * 1.2566) * 0.17, chair); w.rotation.y = -a * 1.2566; }
 
+  // ---- キーボード・マウス: 雪だるまの向きにあわせて、正面に置く(前=雪だるまの向いている向き。右=雪だるまの右手の側) ----
+  const fx = Math.sin(faceYaw), fz = Math.cos(faceYaw), rx = -Math.cos(faceYaw), rz = Math.sin(faceYaw);
+  const deskPoint = (f, r, y) => new THREE.Vector3(chairX + fx * f + rx * r, y, chairZ + fz * f + rz * r);
+  const KB_F = OP_TUNE.kbF, KB_Y = deskTopY + 0.045, KEY_TOP = deskTopY + 0.07;
+  const kbGroup = new THREE.Group(); kbGroup.position.copy(deskPoint(KB_F, 0, KB_Y)); kbGroup.rotation.y = faceYaw; scene.add(kbGroup); // 局所のx: +が雪だるまの左、z: +が前(奥)
+  box(0.5, 0.025, 0.19, darkMat, 0, 0, 0, kbGroup);
+  const keyMat = toon(0x59607a); keep(keyMat);
+  const KEY_ROWS = 4, KEY_COLS = 12, keys = [];
+  for (let r = 0; r < KEY_ROWS; r++) for (let c = 0; c < KEY_COLS; c++) { const kx = (c - (KEY_COLS - 1) / 2) * 0.039, kz = (r - (KEY_ROWS - 1) / 2) * 0.037; box(0.031, 0.012, 0.029, keyMat, kx, 0.018, kz, kbGroup); keys.push({ x: kx, z: kz }); }
+  const keyGlow = new THREE.Mesh(keep(new THREE.BoxGeometry(0.036, 0.016, 0.034)), keep(new THREE.MeshBasicMaterial({ color: 0x7fe8ff, toneMapped: false }))); keyGlow.visible = false; kbGroup.add(keyGlow); // 押されたキー(光る)
+  const MOUSE_F = 0.78, MOUSE_R = 0.43;
+  const padPos = deskPoint(MOUSE_F, MOUSE_R, deskTopY + 0.033); const pad = box(0.26, 0.006, 0.22, toon(0x3a3350), padPos.x, padPos.y, padPos.z); pad.rotation.y = faceYaw; keep(pad.material);
+  const mouseMat = toon(0xe6e6ea); keep(mouseMat); const mouseMesh = box(0.07, 0.03, 0.11, mouseMat, padPos.x, deskTopY + 0.051, padPos.z); mouseMesh.rotation.y = faceYaw + 0.12;
+  const mouseBtn = box(0.066, 0.004, 0.04, toon(0x9aa0b0), 0, 0.0155, 0.026, mouseMesh); keep(mouseBtn.material);
+
   // ---- 雪だるま(本編と同じモデル)+ ヘッドホン ----
   const snow = createSnowmanCharacter(1);
-  const sg = snow.group; scene.add(sg);
-  sg.rotation.y = faceYaw; sg.position.set(chairX, seatY, chairZ);
+  // 雪だるまは、座面の上の回転軸(向きと、前のめり)の子にする。前のめりにして、おなかの前の机へ、手が届くようにする
+  const seatPivot = new THREE.Group(); seatPivot.rotation.order = 'YXZ'; /* 向き(y)を外側に、前のめり(x)を内側に */ seatPivot.position.set(chairX, seatY, chairZ); seatPivot.rotation.y = faceYaw; scene.add(seatPivot);
+  const sg = snow.group; seatPivot.add(sg); sg.position.set(0, 0, 0);
   const headR = 0.5 * 0.72;
   // ヘッドホン: 後ろへ回すバンド(帽子の邪魔をしない)+ 両耳のカップ + 口元のマイク
   const hpMat = toon(0x2b2f3a), hpAccent = toon(0xb03030); keep(hpMat); keep(hpAccent);
@@ -129,26 +148,98 @@ export function createStreamWipe(opts) {
 
   // ---- カメラ: 少し斜め前から。雪だるまの横顔と、モニターの画面が、両方見える ----
 
-  // ---- 動き(すべて自動) ----
+  // ---- 動き(すべて自動)。右手=マウス・左手=キーボード。手先は、逆運動学(IK)で、キーとマウスの上へ合わせる ----
+  const armL = snow.torchSocket.parent, armR = snow.itemSocket.parent; // 雪だるまの左手(世界で、カメラ寄り)と右手
+  const ARM_LEN = 0.55; // 枝の腕の、もとの長さ(snowman.js の createBranchLimb)
+  const LEAN = OP_TUNE.lean; // 前のめり(rad)
+  const ikErr = { L: 0, R: 0 }; // 手先が、狙いから、どれだけずれたか(m。試験用)
+  const tipP = { L: new THREE.Vector3(), R: new THREE.Vector3() }, tipInit = { L: false, R: false }; // 手先の、いまの狙い(なめらかに動かす)
+  const _lt = new THREE.Vector3(), _u = new THREE.Vector3(), _tip = new THREE.Vector3();
+  /** 腕を、狙いの点へ向け、長さを、狙いまでの距離にあわせる(机まで届くよう、枝を、伸ばす。1〜2.1倍)。
+   *  回転は、z(開く)→x(前へ)の順(snowman.js と同じ)。軸 +y の向き u について: z = -asin(ux)、x = atan2(uz, uy)。 */
+  function aimArm(arm, tip, target, key) {
+    arm.parent.updateWorldMatrix(true, false);
+    _lt.copy(target); arm.parent.worldToLocal(_lt); _u.copy(_lt).sub(arm.position);
+    const dist = _u.length() || 1; _u.divideScalar(dist);
+    arm.rotation.z = clampN(-Math.asin(Math.max(-1, Math.min(1, _u.x))), [-2.6, 2.6]); arm.rotation.x = Math.atan2(_u.z, _u.y);
+    arm.scale.y = clampN(dist / ARM_LEN, [1.0, 2.1]); arm.scale.x = arm.scale.z = Math.sqrt(arm.scale.y); // 伸ばした分、少し太くもする(細い針金に見えないように)
+    arm.updateMatrixWorld(true); tip.getWorldPosition(_tip); ikErr[key] = _tip.distanceTo(target); // 試験用
+  }
+  const kbWorld = (x, z, y) => kbGroup.localToWorld(new THREE.Vector3(x, y, z));
+  // 操作の状態: game=右手でマウス・左手でWASD付近 / type=両手でキーボード(チャットを打つ)
+  const op = { mode: 'game', modeT: 12 + Math.random() * 8, mouseDf: 0, mouseDr: 0, clickT: 99, nextClick: 1.2, tapNext: { L: 0.3, R: 0.6 }, press: { L: 0, R: 0 }, key: { L: null, R: null }, keyHold: 0, handLocal: { L: { x: 0.12, z: -0.02 }, R: { x: -0.12, z: 0.0 } }, cursorClick: 0, switchT: 0 };
+  const LEFT_KEYS = keys.filter((k) => k.x > 0.02 && k.x < 0.2), RIGHT_KEYS = keys.filter((k) => k.x < -0.02 && k.x > -0.2), WASD_KEYS = keys.filter((k) => k.x > 0.03 && k.x < 0.16 && k.z < 0.02);
+  const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
+  const pickNear = (arr, prev) => { // 指は、前に押したキーの近くを、次に押す(手が、キーボードの端から端へ、飛ばない)
+    const near = prev ? arr.filter((k) => k !== prev && Math.hypot(k.x - prev.x, (k.z - prev.z) * 1.4) < 0.085) : []; return near.length ? pick(near) : pick(arr);
+  };
   let t = 0, burstT = -1, nextBurst = 6 + Math.random() * 6, burstK = 0, size = { w: 192, h: 108 };
   function animate(dt) {
     t += dt;
-    // ときどき(10〜20秒に1回)、2秒ほど、夢中になる: 手が速く動き、頭が揺れ、少し前のめり
+    // ときどき(10〜20秒に1回)、2秒ほど、夢中になる: 操作が速く・大きくなり、頭が揺れ、頬が赤くなり、前のめりになる
     nextBurst -= dt; if (burstT < 0 && nextBurst <= 0) { burstT = 0; }
     if (burstT >= 0) { burstT += dt; if (burstT > 2.2) { burstT = -1; nextBurst = 10 + Math.random() * 10; } }
     const burstTarget = burstT >= 0 ? Math.sin(Math.min(1, burstT / 2.2) * Math.PI) : 0;
     burstK += (burstTarget - burstK) * Math.min(1, dt * 8);
     snow.setIntensity(0.12 + 0.55 * burstK);
-    snow.setPerform({ pat: 0.25 + 0.6 * burstK, sway: 0.25 + 0.6 * burstK, arms: 0.45 + 0.5 * burstK, t: t * (1 + 0.6 * burstK) });
+    snow.setPerform({ pat: 0.25 + 0.6 * burstK, sway: 0.25 + 0.6 * burstK, arms: 0, t: t * (1 + 0.6 * burstK) }); // 腕は、このあと IK で、決める
     snow.setEmote({ sit: 1, breath: 1, breathPhase: t });
-    sg.position.set(chairX, seatY, chairZ); // update() が、y に足し算するので、毎コマ、置き直す
+    seatPivot.rotation.x = LEAN + 0.03 * Math.sin(t * 0.6) + 0.05 * burstK; // 前のめり
+    sg.position.set(0, 0, 0); // update() が、y に足し算するので、毎コマ、置き直す
     snow.update(dt, t);
-    sg.rotation.y = faceYaw + Math.sin(t * 0.35) * 0.03; // 本編の update が、向き(y)には触らない
-    snow.headGroup.rotation.x += 0.1 + 0.06 * Math.sin(t * 0.9) + 0.16 * burstK; // 画面をのぞきこむ
+    sg.rotation.y = Math.sin(t * 0.35) * 0.03; // 本編の update が、向き(y)には触らない
+    snow.headGroup.rotation.x += 0.1 - LEAN * 0.6 + 0.06 * Math.sin(t * 0.9) + 0.16 * burstK; // 画面をのぞきこむ(前のめりぶんは、頭を起こす)
     snow.headGroup.rotation.y = Math.sin(t * 0.5) * 0.05 + 0.04 * burstK * Math.sin(t * 6);
+
+    // --- 操作 ---
+    op.switchT = Math.max(0, op.switchT - dt); // モード切り替え(マウス⇔キーボード)の直後は、手を、ゆっくり動かす
+    op.modeT -= dt; if (op.modeT <= 0) { op.mode = op.mode === 'game' ? 'type' : 'game'; op.modeT = op.mode === 'type' ? 3 + Math.random() * 3 : 10 + Math.random() * 12; op.tapNext.L = 0.1; op.tapNext.R = 0.25; op.switchT = 0.7; }
+    const speed = 1 + 1.8 * burstK;
+    // マウス(game の間だけ動く。type の間は、そのまま止まっている)
+    if (op.mode === 'game') {
+      const amp = 1 + 0.9 * burstK, tdf = (0.05 * Math.sin(t * 0.7 + 1) + 0.035 * Math.sin(t * 1.9)) * amp, tdr = (0.07 * Math.sin(t * 0.9) + 0.045 * Math.sin(t * 2.3 + 2)) * amp;
+      op.mouseDf += (tdf - op.mouseDf) * Math.min(1, dt * 6); op.mouseDr += (tdr - op.mouseDr) * Math.min(1, dt * 6);
+      op.nextClick -= dt * speed; if (op.nextClick <= 0) { op.clickT = 0; op.cursorClick = 1; op.nextClick = 0.8 + Math.random() * 2.2; }
+    }
+    op.clickT += dt; const click = op.clickT < 0.14 ? Math.sin((op.clickT / 0.14) * Math.PI) : 0; op.cursorClick = Math.max(0, op.cursorClick - dt * 4);
+    const mouseP = deskPoint(MOUSE_F + op.mouseDf, MOUSE_R + op.mouseDr, deskTopY + 0.051);
+    mouseMesh.position.set(mouseP.x, mouseP.y, mouseP.z); mouseMesh.rotation.y = faceYaw + 0.12 + op.mouseDr * 1.5; mouseBtn.position.y = 0.0155 - 0.003 * click;
+    // キー(押すたびに、手が、そのキーへ動き、少し沈む。押されたキーは、一瞬、光る)
+    for (const h of ['L', 'R']) {
+      const active = op.mode === 'type' || h === 'L';
+      op.press[h] = Math.max(0, op.press[h] - dt * 9);
+      if (active) {
+        op.tapNext[h] -= dt * speed;
+        if (op.tapNext[h] <= 0) {
+          const set = op.mode === 'type' ? (h === 'L' ? LEFT_KEYS : RIGHT_KEYS) : WASD_KEYS, k = pickNear(set, op.key[h]);
+          op.key[h] = k; op.press[h] = 1; op.handLocal[h].x = k.x; op.handLocal[h].z = k.z; op.keyHold = 0.09;
+          op.tapNext[h] = (op.mode === 'type' ? 0.11 + Math.random() * 0.2 : 0.22 + Math.random() * 0.75) + (h === 'R' ? 0.06 : 0);
+        }
+      }
+    }
+    op.keyHold -= dt; const shown = op.press.L > op.press.R ? 'L' : 'R'; keyGlow.visible = op.keyHold > 0 && !!op.key[shown];
+    if (keyGlow.visible) keyGlow.position.set(op.key[shown].x, 0.02, op.key[shown].z);
+    // 手先の狙い(世界): 左手=キーボード / 右手=game ならマウス、type ならキーボード
+    const hoverY = KEY_TOP + 0.03;
+    const tgtL = kbWorld(op.handLocal.L.x, op.handLocal.L.z, hoverY - KB_Y - 0.03 * op.press.L);
+    const tgtR = op.mode === 'game' ? new THREE.Vector3(mouseP.x, deskTopY + 0.085 - 0.02 * click, mouseP.z) : kbWorld(op.handLocal.R.x, op.handLocal.R.z, hoverY - KB_Y - 0.03 * op.press.R);
+    seatPivot.updateMatrixWorld(true);
+    for (const [h, arm, tip, tgt] of [['L', armL, snow.torchSocket, tgtL], ['R', armR, snow.itemSocket, tgtR]]) {
+      if (!tipInit[h]) { tipP[h].copy(tgt); tipInit[h] = true; } else tipP[h].lerp(tgt, Math.min(1, dt * (op.switchT > 0 ? 6 : op.press[h] > 0.5 ? 18 : 11))); // 手先は、なめらかに(モード切り替えの時も、飛ばない)
+      aimArm(arm, tip, tipP[h], h);
+    }
+    // 画面の中: ゲーム画面のコピーの上に、マウスと同じ動きのカーソル
+    const cx = 80 + op.mouseDr * 420, cy = 46 - op.mouseDf * 300;
+    gctx.drawImage(gameBuf, 0, 0); drawCursor(cx, cy, op.cursorClick); screenTex.needsUpdate = true;
     // 画面の光: ゲーム画面の明るさにあわせて、少しゆらぐ
     screenLight.intensity = 3.6 + 1.2 * glow + 0.3 * Math.sin(t * 9);
     lampLight.intensity = 6.5 + 0.2 * Math.sin(t * 1.3);
+  }
+  function drawCursor(x, y, clickK) { // 小さな矢印(白+黒ふち)。クリックの時は、輪が広がる
+    x = Math.round(x); y = Math.round(y);
+    if (clickK > 0.02) { gctx.strokeStyle = `rgba(255,255,255,${clickK})`; gctx.lineWidth = 1; gctx.beginPath(); gctx.arc(x, y, 3 + (1 - clickK) * 7, 0, Math.PI * 2); gctx.stroke(); }
+    gctx.beginPath(); gctx.moveTo(x, y); gctx.lineTo(x, y + 10); gctx.lineTo(x + 2.6, y + 7.6); gctx.lineTo(x + 4.6, y + 12); gctx.lineTo(x + 6.4, y + 11.2); gctx.lineTo(x + 4.4, y + 6.9); gctx.lineTo(x + 7.6, y + 6.9); gctx.closePath();
+    gctx.fillStyle = '#ffffff'; gctx.fill(); gctx.lineWidth = 1; gctx.strokeStyle = '#000000'; gctx.stroke();
   }
   let glow = 0.5;
 
@@ -180,8 +271,8 @@ export function createStreamWipe(opts) {
     const dt = Math.max(0, Math.min(MAX_DT, +dtSec || 1 / 30));
     if (src && src.width > 0) {
       try {
-        gctx.drawImage(src, 0, 0, gameCanvas2.width, gameCanvas2.height); screenTex.needsUpdate = true;
-        const px = gctx.getImageData(40, 25, 1, 1).data; glow += (((px[0] + px[1] + px[2]) / 765) - glow) * 0.1; // 画面の明るさ(昼は明るく、夜は暗い)→ 光に反映
+        gbctx.drawImage(src, 0, 0, gameBuf.width, gameBuf.height); // カーソルは、animate() が、毎コマ、これの上に描き直す
+        const px = gbctx.getImageData(40, 25, 1, 1).data; glow += (((px[0] + px[1] + px[2]) / 765) - glow) * 0.1; // 画面の明るさ(昼は明るく、夜は暗い)→ 光に反映
       } catch (e) { /* 取り込めない時は、前のコマのまま */ }
     }
     if (cam === 'auto') autoCut(dt);
@@ -192,7 +283,7 @@ export function createStreamWipe(opts) {
     try { scene.traverse((o) => { if (o.geometry) o.geometry.dispose(); }); for (const x of owned) if (x && x.dispose) x.dispose(); renderer.dispose(); renderer.forceContextLoss(); } catch (e) { /* もう、捨てられている */ }
   }
   setSize(size.w, size.h); setCameraPlan(opts);
-  return { canvas, setSize, renderFrame, dispose, setCameraPlan, getView: () => cloneView(view), setView: (v) => { cam = 'custom'; applyView({ pos: v.pos.map((x, i) => clampN(x, VIEW_LIMITS.pos[i])), target: v.target.map((x, i) => clampN(x, VIEW_LIMITS.target[i])), fov: clampN(v.fov, VIEW_LIMITS.fov) }); }, currentViewName: () => (cam === 'auto' ? autoCur : cam), snow, scene, camera, get size() { return { ...size }; } };
+  return { canvas, setSize, renderFrame, dispose, setCameraPlan, get ikError() { return { ...ikErr }; }, getView: () => cloneView(view), setView: (v) => { cam = 'custom'; applyView({ pos: v.pos.map((x, i) => clampN(x, VIEW_LIMITS.pos[i])), target: v.target.map((x, i) => clampN(x, VIEW_LIMITS.target[i])), fov: clampN(v.fov, VIEW_LIMITS.fov) }); }, currentViewName: () => (cam === 'auto' ? autoCur : cam), snow, scene, camera, get size() { return { ...size }; } };
 }
 
 /**
