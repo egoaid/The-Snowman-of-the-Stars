@@ -8,6 +8,7 @@
 //   ・雪だるまは、本編と同じモデル(createSnowmanCharacter)。座る・口・まばたき・手の動きは、本編の仕組みをそのまま使う。
 import * as THREE from 'three';
 import { createSnowmanCharacter } from './snowman.js';
+import { buildStreamRoom, ROOM } from './stream-room.js'; // v1.112: 窓の反対側まで、作り込んだ部屋
 import { getSmoothGradientMap } from './shading.js';
 
 const MAX_DT = 0.1; // 1コマの時間の上限(別のタブから戻った直後などに、動きが飛ばないように)
@@ -19,7 +20,7 @@ export const WIPE_VIEWS = {
   monitor: { pos: [0.45, 1.65, 4.6], target: [-0.3, 1.38, 0.55], fov: 38 },
   face: { pos: [-0.6, 1.62, 2.2], target: [0.2, 1.55, 0.5], fov: 34 },
 };
-const VIEW_LIMITS = { pos: [[-3.3, 3.5], [0.3, 3.6], [-2.0, 6.5]], target: [[-3.3, 3.5], [0.2, 3.2], [-2.0, 4.0]], fov: [12, 70] };
+const VIEW_LIMITS = { pos: [[ROOM.x0 + 0.2, ROOM.x1 - 0.2], [0.3, ROOM.h - 0.2], [ROOM.z0 + 0.3, ROOM.z1 - 0.2]], target: [[ROOM.x0, ROOM.x1], [0.1, ROOM.h], [ROOM.z0, ROOM.z1]], fov: [12, 70] }; // 部屋の中(壁の外へは、出られない)
 const clampN = (v, [lo, hi]) => Math.max(lo, Math.min(hi, v));
 const cloneView = (v) => ({ pos: [...v.pos], target: [...v.target], fov: v.fov });
 /** 設定の camCustom({px,py,pz,tx,ty,tz,fov})を、視点(pos・target・fov)へ。 */
@@ -57,9 +58,7 @@ export function createStreamWipe(opts) {
   // ---- 部屋: 床・奥の壁・左の壁・窓(夜空)・ラグ ----
   const wallMat = toon(0x6f7fa8), floorMat = toon(0x8b6b4e), trimMat = toon(0x3d3548), woodMat = toon(0x6a4a33), darkMat = toon(0x2b2f3a);
   keep(wallMat); keep(floorMat); keep(trimMat); keep(woodMat); keep(darkMat);
-  const floor = new THREE.Mesh(keep(new THREE.PlaneGeometry(9, 7)), floorMat); floor.rotation.x = -Math.PI / 2; floor.position.set(-0.4, 0, 0.5); scene.add(floor);
-  box(14, 9, 0.1, wallMat, -0.4, 4.5, -2.3); // 奥の壁(縦に長い形でも、天井の外が見えないよう、高く広く)
-  box(0.1, 9, 9, wallMat, -3.6, 4.5, 1.5); // 左の壁
+  const room = buildStreamRoom({ scene, toon, keep, box, wallMat, trimMat, woodMat, darkMat, grad }); // 床・4つの壁・天井・本棚・飾り(窓の反対側も)
   box(9, 0.18, 0.12, trimMat, -0.4, 0.09, -2.22); // 幅木
   const rug = new THREE.Mesh(keep(new THREE.CircleGeometry(1.25, 28)), toon(0xb03a48)); keep(rug.material); rug.rotation.x = -Math.PI / 2; rug.position.set(0.1, 0.012, 0.35); scene.add(rug);
   const rugIn = new THREE.Mesh(keep(new THREE.CircleGeometry(0.8, 28)), toon(0xe9d8b4)); keep(rugIn.material); rugIn.rotation.x = -Math.PI / 2; rugIn.position.set(0.1, 0.016, 0.35); scene.add(rugIn);
@@ -82,8 +81,8 @@ export function createStreamWipe(opts) {
 
   // ---- 机・パソコン・キーボード・マグカップ・スタンド ----
   const deskTopY = 0.78;
-  box(2.0, 0.06, 1.1, woodMat, -1.1, deskTopY, 0.6); // 天板(雪だるまのおなかのすぐ前まで。右手のマウスの場所も、ある)
-  for (const [lx, lz] of [[-2.05, 0.12], [-0.2, 0.12], [-2.05, 1.08], [-0.2, 1.08]]) box(0.06, deskTopY, 0.06, darkMat, lx, deskTopY / 2, lz);
+  box(2.0, 0.06, 1.4, woodMat, -1.1, deskTopY, 0.75); // 天板(雪だるまのおなかのすぐ前まで。右手のマウスの場所も、ある)
+  for (const [lx, lz] of [[-2.05, 0.12], [-0.2, 0.12], [-2.05, 1.38], [-0.2, 1.38]]) box(0.06, deskTopY, 0.06, darkMat, lx, deskTopY / 2, lz);
   // モニター: 画面は、いま録画しているゲーム画面(毎コマ、更新)。画面の向きは、雪だるまのほうへ。
   const monitor = new THREE.Group(); monitor.position.set(-1.2, deskTopY + 0.03, 0.82); monitor.rotation.y = 0.96; scene.add(monitor); // 画面は、雪だるまのほうへ、少しカメラ寄りに
   box(0.26, 0.02, 0.18, darkMat, 0, 0.01, 0, monitor); box(0.04, 0.18, 0.04, darkMat, 0, 0.1, 0, monitor);
@@ -95,7 +94,6 @@ export function createStreamWipe(opts) {
   const screenTex = keep(new THREE.CanvasTexture(gameCanvas2)); screenTex.colorSpace = THREE.SRGBColorSpace; screenTex.magFilter = THREE.NearestFilter; screenTex.minFilter = THREE.NearestFilter; screenTex.generateMipmaps = false;
   const screenMat = keep(new THREE.MeshBasicMaterial({ map: screenTex, toneMapped: false }));
   const screen = new THREE.Mesh(keep(new THREE.PlaneGeometry(0.78, 0.44)), screenMat); screen.position.set(0, 0.42, 0.028); monitor.add(screen);
-  const mug = new THREE.Mesh(keep(new THREE.CylinderGeometry(0.05, 0.045, 0.1, 10)), toon(0xe9d8b4)); keep(mug.material); mug.position.set(-1.85, deskTopY + 0.08, 1.0); scene.add(mug);
   const lampBase = new THREE.Mesh(keep(new THREE.CylinderGeometry(0.09, 0.1, 0.03, 10)), darkMat); lampBase.position.set(-1.95, deskTopY + 0.045, 0.5); scene.add(lampBase);
   const lampArm = new THREE.Mesh(keep(new THREE.CylinderGeometry(0.012, 0.012, 0.62, 5)), darkMat); lampArm.position.set(-1.95, deskTopY + 0.36, 0.5); lampArm.rotation.z = -0.25; scene.add(lampArm);
   const lampShade = new THREE.Mesh(keep(new THREE.ConeGeometry(0.12, 0.14, 10, 1, true)), keep(new THREE.MeshBasicMaterial({ color: 0xffd9a0, side: THREE.DoubleSide, toneMapped: false }))); lampShade.position.set(-1.83, deskTopY + 0.66, 0.5); lampShade.rotation.z = 0.5; scene.add(lampShade);
@@ -124,6 +122,34 @@ export function createStreamWipe(opts) {
   const padPos = deskPoint(MOUSE_F, MOUSE_R, deskTopY + 0.033); const pad = box(0.26, 0.006, 0.22, toon(0x3a3350), padPos.x, padPos.y, padPos.z); pad.rotation.y = faceYaw; keep(pad.material);
   const mouseMat = toon(0xe6e6ea); keep(mouseMat); const mouseMesh = box(0.07, 0.03, 0.11, mouseMat, padPos.x, deskTopY + 0.051, padPos.z); mouseMesh.rotation.y = faceYaw + 0.12;
   const mouseBtn = box(0.066, 0.004, 0.04, toon(0x9aa0b0), 0, 0.0155, 0.026, mouseMesh); keep(mouseBtn.material);
+
+  // ---- コーヒー(か紅茶)のカップとソーサー: 左手がとどくところ。ときどき、持ち上げて、飲む。湯気つき ----
+  const leftV = new THREE.Vector3(-rx, 0, -rz); // 雪だるまの左(世界)。カップの局所x(+)も、ここを向く
+  const CUP_REST = deskPoint(0.92, -0.62, deskTopY + 0.042), GRIP = leftV.clone().multiplyScalar(0.0875).add(new THREE.Vector3(0, 0.0625, 0)); // カップは、少し大きめ(1.25倍) // 取っ手を握る位置(カップの底の中心から)
+  const saucer = new THREE.Mesh(keep(new THREE.CylinderGeometry(0.085, 0.07, 0.012, 14)), keep(toon(0xf3efe6))); saucer.position.set(CUP_REST.x, deskTopY + 0.036, CUP_REST.z); saucer.scale.setScalar(1.25); scene.add(saucer);
+  const cupRoot = new THREE.Group(); cupRoot.position.copy(CUP_REST); cupRoot.rotation.y = faceYaw; cupRoot.scale.setScalar(1.25); scene.add(cupRoot);
+  const cupTilt = new THREE.Group(); cupRoot.add(cupTilt); // 傾ける軸(カップの底)
+  const cupMat = toon(0x4fa3b5), liquidMat = new THREE.MeshBasicMaterial({ color: Math.random() < 0.5 ? 0x3a2214 : 0xb8601c, toneMapped: false }); keep(cupMat); keep(liquidMat); // コーヒーか、紅茶
+  { const body = new THREE.Mesh(keep(new THREE.CylinderGeometry(0.052, 0.04, 0.095, 14)), cupMat); body.position.y = 0.0475; cupTilt.add(body);
+    const handle = new THREE.Mesh(keep(new THREE.TorusGeometry(0.028, 0.0065, 6, 10, Math.PI)), cupMat); handle.position.set(0.054, 0.05, 0); handle.rotation.z = -Math.PI / 2; cupTilt.add(handle); }
+  const liquid = new THREE.Mesh(keep(new THREE.CircleGeometry(0.046, 14)), liquidMat); liquid.rotation.x = -Math.PI / 2; liquid.position.y = 0.088; cupTilt.add(liquid);
+  const steam = []; for (let i = 0; i < 3; i++) { const m = new THREE.Mesh(keep(new THREE.SphereGeometry(0.014, 6, 5)), keep(new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.3, depthWrite: false, toneMapped: false }))); cupRoot.add(m); steam.push(m); }
+  const drink = { t: -1, next: 9 + Math.random() * 8, level: 1, sips: 0 }; // 飲むしぐさ(約5.5秒)。ときどき(25〜55秒に1回)
+  const D_REACH = 0.9, D_LIFT = 1.1, D_SIP = 1.7, D_LOWER = 1.1, D_REL = 0.7, D_ALL = D_REACH + D_LIFT + D_SIP + D_LOWER + D_REL;
+  const smooth = (x) => { x = Math.max(0, Math.min(1, x)); return x * x * (3 - 2 * x); };
+
+  // ---- 卓上マイク(配信者の、ブームアーム)。机のすみから伸びて、口もとの手前に、マイクがある ----
+  const micMat = toon(0x1f232b), micMetal = toon(0x9aa0ac); keep(micMat); keep(micMetal);
+  function cyl(a, b, r, mat) { const d = new THREE.Vector3().subVectors(b, a), len = d.length(), m = new THREE.Mesh(keep(new THREE.CylinderGeometry(r, r, len, 8)), mat); m.position.copy(a).addScaledVector(d, 0.5); m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), d.normalize()); scene.add(m); return m; }
+  { const P0 = deskPoint(1.25, 0.58, deskTopY + 0.03), P1 = new THREE.Vector3(P0.x, 1.2, P0.z), P3 = deskPoint(0.98, 0.16, 1.1), M0 = deskPoint(0.72, 0, 1.36);
+    const clampB = new THREE.Mesh(keep(new THREE.BoxGeometry(0.08, 0.06, 0.08)), micMat); clampB.position.set(P0.x, P0.y + 0.0, P0.z); scene.add(clampB);
+    cyl(P0, P1, 0.012, micMat); const joint = new THREE.Mesh(keep(new THREE.SphereGeometry(0.02, 8, 6)), micMat); joint.position.copy(P1); scene.add(joint); cyl(P1, P3, 0.01, micMat); // ポールと、ブーム
+    const dir = new THREE.Vector3().subVectors(M0, P3).normalize(), capA = P3.clone().addScaledVector(dir, -0.08), capB = P3.clone().addScaledVector(dir, 0.08);
+    cyl(capA, capB, 0.032, micMat); // マイク本体
+    const grille = new THREE.Mesh(keep(new THREE.SphereGeometry(0.036, 10, 8)), micMetal); grille.position.copy(capB); scene.add(grille); // 先の、網
+    const ring = new THREE.Mesh(keep(new THREE.TorusGeometry(0.04, 0.005, 5, 14)), micMetal); ring.position.copy(P3); ring.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), dir); scene.add(ring); // 支えの輪
+    const pop = new THREE.Mesh(keep(new THREE.CylinderGeometry(0.065, 0.065, 0.004, 16)), keep(new THREE.MeshBasicMaterial({ color: 0x20242c, transparent: true, opacity: 0.55, depthWrite: false }))); pop.position.copy(P3).addScaledVector(dir, 0.13); pop.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir); scene.add(pop); // ポップガード
+    const led = new THREE.Mesh(keep(new THREE.SphereGeometry(0.006, 6, 5)), keep(new THREE.MeshBasicMaterial({ color: 0xff3a3a, toneMapped: false }))); led.position.copy(P3).addScaledVector(dir, -0.06).add(new THREE.Vector3(0, 0.034, 0)); scene.add(led); } // 録音中の、赤いランプ
 
   // ---- 雪だるま(本編と同じモデル)+ ヘッドホン ----
   const snow = createSnowmanCharacter(1);
@@ -154,7 +180,7 @@ export function createStreamWipe(opts) {
   const LEAN = OP_TUNE.lean; // 前のめり(rad)
   const ikErr = { L: 0, R: 0 }; // 手先が、狙いから、どれだけずれたか(m。試験用)
   const tipP = { L: new THREE.Vector3(), R: new THREE.Vector3() }, tipInit = { L: false, R: false }; // 手先の、いまの狙い(なめらかに動かす)
-  const _lt = new THREE.Vector3(), _u = new THREE.Vector3(), _tip = new THREE.Vector3();
+  const _lt = new THREE.Vector3(), _u = new THREE.Vector3(), _tip = new THREE.Vector3(), _nose = new THREE.Vector3();
   /** 腕を、狙いの点へ向け、長さを、狙いまでの距離にあわせる(机まで届くよう、枝を、伸ばす。1〜2.1倍)。
    *  回転は、z(開く)→x(前へ)の順(snowman.js と同じ)。軸 +y の向き u について: z = -asin(ux)、x = atan2(uz, uy)。 */
   function aimArm(arm, tip, target, key) {
@@ -162,7 +188,7 @@ export function createStreamWipe(opts) {
     _lt.copy(target); arm.parent.worldToLocal(_lt); _u.copy(_lt).sub(arm.position);
     const dist = _u.length() || 1; _u.divideScalar(dist);
     arm.rotation.z = clampN(-Math.asin(Math.max(-1, Math.min(1, _u.x))), [-2.6, 2.6]); arm.rotation.x = Math.atan2(_u.z, _u.y);
-    arm.scale.y = clampN(dist / ARM_LEN, [1.0, 2.1]); arm.scale.x = arm.scale.z = Math.sqrt(arm.scale.y); // 伸ばした分、少し太くもする(細い針金に見えないように)
+    arm.scale.y = clampN(dist / ARM_LEN, [0.7, 2.1]); arm.scale.x = arm.scale.z = Math.sqrt(arm.scale.y); // 伸ばした分、少し太くもする(細い針金に見えないように)
     arm.updateMatrixWorld(true); tip.getWorldPosition(_tip); ikErr[key] = _tip.distanceTo(target); // 試験用
   }
   const kbWorld = (x, z, y) => kbGroup.localToWorld(new THREE.Vector3(x, y, z));
@@ -206,7 +232,7 @@ export function createStreamWipe(opts) {
     mouseMesh.position.set(mouseP.x, mouseP.y, mouseP.z); mouseMesh.rotation.y = faceYaw + 0.12 + op.mouseDr * 1.5; mouseBtn.position.y = 0.0155 - 0.003 * click;
     // キー(押すたびに、手が、そのキーへ動き、少し沈む。押されたキーは、一瞬、光る)
     for (const h of ['L', 'R']) {
-      const active = op.mode === 'type' || h === 'L';
+      const active = (op.mode === 'type' || h === 'L') && !(h === 'L' && drink.t >= 0); // 飲んでいる間、左手は、キーを押さない
       op.press[h] = Math.max(0, op.press[h] - dt * 9);
       if (active) {
         op.tapNext[h] -= dt * speed;
@@ -219,21 +245,43 @@ export function createStreamWipe(opts) {
     }
     op.keyHold -= dt; const shown = op.press.L > op.press.R ? 'L' : 'R'; keyGlow.visible = op.keyHold > 0 && !!op.key[shown];
     if (keyGlow.visible) keyGlow.position.set(op.key[shown].x, 0.02, op.key[shown].z);
+    // --- 飲むしぐさ(game の間に、ときどき): 左手が取っ手を握り、口もとへ運び、飲み、もとへ戻す ---
+    drink.next -= dt; if (drink.t < 0 && op.mode === 'game' && drink.next <= 0) { drink.t = 0; drink.sips = 0; }
+    let drinkTgt = null, tilt = 0, headBack = 0, held = false, mouthOpenNow = null;
+    if (drink.t >= 0) {
+      drink.t += dt; const T = drink.t, tl = T - D_REACH, ts = tl - D_LIFT, td = ts - D_SIP, tr = td - D_LOWER;
+      snow.getNoseTipWorld(_nose); const S = new THREE.Vector3(_nose.x + fx * 0.14 + leftV.x * -0.03, _nose.y - 0.165, _nose.z + fz * 0.14 + leftV.z * -0.03); // 口もとに、カップの縁がくる位置(カップの底)
+      let pos = CUP_REST.clone();
+      if (T < D_REACH) drinkTgt = CUP_REST.clone().add(GRIP).add(new THREE.Vector3(0, 0.03 * (1 - T / D_REACH), 0));
+      else if (tl < D_LIFT) { const k = smooth(tl / D_LIFT); pos.lerp(S, k); pos.y += 0.05 * Math.sin(Math.PI * k); tilt = 0.62 * k; headBack = k; held = true; }
+      else if (ts < D_SIP) { pos.copy(S); pos.y += 0.005 * Math.sin(ts * 5); tilt = 0.62 + 0.1 * Math.sin(ts * 3); headBack = 1; held = true; if (ts > 0.3 && ts < 1.1) mouthOpenNow = 0.2; }
+      else if (td < D_LOWER) { const k = smooth(td / D_LOWER); pos.copy(S).lerp(CUP_REST, k); pos.y += 0.05 * Math.sin(Math.PI * k); tilt = 0.62 * (1 - k); headBack = 1 - k; held = true; }
+      if (held) drinkTgt = pos.clone().add(GRIP);
+      if (td >= D_LOWER && !drink.settled) { drink.settled = true; drink.level -= 0.2; if (drink.level < 0.3) drink.level = 1; } // 一口飲むごとに、少し減る。減ったら、おかわり
+      if (T >= D_ALL) { drink.t = -1; drink.settled = false; op.switchT = 0.8; drink.next = 25 + Math.random() * 30; }
+    }
+    snow.setMouthOpen(mouthOpenNow); // 飲む時だけ、口を少し開く(ふだんは、自動)
+    snow.headGroup.rotation.x -= 0.14 * headBack; // 飲む時は、少し上をむく
+    if (drink.t < 0 || !held) cupRoot.position.copy(CUP_REST); // 持っていない間は、机の上
+    cupTilt.rotation.x = -tilt; liquid.position.y = 0.088 - (1 - drink.level) * 0.03; liquid.visible = tilt < 0.7;
+    steam.forEach((m, i) => { const u = ((t * 0.18 + i / 3) % 1); m.position.set(Math.sin(t * 1.5 + i * 2) * 0.012, 0.1 + u * 0.16, 0); m.material.opacity = 0.32 * (1 - u) * (held ? 0.2 : 1); m.scale.setScalar(0.8 + u * 1.6); });
     // 手先の狙い(世界): 左手=キーボード / 右手=game ならマウス、type ならキーボード
     const hoverY = KEY_TOP + 0.03;
-    const tgtL = kbWorld(op.handLocal.L.x, op.handLocal.L.z, hoverY - KB_Y - 0.03 * op.press.L);
+    let tgtL = kbWorld(op.handLocal.L.x, op.handLocal.L.z, hoverY - KB_Y - 0.03 * op.press.L);
     const tgtR = op.mode === 'game' ? new THREE.Vector3(mouseP.x, deskTopY + 0.085 - 0.02 * click, mouseP.z) : kbWorld(op.handLocal.R.x, op.handLocal.R.z, hoverY - KB_Y - 0.03 * op.press.R);
+    if (drinkTgt) tgtL = drinkTgt;
     seatPivot.updateMatrixWorld(true);
     for (const [h, arm, tip, tgt] of [['L', armL, snow.torchSocket, tgtL], ['R', armR, snow.itemSocket, tgtR]]) {
-      if (!tipInit[h]) { tipP[h].copy(tgt); tipInit[h] = true; } else tipP[h].lerp(tgt, Math.min(1, dt * (op.switchT > 0 ? 6 : op.press[h] > 0.5 ? 18 : 11))); // 手先は、なめらかに(モード切り替えの時も、飛ばない)
+      if (!tipInit[h]) { tipP[h].copy(tgt); tipInit[h] = true; } else tipP[h].lerp(tgt, Math.min(1, dt * (op.switchT > 0 || (h === 'L' && drink.t >= 0 && (drink.t < D_REACH || drink.t > D_ALL - D_REL)) ? 5 : op.press[h] > 0.5 ? 18 : 11))); // 手先は、なめらかに(モード切り替えの時も、飛ばない)
       aimArm(arm, tip, tipP[h], h);
     }
+    if (held) cupRoot.position.copy(tipP.L).sub(GRIP); // カップは、手に持たれている間、手についてくる
     // 画面の中: ゲーム画面のコピーの上に、マウスと同じ動きのカーソル
     const cx = 80 + op.mouseDr * 420, cy = 46 - op.mouseDf * 300;
     gctx.drawImage(gameBuf, 0, 0); drawCursor(cx, cy, op.cursorClick); screenTex.needsUpdate = true;
     // 画面の光: ゲーム画面の明るさにあわせて、少しゆらぐ
     screenLight.intensity = 3.6 + 1.2 * glow + 0.3 * Math.sin(t * 9);
-    lampLight.intensity = 6.5 + 0.2 * Math.sin(t * 1.3);
+    lampLight.intensity = 6.5 + 0.2 * Math.sin(t * 1.3); room.update(t);
   }
   function drawCursor(x, y, clickK) { // 小さな矢印(白+黒ふち)。クリックの時は、輪が広がる
     x = Math.round(x); y = Math.round(y);
@@ -251,8 +299,13 @@ export function createStreamWipe(opts) {
     camera.fov = fitFov(v.fov, camera.aspect); camera.updateProjectionMatrix();
   }
   /** 画角の設定を渡す。opts = { cam: 'room'|'monitor'|'face'|'custom'|'auto', camCustom, camInterval }(normalizeWipe の形) */
+  let planKey = '';
   function setCameraPlan(o) {
-    o = o || {}; cam = o.cam || 'room'; camInterval = Math.max(3, +o.camInterval || 15);
+    o = o || {}; const nc = o.cam || 'room', ni = Math.max(3, +o.camInterval || 15);
+    const key = nc + '|' + (nc === 'custom' ? JSON.stringify(o.camCustom || null) : '');
+    // 同じ設定を、何度渡されても、何もしない(以前は、見守りモード中の表示が、0.5秒ごとに渡し直して、自動切り替えのタイマーが、そのたびにやり直しになり、秒数の設定が効かなかった)
+    if (key === planKey) { if (nc === 'auto' && ni !== camInterval) { camInterval = ni; autoNext = Math.min(autoNext, ni * 1.3); } camInterval = ni; return; }
+    planKey = key; cam = nc; camInterval = ni;
     if (cam === 'auto') { autoCur = Object.keys(WIPE_VIEWS)[Math.floor(Math.random() * 3)]; applyView(WIPE_VIEWS[autoCur]); autoNext = camInterval * (0.7 + 0.6 * Math.random()); }
     else if (cam === 'custom') applyView(viewFromCustom(o.camCustom));
     else applyView(WIPE_VIEWS[cam] || WIPE_VIEWS.room);
@@ -283,7 +336,7 @@ export function createStreamWipe(opts) {
     try { scene.traverse((o) => { if (o.geometry) o.geometry.dispose(); }); for (const x of owned) if (x && x.dispose) x.dispose(); renderer.dispose(); renderer.forceContextLoss(); } catch (e) { /* もう、捨てられている */ }
   }
   setSize(size.w, size.h); setCameraPlan(opts);
-  return { canvas, setSize, renderFrame, dispose, setCameraPlan, get ikError() { return { ...ikErr }; }, getView: () => cloneView(view), setView: (v) => { cam = 'custom'; applyView({ pos: v.pos.map((x, i) => clampN(x, VIEW_LIMITS.pos[i])), target: v.target.map((x, i) => clampN(x, VIEW_LIMITS.target[i])), fov: clampN(v.fov, VIEW_LIMITS.fov) }); }, currentViewName: () => (cam === 'auto' ? autoCur : cam), snow, scene, camera, get size() { return { ...size }; } };
+  return { canvas, setSize, renderFrame, dispose, setCameraPlan, get ikError() { return { ...ikErr }; }, get drinkTime() { return drink.t; }, skipToDrink() { drink.next = 0; }, getView: () => cloneView(view), setView: (v) => { cam = 'custom'; planKey = ''; applyView({ pos: v.pos.map((x, i) => clampN(x, VIEW_LIMITS.pos[i])), target: v.target.map((x, i) => clampN(x, VIEW_LIMITS.target[i])), fov: clampN(v.fov, VIEW_LIMITS.fov) }); }, currentViewName: () => (cam === 'auto' ? autoCur : cam), snow, scene, camera, get size() { return { ...size }; } };
 }
 
 /**

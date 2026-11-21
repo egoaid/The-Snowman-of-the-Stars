@@ -95,7 +95,7 @@ export const WIPE_BORDER_COLOR_DEFAULT = '#f3efe6';
 export const WIPE_CAMS = ['room', 'monitor', 'face', 'custom', 'auto'];
 export const WIPE_CAM_INTERVAL_MIN = 5, WIPE_CAM_INTERVAL_MAX = 60, WIPE_CAM_INTERVAL_DEFAULT = 15; // 自動で切り替える間隔(秒)の目安(実際は、±30%ばらつく)
 export const WIPE_CUSTOM_DEFAULT = { px: 0.45, py: 1.65, pz: 4.6, tx: -0.3, ty: 1.38, tz: 0.55, fov: 38 }; // 「モニターを見ている雪だるま」と同じ
-const CUSTOM_RANGE = { px: [-3.3, 3.5], py: [0.3, 3.6], pz: [-2, 6.5], tx: [-3.3, 3.5], ty: [0.2, 3.2], tz: [-2, 4], fov: [12, 70] };
+const CUSTOM_RANGE = { px: [-3.4, 3.7], py: [0.3, 3.1], pz: [-2.0, 6.8], tx: [-3.6, 3.9], ty: [0.1, 3.3], tz: [-2.3, 7.0], fov: [12, 70] }; // 部屋の中(stream-room.js の ROOM と同じ広さ)
 /** 設定(画面からの入力・保存された値)を、安全な値にそろえる。知らない値は、既定へ。 */
 export function normalizeWipe(o) {
   o = o || {};

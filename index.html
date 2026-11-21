@@ -2014,13 +2014,22 @@ import { createMidiInput } from './js/music/midi-input.js'; // v1.104: 外部MID
           const wvActive = () => wipeUi.watch.checked && scene.getMode() === 'orbit' && document.getElementById('titleScreen').classList.contains('hidden') && !isOpen('settingsPanel') && !document.hidden && !recTimer && !wvFailed;
           function wvApply(o) { // 設定や、画面の大きさが変わったら、置き直す
             if (!wv) return;
-            const R = scene.getRenderCanvas().getBoundingClientRect(), L = wipeLayout('fhd', o), u = R.width / 1920, key = L.rw + 'x' + L.rh;
-            if (key !== wvSize) { wv.setSize(L.rw, L.rh); wvSize = key; }
-            const bw = L.b ? Math.max(1, Math.round(L.b * L.k * u)) : 0, w = Math.round(L.w * u), h = Math.round(L.h * u);
-            Object.assign(wvBox.style, { left: Math.round(R.left + L.x * u - bw) + 'px', top: Math.round(R.top + L.y * u - bw) + 'px', width: w + 'px', height: h + 'px', border: bw ? bw + 'px solid ' + o.borderColor : '0', borderRadius: o.shape === 'circle' ? '50%' : '0' });
+            // 見えている範囲 = ゲーム画面と、ウィンドウの、重なり。ゲーム画面は、ウィンドウいっぱいに広がり、16:9とは限らない(以前は、16:9と決め打ちで、横長の窓では画面の外へ・縦長の窓では中央へ、ずれた)
+            const R = scene.getRenderCanvas().getBoundingClientRect(), vw = document.documentElement.clientWidth || window.innerWidth, vh = document.documentElement.clientHeight || window.innerHeight;
+            const left = Math.max(0, R.left), top = Math.max(0, R.top), right = Math.min(vw, R.right), bottom = Math.min(vh, R.bottom), VW = right - left, VH = bottom - top;
+            if (VW < 60 || VH < 60) return;
+            const L = wipeLayout('fhd', o), key = L.rw + 'x' + L.rh; if (key !== wvSize) { wv.setSize(L.rw, L.rh); wvSize = key; }
+            let u = Math.min(VW / 1920, VH / 1080); // 16:9 を、見えている範囲に収めた時の、拡大率
+            u *= Math.min(1, (0.9 * VW) / (L.w * u), (0.9 * VH) / (L.h * u)); // 小さな窓でも、見えている範囲の9割を、超えない
+            const w = Math.max(24, Math.round(L.w * u)), h = Math.max(24, Math.round(L.h * u)), bw = L.b ? Math.max(1, Math.round(L.b * L.k * u)) : 0;
+            const m = Math.max(10, Math.round(20 * L.k * u)) + bw; // 余白(枠の外側から。小さな窓でも、最低10px)
+            const x = L.corner === 'bl' || L.corner === 'tl' ? left + m : right - m - w, y = L.corner === 'tl' || L.corner === 'tr' ? top + m : bottom - m - h;
+            Object.assign(wvBox.style, { left: Math.round(x - bw) + 'px', top: Math.round(y - bw) + 'px', width: w + 'px', height: h + 'px', border: bw ? bw + 'px solid ' + o.borderColor : '0', borderRadius: o.shape === 'circle' ? '50%' : '0' });
             Object.assign(wv.canvas.style, { width: w + 'px', height: h + 'px', transform: o.flip ? 'scaleX(-1)' : '', display: 'block' });
             wv.setCameraPlan(o);
           }
+          window.addEventListener('resize', () => { if (wv) wvApply(readWipeUi()); }); // 画面の大きさが変わったら、すぐ置き直す(0.5秒の見回りを待たない)
+          document.addEventListener('fullscreenchange', () => { if (wv) setTimeout(() => wvApply(readWipeUi()), 100); });
           function wvStop() { if (wv) { wv.dispose(); } if (wvBox) wvBox.remove(); wv = null; wvBox = null; wvSize = ''; }
           function wvTick() {
             wvRaf = 0; wvTimer = 0;
