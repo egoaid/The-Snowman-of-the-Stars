@@ -663,7 +663,7 @@ import { createMidiInput } from './js/music/midi-input.js'; // v1.104: 外部MID
     // v1.113: 起動の「部屋の演出」。ほかの入力の受け口より先に作る(部屋が全画面の間、ゲームへキーを渡さないため)。作れなくても、ゲームには影響しない
     const introLayer = createIntroLayer({
       createRoom: createIntroRoom, title: APP.titleJa, titleEn: APP.titleEn,
-      labels: () => ({ book: tr('intro.book'), keyboard: tr('intro.keyboard'), monitor: tr('intro.monitor'), sofa: tr('intro.sofa'), snowman: tr('intro.snowman'), wipe: tr('intro.wipe'), skip: tr('intro.skip'), guide: tr('intro.guide') }),
+      labels: () => ({ book: tr('intro.book'), keyboard: tr('intro.keyboard'), monitor: tr('intro.monitor'), cup: tr('intro.cup'), lamp: tr('intro.lamp'), lampOff: tr('intro.lampOff'), synth: tr('intro.synth'), sofa: tr('intro.sofa'), snowman: tr('intro.snowman'), wipe: tr('intro.wipe'), skip: tr('intro.skip'), guide: tr('intro.guide') }),
     });
     live.push(() => { if (introLayer.refreshTexts) introLayer.refreshTexts(); });
     { const chk = document.getElementById('introRoomCheckbox'); if (chk) { chk.checked = introLayer.isEnabledSetting(); chk.addEventListener('change', () => introLayer.setEnabledSetting(chk.checked)); } }

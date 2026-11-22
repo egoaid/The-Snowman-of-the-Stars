@@ -67,7 +67,11 @@ export const SPOTS = {
   chair: { seat: { x: 0.4, z: 0.35 }, seatY: 0.42, yaw: FACE_YAW, side: { x: 0.71, z: 1.25 } }, // 机の椅子(stream-wipe.js と同じ位置)
   kb: { stand: { x: -0.25, z: 6.3 }, yaw: 0 }, // 手前の壁に縦に立てかけたMIDIキーボードの前(壁のほう=+zを向く)。腕が伸びすぎないよう、近くに立つ
   synth: { stand: { x: -0.95, z: 6.3 }, yaw: 0 }, // その横に立てかけた、大きなシンセの前
-  lamp: { stand: { x: -2.75, z: 5.3 }, yaw: -Math.PI / 2 }, // 低い本棚の上のランプ(ソファのとなり)
+  lamp: { stand: { x: -2.75, z: 4.89 }, yaw: -Math.PI / 2, target: { x: -3.4, y: 1.5, z: 5.35 } }, // 低い本棚の上のランプ(ソファのとなり)。左肩が、ランプの正面に来る位置
+  floor: { seat: { x: 0.2, z: 5.3 }, seatY: 0, yaw: Math.PI, front: { x: 0.2, z: 5.95 }, pickup: { x: 0.2, z: 5.35 }, synth: { x: 0.2, z: 4.62 } }, // 大きなシンセを床へ寝かせて、床に座って弾く場所(敷物の上)
+  table: { stand: { x: -2.2, z: 3.49 }, yaw: -Math.PI / 2, target: { x: -2.8, y: 0.6, z: 3.95 } }, // ソファの横のサイドテーブル(左肩が、テーブルの正面)
+  cupDesk: { stand: { x: 0.2, z: 1.97 }, yaw: Math.PI, target: { x: -0.26, y: 0.9, z: 1.24 } }, // 机の上のカップ
+  headsetDesk: { stand: { x: -2.0, z: 1.97 }, yaw: Math.PI, target: { x: -1.55, y: 0.92, z: 1.25 } }, // 机の上のヘッドセット(右肩が、ヘッドセットの正面)
 };
 /** 本棚(stream-room.js の置き方と同じ)。front=前を向く向き(ry)。w=横幅。 */
 export const SHELVES = [
@@ -99,26 +103,31 @@ export function route(from, to) {
 const walk = (from, to) => (same(from, to) ? null : { t: 'walk', path: route(from, to) });
 
 /**
- * いまの状態から、あとかたづけ(立つ・ものを元の場所へ戻す)の手順を作る。
- * st = { x, z, seat: null|'sofa'|'chair', carry: null|'book'|'kb' }
+ * いまの状態から、あとかたづけ(立つ・ものを元の場所へ戻す・ヘッドセットを外す)の手順を作る。
+ * st = { x, z, seat: null|'sofa'|'chair'|'floor', carry: null|'book'|'kb'|'cup'|'synth'|'headset', headset: 'desk'|'head'|'hand', synthAt: 'wall'|'floor'|'hand', cupAt: 'desk'|'table'|'hand' }
+ * opt.cupTo = 'desk' なら、持っているカップは、机へ(これからパソコンへ行く時)。ふだんは、サイドテーブルへ。
  * 戻り値 { steps, pos }(あとかたづけが終わった時の位置)
  */
-export function tidy(st) {
-  const steps = []; let pos = { x: st.x, z: st.z }, seat = st.seat, carry = st.carry;
-  if (seat) {
-    steps.push({ t: 'stand', seat });
-    pos = seat === 'sofa' ? { ...SPOTS.sofa.front } : { ...SPOTS.chair.side };
-    if (carry === 'book') { steps.push({ t: 'place', what: 'book', at: 'sofa' }); carry = null; } // 読んでいた本は、ソファの上へ
-    seat = null;
+export function tidy(st, opt = {}) {
+  const steps = []; let pos = { x: st.x, z: st.z }; let carry = st.carry;
+  const go = (to) => { const w = walk(pos, to); if (w) steps.push(w); pos = { x: to.x, z: to.z }; };
+  const putCup = (to) => { const sp = to === 'desk' ? SPOTS.cupDesk : SPOTS.table; go(sp.stand); steps.push({ t: 'face', yaw: sp.yaw }, { t: 'reach', target: sp.target }, { t: 'place', what: 'cup', at: to }); carry = null; };
+  const takeOffHeadset = () => { const sp = SPOTS.headsetDesk; go(sp.stand); steps.push({ t: 'face', yaw: sp.yaw }, { t: 'equip', on: false }, { t: 'place', what: 'headset', at: 'desk', target: sp.target }); };
+  if (st.seat) {
+    steps.push({ t: 'stand', seat: st.seat });
+    pos = st.seat === 'sofa' ? { ...SPOTS.sofa.front } : st.seat === 'floor' ? { ...SPOTS.floor.front } : { ...SPOTS.chair.side };
+    if (st.seat === 'sofa' && carry === 'book') { steps.push({ t: 'face', yaw: -Math.PI / 2 }, { t: 'place', what: 'book', at: 'sofa' }); carry = null; } // ソファのほう(-x)を向いて、本を置く // 読んでいた本は、ソファの上へ
+    if (st.seat === 'chair' && st.headset === 'head') takeOffHeadset();
+    if (st.seat === 'floor' && st.synthAt === 'floor') { // 床のシンセを持ち上げて、壁へ立てかけ直す
+      go(SPOTS.floor.pickup); steps.push({ t: 'face', yaw: Math.PI }, { t: 'reach', target: { x: SPOTS.floor.synth.x, y: 0.2, z: SPOTS.floor.synth.z + 0.1 } }, { t: 'pick', what: 'synth', from: 'floor' }); carry = 'synth';
+    }
   }
-  if (carry === 'kb') {
-    const s = walk(pos, SPOTS.kb.stand); if (s) steps.push(s); pos = { ...SPOTS.kb.stand };
-    steps.push({ t: 'face', yaw: SPOTS.kb.yaw }, { t: 'place', what: 'kb', at: 'wall' }); carry = null;
-  }
-  if (carry === 'book') { // 立ったまま持っている(途中)。ソファの上へ置きに行く
-    const s = walk(pos, SPOTS.sofa.front); if (s) steps.push(s); pos = { ...SPOTS.sofa.front };
-    steps.push({ t: 'place', what: 'book', at: 'sofa' }); carry = null;
-  }
+  if (carry === 'cup') putCup(opt.cupTo === 'desk' ? 'desk' : 'table');
+  if (carry === 'synth') { go(SPOTS.synth.stand); steps.push({ t: 'face', yaw: SPOTS.synth.yaw }, { t: 'place', what: 'synth', at: 'wall' }); carry = null; }
+  if (carry === 'kb') { go(SPOTS.kb.stand); steps.push({ t: 'face', yaw: SPOTS.kb.yaw }, { t: 'place', what: 'kb', at: 'wall' }); carry = null; }
+  if (carry === 'book') { go(SPOTS.sofa.front); steps.push({ t: 'face', yaw: -Math.PI / 2 }, { t: 'place', what: 'book', at: 'sofa' }); carry = null; } // 立ったまま持っている(途中)。ソファの上へ置きに行く
+  if (carry === 'headset') { const sp = SPOTS.headsetDesk; go(sp.stand); steps.push({ t: 'face', yaw: sp.yaw }, { t: 'place', what: 'headset', at: 'desk', target: sp.target }); carry = null; }
+  if (!st.seat && st.headset === 'head') takeOffHeadset(); // 立ったまま着けている(途中)
   return { steps, pos };
 }
 
@@ -132,9 +141,45 @@ export function planAction(action, st, rand = Math.random) {
   if (!action) return [];
   if (action.type === 'monitor') {
     if (st.seat === 'chair') return [{ t: 'camera', view: 'monitor' }, { t: 'do', what: 'pc' }];
-    const td = tidy(st); const steps = [...td.steps]; const w = walk(td.pos, SPOTS.chair.side); if (w) steps.push(w);
+    const td = tidy(st, { cupTo: 'desk' }); const steps = [...td.steps]; let pos = td.pos;
+    const go = (to) => { const w = walk(pos, to); if (w) steps.push(w); pos = { x: to.x, z: to.z }; };
+    if (st.cupAt === 'table' && st.carry !== 'cup') { // サイドテーブルのカップを、先に、机へ移す
+      go(SPOTS.table.stand); steps.push({ t: 'face', yaw: SPOTS.table.yaw }, { t: 'reach', target: SPOTS.table.target }, { t: 'pick', what: 'cup', from: 'table' });
+      go(SPOTS.cupDesk.stand); steps.push({ t: 'face', yaw: SPOTS.cupDesk.yaw }, { t: 'reach', target: SPOTS.cupDesk.target }, { t: 'place', what: 'cup', at: 'desk' });
+    }
+    if ((st.headset || 'desk') === 'desk') { // 机の上のヘッドセットを、頭にかけてから、座る
+      const sp = SPOTS.headsetDesk; go(sp.stand); steps.push({ t: 'face', yaw: sp.yaw }, { t: 'reach', target: sp.target }, { t: 'pick', what: 'headset', from: 'desk' }, { t: 'equip', on: true });
+    }
+    go(SPOTS.chair.side);
     steps.push({ t: 'sit', seat: 'chair' }, { t: 'camera', view: 'monitor' }, { t: 'do', what: 'pc' });
     return steps;
+  }
+  if (action.type === 'cup') { // カップをクリック(または、読書中に飲みたくなる): カップを取って、ソファで飲む → サイドテーブルへ置く → (読書していたなら)本を取って再開
+    if (st.carry === 'cup' && st.seat === 'sofa') return [];
+    const resume = st.carry === 'book' && st.seat === 'sofa';
+    const td = tidy(st); const steps = [...td.steps]; let pos = td.pos;
+    const go = (to) => { const w = walk(pos, to); if (w) steps.push(w); pos = { x: to.x, z: to.z }; };
+    const from = st.cupAt === 'table' ? 'table' : 'desk', sp = from === 'table' ? SPOTS.table : SPOTS.cupDesk;
+    go(sp.stand); steps.push({ t: 'face', yaw: sp.yaw }, { t: 'reach', target: sp.target }, { t: 'pick', what: 'cup', from });
+    go(SPOTS.sofa.front); steps.push({ t: 'sit', seat: 'sofa' }, { t: 'do', what: 'drink', dur: DRINK_TOTAL(3) });
+    steps.push({ t: 'stand', seat: 'sofa' }); pos = { ...SPOTS.sofa.front }; go(SPOTS.table.stand);
+    steps.push({ t: 'face', yaw: SPOTS.table.yaw }, { t: 'reach', target: SPOTS.table.target }, { t: 'place', what: 'cup', at: 'table' }); go(SPOTS.sofa.front); steps.push({ t: 'sit', seat: 'sofa' });
+    if (resume) steps.push({ t: 'reach', target: { x: -2.95, y: 0.5, z: 2.1 } }, { t: 'pick', what: 'book', from: 'sofa', keep: true }, { t: 'do', what: 'read', dur: 40 + rand() * 40 });
+    return steps;
+  }
+  if (action.type === 'lamp') { // ランプのスイッチを入れる(入っていれば、切る)。そのあと、ソファへ
+    const td = tidy(st); const steps = [...td.steps]; let pos = td.pos;
+    const w = walk(pos, SPOTS.lamp.stand); if (w) steps.push(w); pos = { ...SPOTS.lamp.stand };
+    steps.push({ t: 'face', yaw: SPOTS.lamp.yaw }, { t: 'reach', target: SPOTS.lamp.target }, { t: 'toggle', what: 'lamp' });
+    const w2 = walk(pos, SPOTS.sofa.front); if (w2) steps.push(w2); steps.push({ t: 'sit', seat: 'sofa' }); return steps;
+  }
+  if (action.type === 'synth') { // 大きなシンセ(14.2kg): 重そうに運んで、床へ寝かせ、床に座って弾く
+    if (st.seat === 'floor' && st.synthAt === 'floor') return [];
+    const td = tidy(st); const steps = [...td.steps]; let pos = td.pos;
+    const w = walk(pos, SPOTS.synth.stand); if (w) steps.push(w); pos = { ...SPOTS.synth.stand };
+    steps.push({ t: 'face', yaw: SPOTS.synth.yaw }, { t: 'reach', target: { x: -0.95, y: 0.6, z: 6.85 } }, { t: 'pick', what: 'synth', from: 'wall' });
+    const w2 = walk(pos, SPOTS.floor.front); if (w2) steps.push({ ...w2, heavy: true });
+    steps.push({ t: 'sit', seat: 'floor' }, { t: 'do', what: 'floorplay', dur: 80 + rand() * 60 }); return steps;
   }
   if (action.type === 'keyboard') {
     if (st.carry === 'kb' && st.seat === 'sofa') return []; // もう弾いている
@@ -226,3 +271,17 @@ export function clockAngles(date) {
 }
 /** 振り子の振れ角(rad)。周期2秒。 */
 export const pendulumAngle = (tSec, amp = 0.2) => amp * Math.sin((tSec / 2) * Math.PI * 2);
+
+// ---------------------------------------------------------------- 飲む動き(ソファで)。カップを口へ → 傾けて飲む → 戻す、を数回
+export const DRINK = { lift: 1.1, sip: 1.7, lower: 1.1, rest: 1.3, lead: 0.6 };
+export const DRINK_CYCLE = DRINK.lift + DRINK.sip + DRINK.lower + DRINK.rest;
+export const DRINK_TOTAL = (n = 3) => DRINK.lead + n * DRINK_CYCLE;
+/** t(秒)での、カップの位置(0=手元・1=口もと)・傾き(0〜1)・のけぞり(0〜1)・口を開けるか。 */
+export function drinkState(t) {
+  if (t < DRINK.lead) return { pos: 0, tilt: 0, headBack: 0, mouth: false, cycle: 0 };
+  const u = (t - DRINK.lead) % DRINK_CYCLE, cycle = Math.floor((t - DRINK.lead) / DRINK_CYCLE);
+  if (u < DRINK.lift) { const k = smoothstep(u / DRINK.lift); return { pos: k, tilt: k, headBack: k, mouth: false, cycle }; }
+  const us = u - DRINK.lift; if (us < DRINK.sip) return { pos: 1, tilt: 1 + 0.15 * Math.sin(us * 3), headBack: 1, mouth: us > 0.3 && us < 1.1, cycle };
+  const ud = us - DRINK.sip; if (ud < DRINK.lower) { const k = smoothstep(ud / DRINK.lower); return { pos: 1 - k, tilt: 1 - k, headBack: 1 - k, mouth: false, cycle }; }
+  return { pos: 0, tilt: 0, headBack: 0, mouth: false, cycle };
+}
