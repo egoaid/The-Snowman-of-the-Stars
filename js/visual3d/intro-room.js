@@ -8,9 +8,11 @@
 //   描画は、480×270 ふうの低解像度(呼び出し側が setSize で決める)。ピクセルの粗さは、ゲーム本編と同じ作品の表現。
 import * as THREE from 'three';
 import { createSnowmanCharacter } from './snowman.js';
+import { createMidiKeyboard } from './midi-keyboard.js';
+import { buildCity, createPendulumClock, createBigSynth, createDeskMic, createMiniMixer, createHeadset, createCup, createLampPumpkin, createSideTable, createBook } from './room-props.js';
 import { buildStreamRoom, ROOM } from './stream-room.js';
 import { getSmoothGradientMap } from './shading.js';
-import { WIPE_VIEWS, fitFov } from './stream-wipe.js';
+import { WIPE_VIEWS, fitFov, OP_TUNE } from './stream-wipe.js';
 import { SPOTS, SHELVES, planAction, pathLength, pcSequence, pcTotal, easeInOutCubic, smoothstep, clamp01, lerp, lerpAngle, angleDiff } from '../intro-room-core.js';
 
 const MAX_DT = 0.1;
@@ -21,13 +23,14 @@ const ATOMIC = new Set(['sit', 'stand', 'pick', 'place']); // 途中で止めな
 
 export function createIntroRoom(opts = {}) {
   const rand = opts.rand || Math.random;
+  const nowFn = opts.nowFn || (() => new Date()); // 実時間(窓の外の空・時計)。試験では、差し替える
   const labels = opts.labels || (() => ({}));
   const canvas = document.createElement('canvas');
   const renderer = opts.renderer || new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'low-power' }); // opts.renderer: 試験用(WebGLの無いNodeで、動きだけ確かめる)
   renderer.setPixelRatio(1);
   renderer.setClearColor(0x1c1a24, 1);
   const scene = new THREE.Scene();
-  const camera = new THREE.PerspectiveCamera(54, 16 / 9, 0.1, 40);
+  const camera = new THREE.PerspectiveCamera(54, 16 / 9, 0.1, 160);
   camera.rotation.order = 'YXZ';
   const grad = getSmoothGradientMap();
   const toon = (color) => new THREE.MeshToonMaterial({ color, gradientMap: grad });
@@ -45,18 +48,17 @@ export function createIntroRoom(opts = {}) {
 
   // ---- 部屋 ----
   const wallMat = keep(toon(0x6f7fa8)), trimMat = keep(toon(0x3d3548)), woodMat = keep(toon(0x6a4a33)), darkMat = keep(toon(0x2b2f3a)); keep(toon(0x8b6b4e));
-  const room = buildStreamRoom({ scene, toon, keep, box, wallMat, trimMat, woodMat, darkMat, grad, omit: { bean: true } });
+  const room = buildStreamRoom({ scene, toon, keep, box, wallMat, trimMat, woodMat, darkMat, grad, omit: { bean: true, plaque: true, kb: true, backWall: true } }); // ビーンバッグ(ソファの場所)・銀の盾・壁に立てかけたキーボード(縦に置き直す)・奥の壁(窓の穴をあけて作り直す)
   box(9, 0.18, 0.12, trimMat, -0.4, 0.09, -2.22);
   { const rug = new THREE.Mesh(keep(new THREE.CircleGeometry(1.25, 28)), keep(toon(0xb03a48))); rug.rotation.x = -Math.PI / 2; rug.position.set(0.1, 0.012, 0.35); scene.add(rug);
     const rugIn = new THREE.Mesh(keep(new THREE.CircleGeometry(0.8, 28)), keep(toon(0xe9d8b4))); rugIn.rotation.x = -Math.PI / 2; rugIn.position.set(0.1, 0.016, 0.35); scene.add(rugIn); }
-  // 窓(夜空に、月と星)
-  { const wc = document.createElement('canvas'); wc.width = 64; wc.height = 80; const c = wc.getContext('2d'); const g = c.createLinearGradient(0, 0, 0, 80); g.addColorStop(0, '#0b1230'); g.addColorStop(1, '#27346b'); c.fillStyle = g; c.fillRect(0, 0, 64, 80);
-    c.fillStyle = '#fff6c8'; for (const [x, y] of [[8, 10], [22, 24], [48, 8], [40, 38], [14, 52], [54, 58], [30, 8], [58, 30]]) c.fillRect(x, y, 2, 2);
-    c.fillStyle = '#fff3b0'; c.beginPath(); c.arc(44, 22, 7, 0, Math.PI * 2); c.fill(); c.fillStyle = '#27346b'; c.beginPath(); c.arc(47, 20, 6.2, 0, Math.PI * 2); c.fill();
-    c.fillStyle = '#eef3ff'; c.beginPath(); c.arc(8, 74, 14, 0, Math.PI * 2); c.arc(30, 78, 16, 0, Math.PI * 2); c.arc(54, 76, 14, 0, Math.PI * 2); c.fill();
-    const tex = keep(new THREE.CanvasTexture(wc)); tex.colorSpace = THREE.SRGBColorSpace; tex.magFilter = THREE.NearestFilter; tex.minFilter = THREE.NearestFilter;
-    const win = new THREE.Mesh(keep(new THREE.PlaneGeometry(1.5, 1.9)), keep(new THREE.MeshBasicMaterial({ map: tex, toneMapped: false }))); win.position.set(-0.95, 1.75, -2.23); scene.add(win);
-    box(1.66, 0.08, 0.1, woodMat, -0.95, 2.74, -2.2); box(1.66, 0.08, 0.1, woodMat, -0.95, 0.8, -2.2); box(0.08, 2, 0.1, woodMat, -1.78, 1.77, -2.2); box(0.08, 2, 0.1, woodMat, -0.12, 1.77, -2.2); box(0.05, 1.9, 0.08, woodMat, -0.95, 1.77, -2.2); }
+  // 奥の壁: 窓の穴(幅1.5 × 高さ1.9)をあけた壁。穴の外側には、3Dの街がある(room-props.js の buildCity)
+  { const H = ROOM.h, t = 0.1, zc = ROOM.z0 - t / 2, x0 = ROOM.x0 - 0.1, x1 = ROOM.x1 + 0.1;
+    box(-1.7 - x0, H, t, wallMat, (x0 - 1.7) / 2, H / 2, zc); box(x1 + 0.2, H, t, wallMat, (x1 - 0.2) / 2, H / 2, zc); // 穴の左と右
+    box(1.5, 0.8, t, wallMat, -0.95, 0.4, zc); box(1.5, H - 2.7, t, wallMat, -0.95, 2.7 + (H - 2.7) / 2, zc); // 穴の下と上
+    box(1.66, 0.08, 0.1, woodMat, -0.95, 2.74, -2.2); box(1.66, 0.08, 0.1, woodMat, -0.95, 0.8, -2.2); box(0.08, 2, 0.1, woodMat, -1.78, 1.77, -2.2); box(0.08, 2, 0.1, woodMat, -0.12, 1.77, -2.2); box(0.05, 1.9, 0.08, woodMat, -0.95, 1.77, -2.2); // 窓枠(まんなかに桟)
+    box(1.8, 0.04, 0.22, woodMat, -0.95, 0.78, -2.16); } // 窓の下の出っぱり
+  const city = buildCity({ scene, keep });
   { const pm = keep(toon(0xf2d34f)); box(0.62, 0.8, 0.03, keep(toon(0x2a2f55)), 1.0, 2.0, -2.22); const st = new THREE.Mesh(keep(new THREE.CircleGeometry(0.2, 5)), pm); st.position.set(1.0, 2.04, -2.2); scene.add(st);
     box(1.0, 0.05, 0.28, woodMat, -2.7, 1.55, -2.1); box(0.16, 0.22, 0.16, keep(toon(0x4a9a63)), -2.95, 1.69, -2.1); box(0.2, 0.14, 0.18, keep(toon(0xd2693a)), -2.55, 1.64, -2.1); }
 
@@ -72,10 +74,12 @@ export function createIntroRoom(opts = {}) {
     const c1 = box(0.34, 0.34, 0.1, cush, -0.7, 0.66, -0.12, sofa); c1.rotation.set(-0.3, 0.2, 0.15); const c2 = box(0.3, 0.3, 0.1, cush2, 0.68, 0.64, -0.13, sofa); c2.rotation.set(-0.3, -0.25, -0.1); }
   tag(sofa, { type: 'sofa' }); pickRoots.push(sofa);
   // ソファのわきの、床置きの小さなランプ(くつろぐ場所の、暖かい明かり)
-  { const g = new THREE.Group(); g.position.set(-3.3, 0, 1.2); scene.add(g); const base = new THREE.Mesh(keep(new THREE.CylinderGeometry(0.13, 0.15, 0.04, 12)), darkMat); base.position.y = 0.02; g.add(base);
+  { const g = new THREE.Group(); g.position.set(-3.4, 0, 0.35); scene.add(g); const base = new THREE.Mesh(keep(new THREE.CylinderGeometry(0.13, 0.15, 0.04, 12)), darkMat); base.position.y = 0.02; g.add(base);
     const pole = new THREE.Mesh(keep(new THREE.CylinderGeometry(0.012, 0.012, 1.25, 6)), darkMat); pole.position.y = 0.65; g.add(pole);
     const sh = new THREE.Mesh(keep(new THREE.CylinderGeometry(0.13, 0.19, 0.24, 12, 1, true)), keep(new THREE.MeshBasicMaterial({ color: 0xffdca0, side: THREE.DoubleSide, toneMapped: false }))); sh.position.y = 1.32; g.add(sh); }
-  const sofaLight = new THREE.PointLight(0xffc88a, 2.6, 5, 1.5); sofaLight.position.set(-3.0, 1.5, 1.5); scene.add(sofaLight);
+  const sofaLight = new THREE.PointLight(0xffc88a, 2.6, 5, 1.5); sofaLight.position.set(-3.0, 1.5, 1.2); scene.add(sofaLight);
+  // サイドテーブル(ソファの、机がわの横)
+  const sideTable = createSideTable({ toon, keep }); sideTable.group.position.set(-3.22, 0, 1.15); scene.add(sideTable.group);
 
   // ---- 机・モニター・椅子・キーボード・マウス(録画のワイプの部屋と、同じ置き方。画角が、そのまま使える) ----
   const deskTopY = 0.78;
@@ -105,26 +109,46 @@ export function createIntroRoom(opts = {}) {
   const mouseMesh = box(0.07, 0.03, 0.11, keep(toon(0xe6e6ea)), mouseP0.x, deskTopY + 0.051, mouseP0.z); mouseMesh.rotation.y = faceYaw + 0.12;
   tag(desk, { type: 'monitor' }); tag(monitor, { type: 'monitor' }); tag(chair, { type: 'monitor' }); tag(deskKb, { type: 'monitor' });
   pickRoots.push(desk, monitor, chair, deskKb);
+  // ---- 机の上の小物: カップ(コーヒーか紅茶)・卓上マイク・小型ミキサー・ヘッドセット(録画のワイプと同じ形) ----
+  const CUP_REST = deskPoint(0.92, -0.62, deskTopY + 0.042);
+  const cup = createCup({ toon, keep, rand }); cup.root.position.copy(CUP_REST); cup.root.rotation.y = faceYaw; cup.saucer.position.set(CUP_REST.x, deskTopY + 0.036, CUP_REST.z); scene.add(cup.root, cup.saucer);
+  const mic = createDeskMic({ toon, keep, P0: deskPoint(1.25, 0.58, deskTopY + 0.03), P1: (() => { const q = deskPoint(1.25, 0.58, 1.2); return q; })(), P3: deskPoint(0.98, 0.16, 1.1), M0: deskPoint(0.72, 0, 1.36) }); scene.add(mic.group);
+  const mixer = createMiniMixer({ keep }); mixer.group.position.set(-0.8, deskTopY + 0.03, 1.22); mixer.group.rotation.y = 0.15; scene.add(mixer.group);
+  const headset = createHeadset({ toon, keep }); const HEADSET_REST_SCALE = 0.6; headset.group.scale.setScalar(HEADSET_REST_SCALE); headset.group.position.set(-1.55, deskTopY + 0.03 + 0.115 * HEADSET_REST_SCALE + 0.012, 1.15); headset.group.rotation.y = 0.4; scene.add(headset.group);
 
   // ---- 本棚・MIDIキーボード(stream-room.js が返す) ----
   const shelfGroups = new Map();
   room.shelves.forEach((g, i) => { const id = ['R', 'F1', 'F2', 'L'][i]; shelfGroups.set(id, g); tag(g, { type: 'book', shelf: id }); pickRoots.push(g); });
-  const kbObj = room.kb.group; tag(kbObj, { type: 'keyboard' }); pickRoots.push(kbObj);
-  const kbHome = { parent: kbObj.parent, pos: kbObj.position.clone(), rot: kbObj.rotation.clone(), scale: kbObj.scale.clone() };
+  // ---- MIDIキーボードと、大きなシンセ(実寸 幅1.018m・14.2kg): 手前の壁に、縦に立てかける ----
+  /** 長辺がx・鍵盤が+y向きの部品を、長辺を縦に、鍵盤を部屋のほう(-z)へ向けて、壁(+z)へ、すこし寄りかからせる。 */
+  function leanOnWall(obj, x, halfLen, lean = 0.1) {
+    const stand = new THREE.Group(); stand.position.set(x, 0, ROOM.z1 - 0.12); scene.add(stand);
+    const pivot = new THREE.Group(); pivot.rotation.x = lean; stand.add(pivot); // 足もとを軸に、上が壁へ傾く
+    obj.rotation.order = 'YXZ'; obj.rotation.set(0, -Math.PI / 2, Math.PI / 2); obj.position.set(0, halfLen + 0.012, 0); pivot.add(obj); return { stand, pivot };
+  }
+  const midi = createMidiKeyboard(); const kbObj = midi.group; // 実寸(長さ0.66m)のまま。もとの1.45倍には、しない
+  const kbLean = leanOnWall(kbObj, -0.25, 0.33, 0.1); tag(kbObj, { type: 'keyboard' }); pickRoots.push(kbObj);
+  const bigSynth = createBigSynth({ keep }); const synthLean = leanOnWall(bigSynth.group, -0.95, 0.509, 0.09); // タグは、行動(運ぶ・床で弾く)を作る次の版で付ける
+  const kbHome = { parent: kbLean.pivot, pos: kbObj.position.clone(), rot: kbObj.rotation.clone(), scale: kbObj.scale.clone() };
+  { const fl = new THREE.Mesh(keep(new THREE.PlaneGeometry(1.5, 0.35)), keep(new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.2, depthWrite: false }))); fl.rotation.x = -Math.PI / 2; fl.position.set(-0.6, 0.013, ROOM.z1 - 0.2); scene.add(fl); } // 足もとの影
+  scene.updateMatrixWorld(true);
   const kbHomeWorld = kbObj.getWorldPosition(new THREE.Vector3());
+  // ---- 低い本棚(ソファのとなり)の上の、ジャックオーランタンの小型ランプ(ゲームの中と同じ顔。はじめは、電源オフ) ----
+  const lamp = createLampPumpkin({ keep, radius: 0.11 }); lamp.group.position.set(-3.4, 1.51, 5.35); scene.add(lamp.group);
+  const lampLightPt = new THREE.PointLight(0xffa640, 0, 7, 1.8); lampLightPt.position.set(-3.3, 1.7, 5.35); scene.add(lampLightPt);
+  // ---- 壁の振り子時計(実時間。音は鳴らさない) ----
+  const clock = createPendulumClock({ toon, keep }); clock.group.position.set(2.6, 0.95, ROOM.z0); scene.add(clock.group);
 
   // ---- 本(雪だるまが、棚から取る) ----
-  const book = new THREE.Group(); book.visible = false; scene.add(book);
-  { box(0.24, 0.034, 0.32, keep(toon(0x3b5c8c)), 0, 0.017, 0, book); box(0.215, 0.026, 0.3, keep(toon(0xf2ecd8)), 0.006, 0.02, 0, book); box(0.012, 0.036, 0.32, keep(toon(0x2c4468)), -0.115, 0.018, 0, book); }
-  const flapPivot = new THREE.Group(); flapPivot.position.set(0, 0.036, 0); book.add(flapPivot); const flap = box(0.105, 0.003, 0.29, keep(toon(0xf7f3e4)), 0.055, 0, 0, flapPivot); flapPivot.visible = false;
-  book.userData.home = null;
+  const bookObj = createBook({ toon, keep, rand }); bookObj.randomize(rand); const book = bookObj.group; book.visible = false; scene.add(book); // M字に開く・色と大きさが、取るたびに変わる
+  const flapPivot = bookObj.flapPivot;
 
   // ---- 雪だるま(本編と同じモデル)。rig = 置き場所と向き(座る時の前のめりも、ここ) ----
   const snow = createSnowmanCharacter(1);
   const rig = new THREE.Group(); rig.rotation.order = 'YXZ'; scene.add(rig); rig.add(snow.group);
   tag(snow.group, { type: 'snowman' }); pickRoots.push(snow.group);
   const armL = snow.torchSocket.parent, armR = snow.itemSocket.parent; // 左(モデルのx>0側)・右
-  const ARM_LEN = 0.55;
+  const ARM_LEN = 0.55, ARM_MAX = 1.5; // 腕を伸ばす上限(1.5倍)。それより遠い所へは、届かせようとせず、近くへ立つ(以前は2.1倍まで伸びて、腕が異様に長くなった)
   const _lt = new THREE.Vector3(), _u = new THREE.Vector3(), _tip = new THREE.Vector3(), _tmp = new THREE.Vector3(), _tmp2 = new THREE.Vector3();
   const clampN = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
   /** 腕を、狙いの点へ向ける(stream-wipe.js の aimArm と同じ式)。w=0〜1 で、ふだんの腕の動きと混ぜる。 */
@@ -134,7 +158,7 @@ export function createIntroRoom(opts = {}) {
     _lt.copy(target); arm.parent.worldToLocal(_lt); _u.copy(_lt).sub(arm.position);
     const dist = _u.length() || 1; _u.divideScalar(dist);
     const rz = clampN(-Math.asin(clampN(_u.x, -1, 1)), -2.6, 2.6), rx = Math.atan2(_u.z, _u.y);
-    const sy = clampN(dist / ARM_LEN, 0.7, 2.1), sxz = Math.sqrt(sy);
+    const sy = clampN(dist / ARM_LEN, 0.7, ARM_MAX), sxz = Math.sqrt(sy);
     arm.rotation.x = lerp(r0.x, rx, w); arm.rotation.z = lerp(r0.z, rz, w); arm.scale.set(lerp(r0.sx, sxz, w), lerp(r0.sy, sy, w), lerp(r0.sz, sxz, w));
     arm.updateMatrixWorld(true);
   }
@@ -252,8 +276,8 @@ export function createIntroRoom(opts = {}) {
 
   function reachTarget(step) { // 手を伸ばす先(世界の点)
     if (step.what === 'kb') return kbHomeWorld.clone().add(new THREE.Vector3(0, 0.2, -0.05));
-    const f = new THREE.Vector3(Math.sin(me.yaw), 0, Math.cos(me.yaw));
-    return new THREE.Vector3(me.x + f.x * 0.95, 1.05 + 0.12 * Math.sin((step.shelf ? step.shelf.length : 1) * 1.7 + me.x), me.z + f.z * 0.95);
+    const f = new THREE.Vector3(Math.sin(me.yaw), 0, Math.cos(me.yaw)), sR = new THREE.Vector3(-Math.cos(me.yaw), 0, Math.sin(me.yaw)); // 前と、右手のがわ
+    return new THREE.Vector3(me.x + f.x * 0.64 + sR.x * 0.34, 1.1 + 0.12 * Math.sin(me.x * 1.7 + me.z), me.z + f.z * 0.64 + sR.z * 0.34); // 肩のすぐ前(腕が伸びすぎない近さ)
   }
   function runStep(dt) {
     const s = curStep; if (!s) return;
@@ -274,7 +298,7 @@ export function createIntroRoom(opts = {}) {
       case 'pick': {
         const u = clamp01(s.k / s.dur);
         if (s.what === 'kb') armTgt.L = armTgt.R = kbHomeWorld.clone().add(new THREE.Vector3(0, 0.2, -0.05)); else armTgt.R = reachTarget({ what: 'book', shelf: s.shelf });
-        if (u > 0.5 && !s.done) { s.done = true; me.carry = s.what; if (s.what === 'book') { book.visible = true; flapPivot.visible = false; } }
+        if (u > 0.5 && !s.done) { s.done = true; me.carry = s.what; if (s.what === 'book') { bookObj.randomize(rand); bookObj.setOpen(false); book.visible = true; } } // 別の本を取るたびに、色と大きさを変える
         if (s.k >= s.dur) finish(); break;
       }
       case 'sit': {
@@ -291,11 +315,12 @@ export function createIntroRoom(opts = {}) {
       }
       case 'place': {
         const u = clamp01(s.k / s.dur);
-        if (s.what === 'kb') armTgt.L = armTgt.R = kbHomeWorld.clone().add(new THREE.Vector3(0, 0.2, -0.05)); else if (s.at === 'sofa') { armTgt.R = new THREE.Vector3(-2.75, 0.55, 2.0); }
+        if (s.what === 'kb') armTgt.L = armTgt.R = kbHomeWorld.clone().add(new THREE.Vector3(0, 0.2, -0.05)); else if (s.at === 'sofa') { armTgt.R = new THREE.Vector3(-2.75, 0.55, 2.0); } else if (s.at === 'shelf') { armTgt.R = reachTarget({ what: 'book', shelf: s.shelf }); }
         if (u > 0.6 && !s.done) {
           s.done = true;
           if (s.what === 'kb') { kbHome.parent.add(kbObj); kbObj.position.copy(kbHome.pos); kbObj.rotation.copy(kbHome.rot); kbObj.scale.copy(kbHome.scale); }
-          else { scene.add(book); book.position.set(-2.95, 0.5, 2.05 + (rand() - 0.5) * 0.3); book.rotation.set(0, 0.6 + rand() * 0.5, 0); book.scale.setScalar(1); book.visible = true; flapPivot.visible = false; }
+          else if (s.at === 'shelf') { book.visible = false; bookObj.setOpen(false); } // 本棚へ戻した
+          else { scene.add(book); bookObj.setOpen(false); book.position.set(-2.95, 0.452, 2.05 + (rand() - 0.5) * 0.3); book.rotation.set(0, 0.6 + rand() * 0.5, 0); book.scale.setScalar(1); book.visible = true; }
           me.carry = null;
         }
         if (s.k >= s.dur) finish(); break;
@@ -357,17 +382,17 @@ export function createIntroRoom(opts = {}) {
   // ---- 毎コマ ----
   function applyCarry() {
     if (me.carry === 'book') {
-      if (me.activity === 'read' && me.seat === 'sofa') { if (book.parent !== snow.group) { snow.group.add(book); } book.position.set(0, 0.7, 0.5); book.rotation.set(-1.0, 0, 0); book.scale.setScalar(1.25); }
-      else { if (book.parent !== snow.itemSocket) snow.itemSocket.add(book); book.position.set(0, 0.04, 0.07); book.rotation.set(-0.5, 0.3, 0.1); book.scale.setScalar(0.9); }
+      if (me.activity === 'read' && me.seat === 'sofa') { if (book.parent !== snow.group) { snow.group.add(book); } bookObj.setOpen(true); book.position.set(0, 0.7, 0.5); book.rotation.set(-1.0, 0, 0); book.scale.setScalar(1.25); }
+      else { if (book.parent !== snow.itemSocket) snow.itemSocket.add(book); bookObj.setOpen(false); book.position.set(0, 0.04, 0.07); book.rotation.set(-0.5, 0.3, 0.1); book.scale.setScalar(0.9); }
     } else if (me.carry === 'kb') {
-      if (kbObj.parent !== snow.group) { snow.group.add(kbObj); kbObj.rotation.set(0.18, 0, 0); kbObj.scale.setScalar(1); }
+      if (kbObj.parent !== snow.group) { snow.group.add(kbObj); kbObj.rotation.order = 'XYZ'; kbObj.rotation.set(0.18, 0, 0); kbObj.scale.setScalar(1); }
       kbObj.position.set(0, me.seat === 'sofa' ? 0.5 : 0.62, 0.58); kbObj.rotation.set(me.seat === 'sofa' ? 0.12 : 0.22, 0, 0);
     }
   }
   function handTargets(dt) {
     armTgt.L = armTgt.L || null; armTgt.R = armTgt.R || null;
     const hold = (obj, lx, lz, ly = 0.02) => obj.localToWorld(new THREE.Vector3(lx, ly, lz));
-    if (me.carry === 'book' && me.activity === 'read' && me.seat === 'sofa') { armTgt.L = hold(book, 0.09, 0.1, 0.04); armTgt.R = hold(book, -0.09, 0.1, 0.04); }
+    if (me.carry === 'book' && me.activity === 'read' && me.seat === 'sofa') { const d = bookObj.dims; armTgt.L = hold(book, d.pw * 0.85, d.ph * 0.4, 0.03); armTgt.R = hold(book, -d.pw * 0.85, d.ph * 0.4, 0.03); }
     else if (me.carry === 'kb') {
       if (me.activity === 'play') { const a = Math.sin(t * 3.1), b = Math.sin(t * 2.6 + 1.3); armTgt.L = hold(kbObj, 0.14 + 0.1 * a, 0.0, 0.05); armTgt.R = hold(kbObj, -0.14 - 0.1 * b, 0.0, 0.05); }
       else { armTgt.L = hold(kbObj, 0.27, 0.0, 0.03); armTgt.R = hold(kbObj, -0.27, 0.0, 0.03); }
@@ -395,7 +420,8 @@ export function createIntroRoom(opts = {}) {
     snow.setWalking(me.walking); snow.setJoyful(joyT > 0);
     joyT = Math.max(0, joyT - dt);
     snow.group.position.set(0, 0, 0); snow.update(dt, t); snow.group.rotation.y = Math.sin(t * 0.35) * 0.03;
-    if (pc) { snow.headGroup.rotation.x += 0.1 - 0.14 * 0.6 + 0.06 * Math.sin(t * 0.9); snow.headGroup.rotation.y += Math.sin(t * 0.5) * 0.05; }
+    snow.headGroup.rotation.y = pc ? Math.sin(t * 0.5) * 0.05 : 0; // 首の向きは、毎コマ、決め直す(モデルは y を、元へ戻さない。足し算にすると、少しずつ溜まって、ぐるぐる回った)
+    if (pc) snow.headGroup.rotation.x += 0.1 - 0.14 * 0.6 + 0.06 * Math.sin(t * 0.9);
     if (reading) snow.headGroup.rotation.x += 0.28 + 0.02 * Math.sin(t * 0.7); // 本をのぞきこむ
     if (playing) snow.headGroup.rotation.x += 0.16;
     rig.updateMatrixWorld(true); applyCarry(); book.updateMatrixWorld(true); kbObj.updateMatrixWorld(true); handTargets(dt); rig.updateMatrixWorld(true);
@@ -406,13 +432,14 @@ export function createIntroRoom(opts = {}) {
       aimArm(arm, tip, tipPos[h], armW[h]);
     }
     if (me.carry === 'book' && me.activity === 'read') { // ときどき、ページをめくる
-      const cycle = (t % 7.5); if (cycle < 0.6 && me.seat === 'sofa') { flapPivot.visible = true; flapPivot.rotation.z = -Math.PI * easeInOutCubic(cycle / 0.6); } else flapPivot.visible = false;
+      const cycle = (t % 7.5); if (cycle < 0.6 && me.seat === 'sofa') { flapPivot.visible = true; flapPivot.rotation.z = Math.PI * easeInOutCubic(cycle / 0.6); } else flapPivot.visible = false; // ページが、背を軸に、上へ起きて、左へ倒れる
     }
   }
 
   function update(dtSec) {
     const dt = Math.max(0, Math.min(MAX_DT, +dtSec || 1 / 30)); t += dt;
     advance(dt); updateCamera(dt); updateSnowman(dt); drawScreen(dt);
+    const now = nowFn(); city.update(t, dt, now); clock.update(t, now); cup.update(t, 0);
     const glow = screenState.mode === 'game' ? 0.7 : 0.4; screenLight.intensity = 3.6 + 1.2 * glow + 0.3 * Math.sin(t * 9); lampLight.intensity = 6.5 + 0.2 * Math.sin(t * 1.3); room.update(t);
   }
 
@@ -450,7 +477,7 @@ export function createIntroRoom(opts = {}) {
     isBusy: () => !!curStep || queue.length > 0,
     /** カメラが、いま、決まった画角に固定されているか(モニターの場面)。 */
     isCameraLocked: () => cam.locked,
-    debug: { pickAt, setView, kbObj, book, kbHome, screenState, get launchedFlag() { return launched; }, get queue() { return queue.map((s) => s.t); }, get step() { return curStep && curStep.t; }, cam, SHELVES, pathLength },
+    debug: { pickAt, setView, city, clock, bookObj, sideTable, bigSynth, lamp, lampLightPt, midi, headset, mixer, cup, nowFn, kbObj, book, kbHome, screenState, get launchedFlag() { return launched; }, get queue() { return queue.map((s) => s.t); }, get step() { return curStep && curStep.t; }, cam, SHELVES, pathLength },
     dispose() {
       try { scene.traverse((o) => { if (o.geometry) o.geometry.dispose(); }); for (const x of owned) if (x && x.dispose) x.dispose(); renderer.dispose(); renderer.forceContextLoss(); } catch (e) { /* もう、捨てられている */ }
     },

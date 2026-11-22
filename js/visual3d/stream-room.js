@@ -28,7 +28,7 @@ export function buildStreamRoom(ctx) {
   // ---- 壁・床・天井(部屋を、箱として閉じる) ----
   const floorMat = toon(0x8b6b4e); keep(floorMat);
   const floor = new THREE.Mesh(keep(new THREE.PlaneGeometry(W, D)), floorMat); floor.rotation.x = -Math.PI / 2; floor.position.set(cx, 0, cz); add(floor);
-  box(W + 0.2, H, 0.1, wallMat, cx, H / 2, ROOM.z0 - 0.05); // 奥(窓の壁)
+  if (!omit.backWall) box(W + 0.2, H, 0.1, wallMat, cx, H / 2, ROOM.z0 - 0.05); // 奥(窓の壁)。部屋の演出では、窓の穴をあけた壁を、自分で作る(omit.backWall)
   box(W + 0.2, H, 0.1, wallMat, cx, H / 2, ROOM.z1 + 0.05); // 手前(窓の反対側)
   box(0.1, H, D, wallMat, ROOM.x0 - 0.05, H / 2, cz); // 左
   box(0.1, H, D, wallMat, ROOM.x1 + 0.05, H / 2, cz); // 右
@@ -89,9 +89,12 @@ export function buildStreamRoom(ctx) {
   { const k = new THREE.Mesh(keep(new THREE.SphereGeometry(0.035, 8, 6)), keep(toon(0xd9b45a))); k.position.set(1.7, 1.0, ROOM.z1 - 0.1); add(k); }
   box(0.7, 0.5, 0.025, toon(0x2a2f55), 1.35, 1.7, ROOM.z1 - 0.09).material; // ドアの飾り板(ガラス窓の代わり)
   // 壁に立てかけた、ゲームの中の MIDIキーボード(本物と同じ形)
-  const kb = createMidiKeyboard(); kb.group.scale.setScalar(1.45); kb.group.rotation.set(-(Math.PI / 2 - 0.2), 0, 0); // 長い辺を壁にそって、立てる。上の縁が、壁にもたれる
+  let kb = null;
+  if (!omit.kb) { // 部屋の演出では、縦に立てかける(自分で置く)ので、省く
+  kb = createMidiKeyboard(); kb.group.scale.setScalar(1.45); kb.group.rotation.set(-(Math.PI / 2 - 0.2), 0, 0); // 長い辺を壁にそって、立てる。上の縁が、壁にもたれる
   kb.group.position.set(-0.25, 0.145, ROOM.z1 - 0.16); add(kb.group);
   { const fl = new THREE.Mesh(keep(new THREE.PlaneGeometry(1.1, 0.5)), keep(new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.18, depthWrite: false }))); fl.rotation.x = -Math.PI / 2; fl.position.set(-0.25, 0.013, ROOM.z1 - 0.3); add(fl); } // 足もとの影
+  }
   // 額(ドット絵ふう)
   function pictureTexture(draw) { const c = document.createElement('canvas'); c.width = 48; c.height = 32; draw(c.getContext('2d')); const t = keep(new THREE.CanvasTexture(c)); t.colorSpace = THREE.SRGBColorSpace; t.magFilter = THREE.NearestFilter; t.minFilter = THREE.NearestFilter; return t; }
   function frame(w, h, tex, x, y, z, ry) {
@@ -123,10 +126,12 @@ export function buildStreamRoom(ctx) {
     g.fillStyle = 'rgba(70,78,92,0.9)'; g.font = 'bold 13px sans-serif'; g.textAlign = 'center'; g.fillText('SILVER  AWARD', 96, 98); g.font = '11px sans-serif'; g.fillText('100,000  FOLLOWERS', 96, 113);
     const t = keep(new THREE.CanvasTexture(c)); t.colorSpace = THREE.SRGBColorSpace; return t;
   }
+  if (!omit.plaque) {
   { const g = new THREE.Group(); g.position.set(-2.72, 2.32, ROOM.z0 + 0.06); add(g);
     box(0.78, 0.58, 0.05, toon(0x2b2f3a), 0, 0, 0, g); // 黒い額ぶち
     const plate = new THREE.Mesh(keep(new THREE.PlaneGeometry(0.7, 0.5)), keep(new THREE.MeshBasicMaterial({ map: plaqueTexture(), color: 0xc9ccd6, toneMapped: false }))); plate.position.z = 0.027; g.add(plate);
     const shine = new THREE.Mesh(keep(new THREE.PlaneGeometry(0.7, 0.5)), keep(new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.0, depthWrite: false }))); shine.position.z = 0.03; g.add(shine); }
+  }
 
   // ---- 椅子・サイドテーブル・フロアスタンド・観葉植物・ビーンバッグ ----
   const fabric = toon(0x8c4a3a), cushion = toon(0xd2a05a), potMat = toon(0xb0653a), leafMat = toon(0x3f8a4f), leafMat2 = toon(0x5aa86a); keep(fabric); keep(cushion); keep(potMat); keep(leafMat); keep(leafMat2);

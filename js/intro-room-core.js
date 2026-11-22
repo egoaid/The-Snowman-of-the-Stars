@@ -65,7 +65,9 @@ export const SPOTS = {
   hub: { x: 0.0, z: 3.4 }, // 部屋の真ん中あたり。ここを経由すると、家具にぶつからない
   sofa: { seat: { x: -2.95, z: 2.5 }, seatY: 0.45, yaw: Math.PI / 2, front: { x: -2.0, z: 2.5 } }, // 左の壁ぎわ。+x(部屋の中)を向いて座る
   chair: { seat: { x: 0.4, z: 0.35 }, seatY: 0.42, yaw: FACE_YAW, side: { x: 0.71, z: 1.25 } }, // 机の椅子(stream-wipe.js と同じ位置)
-  kb: { stand: { x: -0.25, z: 5.95 }, yaw: 0 }, // 手前の壁に立てかけたMIDIキーボードの前(壁のほう=+zを向く)
+  kb: { stand: { x: -0.25, z: 6.3 }, yaw: 0 }, // 手前の壁に縦に立てかけたMIDIキーボードの前(壁のほう=+zを向く)。腕が伸びすぎないよう、近くに立つ
+  synth: { stand: { x: -0.95, z: 6.3 }, yaw: 0 }, // その横に立てかけた、大きなシンセの前
+  lamp: { stand: { x: -2.75, z: 5.3 }, yaw: -Math.PI / 2 }, // 低い本棚の上のランプ(ソファのとなり)
 };
 /** 本棚(stream-room.js の置き方と同じ)。front=前を向く向き(ry)。w=横幅。 */
 export const SHELVES = [
@@ -74,12 +76,13 @@ export const SHELVES = [
   { id: 'F2', x: 3.0, z: 6.84, ry: Math.PI, w: 1.2 }, // 手前の壁(ドアの右)
   { id: 'L', x: -3.43, z: 4.7, ry: Math.PI / 2, w: 2.4 }, // 左の壁の低い本棚(ソファのとなり)
 ];
+export const SHELF_STAND = 0.82; // 棚の中心から、立つ場所までの距離(胴体の半径0.5+棚の奥行きの半分。腕が、伸びすぎない近さ)
 /** 本棚の前に立つ場所と、本棚のほうを向く向き。lateral=棚の横方向のずらし(-1〜1)。 */
 export function shelfStand(shelf, lateral = 0) {
   const fx = Math.sin(shelf.ry), fz = Math.cos(shelf.ry); // 棚の前の向き(世界)
   const lx = Math.cos(shelf.ry), lz = -Math.sin(shelf.ry); // 棚の横の向き(局所のx)
   const off = Math.max(-1, Math.min(1, lateral)) * Math.max(0, shelf.w / 2 - 0.65);
-  return { x: shelf.x + fx * 0.9 + lx * off, z: shelf.z + fz * 0.9 + lz * off, yaw: Math.atan2(-fx, -fz) };
+  return { x: shelf.x + fx * SHELF_STAND + lx * off, z: shelf.z + fz * SHELF_STAND + lz * off, yaw: Math.atan2(-fx, -fz) };
 }
 
 // ---------------------------------------------------------------- 行動の計画
@@ -149,10 +152,19 @@ export function planAction(action, st, rand = Math.random) {
   }
   if (action.type === 'book') {
     const shelf = SHELVES.find((s) => s.id === action.shelf) || SHELVES[0];
-    const td = tidy(st); const steps = [...td.steps]; let pos = td.pos;
     const stand = shelfStand(shelf, rand() * 2 - 1);
-    const w = walk(pos, stand); if (w) steps.push(w); pos = { x: stand.x, z: stand.z };
-    steps.push({ t: 'face', yaw: stand.yaw }, { t: 'reach' }, { t: 'pick', what: 'book', shelf: shelf.id });
+    let steps = [], pos;
+    if (st.carry === 'book') { // 読んでいる(持っている)本は、先に、この本棚へ戻す。そのあとで、別の本を取る
+      pos = { x: st.x, z: st.z };
+      if (st.seat) { steps.push({ t: 'stand', seat: st.seat }); pos = st.seat === 'sofa' ? { ...SPOTS.sofa.front } : { ...SPOTS.chair.side }; }
+      const w0 = walk(pos, stand); if (w0) steps.push(w0); pos = { x: stand.x, z: stand.z };
+      steps.push({ t: 'face', yaw: stand.yaw }, { t: 'place', what: 'book', at: 'shelf', shelf: shelf.id });
+    } else {
+      const td = tidy(st); steps = [...td.steps]; pos = td.pos;
+      const w = walk(pos, stand); if (w) steps.push(w); pos = { x: stand.x, z: stand.z };
+      steps.push({ t: 'face', yaw: stand.yaw });
+    }
+    steps.push({ t: 'reach' }, { t: 'pick', what: 'book', shelf: shelf.id });
     const w2 = walk(pos, SPOTS.sofa.front); if (w2) steps.push(w2);
     steps.push({ t: 'sit', seat: 'sofa' }, { t: 'do', what: 'read', dur: 70 + rand() * 50 });
     return steps;
@@ -181,3 +193,36 @@ export function pcSequence(t, fresh) {
   const stage = page > 0 ? 'page' : load > 0 ? 'load' : typed > 0 ? 'type' : 'open';
   return { stage, open, typed, enter, load, page, done };
 }
+
+// ---------------------------------------------------------------- 窓の外の街の、空と明かり(実時間)
+const hex = (h) => [(h >> 16) & 255, (h >> 8) & 255, h & 255];
+const mixC = (a, b, k) => [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k, a[2] + (b[2] - a[2]) * k];
+// 時刻(0〜24)ごとの空: top=天頂 mid=中ほど hor=地平線 bld=ビルの色 glass=窓ガラス night=夜の度合い(明かり・星)
+const SKY_KEYS = [
+  { h: 0, top: hex(0x070a1c), mid: hex(0x141b3f), hor: hex(0x2a2f5e), bld: hex(0x1d2142), glass: hex(0x232a52), night: 1 },
+  { h: 5, top: hex(0x0c1230), mid: hex(0x2b2f63), hor: hex(0x5b4a7a), bld: hex(0x252a52), glass: hex(0x2c3460), night: 0.9 },
+  { h: 6.2, top: hex(0x34508f), mid: hex(0xd68f8a), hor: hex(0xffc58a), bld: hex(0x4a4f78), glass: hex(0x7d8fb6), night: 0.35 },
+  { h: 8, top: hex(0x5f9be0), mid: hex(0xa9d1f2), hor: hex(0xe3f1fa), bld: hex(0x8b97b5), glass: hex(0x9cc3e6), night: 0 },
+  { h: 16, top: hex(0x5f9be0), mid: hex(0xa9d1f2), hor: hex(0xf2f1e4), bld: hex(0x8b97b5), glass: hex(0x9cc3e6), night: 0 },
+  { h: 17.8, top: hex(0x3f5fa8), mid: hex(0xe39a6a), hor: hex(0xffc47a), bld: hex(0x55507a), glass: hex(0xc6a07a), night: 0.25 },
+  { h: 19.2, top: hex(0x141a45), mid: hex(0x5a3f78), hor: hex(0xd0695a), bld: hex(0x2f2b58), glass: hex(0x3a3a68), night: 0.8 },
+  { h: 20.5, top: hex(0x070a1c), mid: hex(0x141b3f), hor: hex(0x2a2f5e), bld: hex(0x1d2142), glass: hex(0x232a52), night: 1 },
+  { h: 24, top: hex(0x070a1c), mid: hex(0x141b3f), hor: hex(0x2a2f5e), bld: hex(0x1d2142), glass: hex(0x232a52), night: 1 },
+];
+/** 実時刻(時, 0〜24 の小数)から、空と街の色・夜の度合いを返す(色は [r,g,b] の0〜255)。 */
+export function skyState(hour) {
+  const h = ((hour % 24) + 24) % 24; let i = 0; while (i < SKY_KEYS.length - 2 && h >= SKY_KEYS[i + 1].h) i++;
+  const a = SKY_KEYS[i], b = SKY_KEYS[i + 1], k = clamp01((h - a.h) / (b.h - a.h || 1));
+  const kk = smoothstep(k); const o = {};
+  for (const key of ['top', 'mid', 'hor', 'bld', 'glass']) o[key] = mixC(a[key], b[key], kk);
+  o.night = a.night + (b.night - a.night) * kk; return o;
+}
+
+// ---------------------------------------------------------------- 振り子時計(実時間)
+/** 時計の針の角度(rad。12時の向きが0、時計まわりが正)。 */
+export function clockAngles(date) {
+  const h = date.getHours() % 12, m = date.getMinutes(), s = date.getSeconds() + date.getMilliseconds() / 1000;
+  return { hour: ((h + m / 60) / 12) * Math.PI * 2, minute: ((m + s / 60) / 60) * Math.PI * 2, second: (s / 60) * Math.PI * 2 };
+}
+/** 振り子の振れ角(rad)。周期2秒。 */
+export const pendulumAngle = (tSec, amp = 0.2) => amp * Math.sin((tSec / 2) * Math.PI * 2);
