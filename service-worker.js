@@ -5,7 +5,7 @@
  *   ・version.json: 常にネットワーク(更新の確認用。キャッシュしない)
  *   ・新しい版のService Workerは、待機状態になる。画面の「新しい版があります」を押すと(SKIP_WAITING)、切り替わる。
  */
-const BUILD = '1.115-20261122';
+const BUILD = '1.116-20261122';
 const PRECACHE = [
   "./",
   "css/layout.css",
@@ -23,10 +23,12 @@ const PRECACHE = [
   "js/audio/birds.js",
   "js/audio/context.js",
   "js/audio/fire.js",
+  "js/audio/fm4op.js",
   "js/audio/footsteps.js",
   "js/audio/gather-sounds.js",
   "js/audio/insects.js",
   "js/audio/rain.js",
+  "js/audio/room-audio.js",
   "js/audio/river.js",
   "js/audio/sfx.js",
   "js/audio/star-bells.js",
@@ -119,6 +121,7 @@ const PRECACHE = [
   "js/music/battery.js",
   "js/music/memory.js",
   "js/music/performer.js",
+  "js/music/room-melody.js",
   "js/builder.js",
   "js/torch.js",
   "js/video-recorder-core.js",
@@ -131,6 +134,7 @@ const PRECACHE = [
   "js/visual3d/midi-cable.js",
   "js/visual3d/copper-ore.js",
   "js/audio/nature-instrument.js",
+  "js/audio/piano-synth.js",
   "js/visual3d/tent.js",
   "js/visual3d/terrain-noise.js",
   "js/visual3d/terrain.js",

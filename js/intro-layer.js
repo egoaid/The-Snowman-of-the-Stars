@@ -59,6 +59,7 @@ export function createIntroLayer(opts = {}) {
       const was = lastMode; lastMode = m;
       const blocking = machine.isBlocking();
       room.setInteractive(m === 'room');
+      if (room.setAudioMode) room.setAudioMode(m); // 部屋の音: 全画面は通常、ワイプは小さく
       box.classList.toggle('is-wipe', m === 'wipe'); box.classList.toggle('is-room', m === 'room');
       document.body.classList.toggle('intro-room-open', blocking);
       if (m === 'room' || m === 'toRoom') { exitLocks(); }

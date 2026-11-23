@@ -23,6 +23,8 @@ const ATOMIC = new Set(['sit', 'stand', 'pick', 'place', 'equip', 'toggle']); //
 
 export function createIntroRoom(opts = {}) {
   const rand = opts.rand || Math.random;
+  const audio = opts.audio || null; // 部屋の音(js/audio/room-audio.js)。無くても動く
+  const sfx = (name, pos, data) => { if (audio) { try { audio.sfx(name, pos, data); } catch (e) { /* 音の失敗は、動きに影響させない */ } } };
   const nowFn = opts.nowFn || (() => new Date()); // 実時間(窓の外の空・時計)。試験では、差し替える
   const labels = opts.labels || (() => ({}));
   const canvas = document.createElement('canvas');
@@ -172,7 +174,9 @@ export function createIntroRoom(opts = {}) {
 
   // ---- 雪だるまの、いまの状態 ----
   const me = { x: SPOTS.sofa.seat.x, z: SPOTS.sofa.seat.z, y: SPOTS.sofa.seatY, yaw: SPOTS.sofa.yaw, sitK: 1, seat: 'sofa', carry: null, walking: false, activity: 'idle', lean: 0 };
-  let thirstT = 60; const ikErr = { L: 0, R: 0 };
+  let thirstT = 60, strideAcc = 0, player = null, flapOn = false, sipEdge = false, pcSipEdge = false, lastNight = -1;
+  const handNote = { L: { x: 0.15, press: 0, seen: false }, R: { x: -0.15, press: 0, seen: false } }; // いま弾いた音の、鍵盤の上の位置(手がそこへ行く)
+  const mePos = (dy = 0.6) => ({ x: me.x, y: me.y + dy, z: me.z }); const ikErr = { L: 0, R: 0 };
   let launched = !!opts.launched; // もう、ゲームのサイトへ行ったか(2回目以降は、短い流れ)
   let t = 0, yawnT = -1, nextYawn = 12 + rand() * 14, joyT = 0, blinkTalk = 0;
   let queue = [], cur = null, curStep = null, pending = null;
@@ -225,6 +229,7 @@ export function createIntroRoom(opts = {}) {
   }
   const labelOf = (p) => { if (!p) return null; const L = labels() || {}; if (p.type === 'lamp') return (world.lampOn ? L.lampOff : L.lamp) || null; return L[p.type] || null; };
   function onDown(e) {
+    if (audio) audio.unlock(); // 最初のクリックで、ブラウザが、音を出す許可を出す
     if (!interactive) return;
     ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
     try { canvas.setPointerCapture(e.pointerId); } catch (err) { /* 取れなくても、動く */ }
@@ -296,7 +301,7 @@ export function createIntroRoom(opts = {}) {
     switch (step.t) {
       case 'walk': s.pts = [{ x: me.x, z: me.z }, ...step.path]; s.seg = 1; break;
       case 'sit': { s.from = { x: me.x, z: me.z, yaw: me.yaw }; const S = SPOTS[step.seat]; s.to = { x: S.seat.x, z: S.seat.z, yaw: S.yaw, y: S.seatY }; s.dur = step.seat === 'floor' ? 1.3 : 1.15; if (step.seat === 'floor' && me.carry === 'synth') s.p0 = grabPose(bigSynth.group); break; }
-      case 'stand': { const S = SPOTS[step.seat]; s.from = { x: me.x, z: me.z }; s.to = { ...(S.front || S.side) }; break; }
+      case 'stand': { const S = SPOTS[step.seat]; s.from = { x: me.x, z: me.z }; s.to = { ...(S.front || S.side) }; sfx('stand', mePos(0.8)); break; }
       case 'camera': cam.locked = true; cam.tween = null; tweenTo(step.view === 'monitor' ? { ...WIPE_VIEWS.monitor } : DEFAULT_VIEW, 1.3); break;
       case 'do': me.activity = step.what; s.dur = step.what === 'pc' ? pcTotal(!launched) : (step.dur || 60); s.fresh = !launched; s.fired = false; if (step.what === 'pc') cam.locked = true; if (step.what === 'read') thirstT = 40 + rand() * 50; break;
       case 'reach': { s.dur = 0.9; if (step.target) { s.tv = tgtV(step.target); s.arm = armFor(s.tv); } else { const nx = queue[0]; s.what = nx && nx.t === 'pick' ? nx.what : 'book'; s.shelf = nx && nx.shelf; } break; }
@@ -328,6 +333,7 @@ export function createIntroRoom(opts = {}) {
         if (Math.abs(diff) > 0.7) { me.walking = false; return; } // 向きが合うまでは、その場で回る
         const spd = me.carry === 'synth' ? WALK_HEAVY : WALK_SPEED; // 14.2kgのシンセを抱えている間は、ゆっくり
         me.walking = true; const step = Math.min(d, spd * dt); me.x += (dx / (d || 1)) * step; me.z += (dz / (d || 1)) * step;
+        strideAcc += step; if (strideAcc >= (me.carry === 'synth' ? 0.95 : 0.62)) { strideAcc = 0; sfx('step', { x: me.x, y: 0.05, z: me.z }, { heavy: me.carry === 'synth' }); } // 一歩ごとの足音(床の木)。重いシンセを抱えている時は、重い足音
         if (d - step < 0.03) { s.seg++; if (s.seg >= s.pts.length) { me.walking = false; finish(); } }
         break;
       }
@@ -342,12 +348,12 @@ export function createIntroRoom(opts = {}) {
         else if (what === 'headset') armTgt.R = s.p0.p.clone();
         if (what === 'synth') { // ゆっくり持ち上げて、体の前へ(重そうに)
           const hold = localPose(snow.group, synthHoldP, synthHoldQ, ONE); setWorld(bigSynth.group, mixPose(s.p0, hold, smooth(u), 0.08)); const [a, b] = synthEnds(); armTgt.L = a; armTgt.R = b;
-          if (u >= 1 && !s.done) { s.done = true; putLocal(bigSynth.group, snow.group, synthHoldP.clone(), synthHoldQ.clone(), ONE.clone()); me.carry = 'synth'; world.synthAt = 'hand'; }
+          if (u >= 1 && !s.done) { s.done = true; putLocal(bigSynth.group, snow.group, synthHoldP.clone(), synthHoldQ.clone(), ONE.clone()); me.carry = 'synth'; world.synthAt = 'hand'; sfx('thud', mePos(0.7), { heavy: false }); }
         } else if (what === 'headset') { setWorld(headset.group, mixPose(s.p0, handPose(), smooth(u))); if (u >= 1 && !s.done) { s.done = true; me.carry = 'headset'; world.headset = 'hand'; const hp = handPose(); putLocal(headset.group, snow.itemSocket, new V3(0, 0.02, 0.08), Q0.clone(), hp.sc.clone().divideScalar(1)); headset.group.scale.setScalar(0.45); } }
         else if (u > 0.5 && !s.done) {
           s.done = true; me.carry = what;
           if (what === 'book') { if (!s.keep) bookObj.randomize(rand); bookObj.setOpen(false); book.visible = true; } // 別の本を取るたびに、色と大きさを変える。読みかけの本を取り直す時は、同じ本
-          if (what === 'cup') world.cupAt = 'hand';
+          if (what === 'cup') { world.cupAt = 'hand'; sfx('clink', cup.root.position, null); } else sfx('thud', mePos(0.7), { heavy: false });
         }
         if (s.k >= s.dur) { if (!s.done) { s.done = true; me.carry = what; } finish(); }
         break;
@@ -355,6 +361,7 @@ export function createIntroRoom(opts = {}) {
       case 'sit': {
         const k = smooth(s.k / s.dur), T = s.to, F = s.from;
         me.x = lerp(F.x, T.x, k); me.z = lerp(F.z, T.z, k); me.yaw = lerpAngle(F.yaw, T.yaw, k); me.sitK = k; me.y = T.y * k; me.walking = false;
+        if (!s.sfxd && s.k > s.dur * 0.72) { s.sfxd = true; sfx(s.seat === 'floor' && s.p0 ? 'thud' : 'sit', mePos(0.2), { heavy: true }); } // 座った音(床にシンセを置く時は、ドスン)
         if (s.p0) { const tgt = synthFloorPose(); setWorld(bigSynth.group, mixPose(s.p0, tgt, k, 0.12)); const [a, b] = synthEnds(); armTgt.L = a; armTgt.R = b; } // 抱えていたシンセを、床へ寝かせる
         if (s.k >= s.dur) { me.seat = s.seat; me.sitK = 1; me.y = T.y; me.x = T.x; me.z = T.z; me.yaw = T.yaw; if (s.p0) { setWorld(bigSynth.group, synthFloorPose()); me.carry = null; world.synthAt = 'floor'; } finish(); }
         break;
@@ -383,6 +390,7 @@ export function createIntroRoom(opts = {}) {
           else if (what === 'cup') { world.cupAt = s.at; cup.root.position.copy(s.spot.p); cup.root.rotation.y = s.spot.yaw; }
           else if (what === 'synth') { synthHome.parent.add(bigSynth.group); bigSynth.group.position.copy(synthHome.pos); bigSynth.group.rotation.copy(synthHome.rot); bigSynth.group.scale.copy(synthHome.scale); world.synthAt = 'wall'; }
           else if (what === 'headset') { scene.add(headset.group); headset.group.position.copy(headsetRest.p); headset.group.quaternion.copy(headsetRest.q); headset.group.scale.copy(headsetRest.sc); world.headset = 'desk'; }
+          sfx(what === 'cup' ? 'clink' : what === 'headset' ? 'headset' : what === 'book' ? 'stand' : 'thud', what === 'cup' ? cup.root.position : mePos(0.5), { heavy: what === 'synth' });
           me.carry = null;
         }
         if (s.k >= s.dur) finish(); break;
@@ -391,10 +399,10 @@ export function createIntroRoom(opts = {}) {
         const hp = new V3(); snow.headGroup.getWorldPosition(hp); const mx = modelX(); armTgt.L = hp.clone().addScaledVector(mx, 0.5); armTgt.R = hp.clone().addScaledVector(mx, -0.5);
         if (s.on) { setWorld(headset.group, mixPose(s.p0, headPose(), smooth(u))); }
         else { setWorld(headset.group, mixPose(s.p0, handPose(), smooth(u))); }
-        if (u >= 1 && !s.done) { s.done = true; if (s.on) { putLocal(headset.group, snow.headGroup, new V3(), Q0.clone(), ONE.clone()); world.headset = 'head'; me.carry = null; } else { putLocal(headset.group, snow.itemSocket, new V3(0, 0.02, 0.08), Q0.clone(), new V3(0.45, 0.45, 0.45)); world.headset = 'hand'; me.carry = 'headset'; } }
+        if (u >= 1 && !s.done) { s.done = true; sfx('headset', mePos(1.4)); if (s.on) { putLocal(headset.group, snow.headGroup, new V3(), Q0.clone(), ONE.clone()); world.headset = 'head'; me.carry = null; } else { putLocal(headset.group, snow.itemSocket, new V3(0, 0.02, 0.08), Q0.clone(), new V3(0.45, 0.45, 0.45)); world.headset = 'hand'; me.carry = 'headset'; } }
         if (s.k >= s.dur) finish(); break;
       }
-      case 'toggle': { armTgt[armFor(tgtV(SPOTS.lamp.target))] = tgtV(SPOTS.lamp.target); if (u > 0.5 && !s.done) { s.done = true; lamp.setOn(!lamp.isOn()); world.lampOn = lamp.isOn(); } if (s.k >= s.dur) finish(); break; }
+      case 'toggle': { armTgt[armFor(tgtV(SPOTS.lamp.target))] = tgtV(SPOTS.lamp.target); if (u > 0.5 && !s.done) { s.done = true; lamp.setOn(!lamp.isOn()); world.lampOn = lamp.isOn(); sfx('lamp', tgtV(SPOTS.lamp.target), { on: lamp.isOn() }); } if (s.k >= s.dur) finish(); break; }
       case 'camera': { if (!cam.tween) finish(); break; }
       case 'do': {
         if (s.what === 'pc') {
@@ -464,6 +472,7 @@ export function createIntroRoom(opts = {}) {
   }
 
   // ---- パソコンの操作: 録画のワイプ(stream-wipe.js)と同じ動き(キーを打つ・マウス・ときどきカップで飲む)をそのまま移植 ----
+  const DESK_SND = { x: -0.4, y: 0.9, z: 0.8 };
   const KEY_TOP = deskTopY + 0.07, hoverY = KEY_TOP + 0.03;
   const kbWorld = (x, z, y) => deskKb.localToWorld(new V3(x, y, z));
   const LEFT_KEYS = keys.filter((k) => k.x > 0.02 && k.x < 0.2), RIGHT_KEYS = keys.filter((k) => k.x < -0.02 && k.x > -0.2), WASD_KEYS = keys.filter((k) => k.x > 0.03 && k.x < 0.16 && k.z < 0.02);
@@ -491,7 +500,7 @@ export function createIntroRoom(opts = {}) {
     if (op.mode === 'game') {
       const amp = 1 + 0.9 * burstK, tdf = (0.05 * Math.sin(t * 0.7 + 1) + 0.035 * Math.sin(t * 1.9)) * amp, tdr = (0.07 * Math.sin(t * 0.9) + 0.045 * Math.sin(t * 2.3 + 2)) * amp;
       op.mouseDf += (tdf - op.mouseDf) * Math.min(1, dt * 6); op.mouseDr += (tdr - op.mouseDr) * Math.min(1, dt * 6);
-      op.nextClick -= dt * speed; if (op.nextClick <= 0) { op.clickT = 0; op.cursorClick = 1; op.nextClick = 0.8 + rand() * 2.2; }
+      op.nextClick -= dt * speed; if (op.nextClick <= 0) { op.clickT = 0; op.cursorClick = 1; op.nextClick = 0.8 + rand() * 2.2; sfx('mouse', DESK_SND); }
     }
     op.clickT += dt; const click = op.clickT < 0.14 ? Math.sin((op.clickT / 0.14) * Math.PI) : 0; op.cursorClick = Math.max(0, op.cursorClick - dt * 4);
     const mouseP = deskPoint(MOUSE_F + op.mouseDf, MOUSE_R + op.mouseDr, deskTopY + 0.051);
@@ -499,7 +508,7 @@ export function createIntroRoom(opts = {}) {
     for (const h of ['L', 'R']) {
       const active = (op.mode === 'type' || h === 'L') && !(h === 'L' && pcDrink.t >= 0);
       op.press[h] = Math.max(0, op.press[h] - dt * 9);
-      if (active) { op.tapNext[h] -= dt * speed; if (op.tapNext[h] <= 0) { const set = op.mode === 'type' ? (h === 'L' ? LEFT_KEYS : RIGHT_KEYS) : WASD_KEYS, k = pickNear(set, op.key[h]); op.key[h] = k; op.press[h] = 1; op.handLocal[h].x = k.x; op.handLocal[h].z = k.z; op.keyHold = 0.09; op.tapNext[h] = (op.mode === 'type' ? 0.11 + rand() * 0.2 : 0.22 + rand() * 0.75) + (h === 'R' ? 0.06 : 0); } }
+      if (active) { op.tapNext[h] -= dt * speed; if (op.tapNext[h] <= 0) { const set = op.mode === 'type' ? (h === 'L' ? LEFT_KEYS : RIGHT_KEYS) : WASD_KEYS, k = pickNear(set, op.key[h]); op.key[h] = k; op.press[h] = 1; op.handLocal[h].x = k.x; op.handLocal[h].z = k.z; op.keyHold = 0.09; sfx('key', DESK_SND); op.tapNext[h] = (op.mode === 'type' ? 0.11 + rand() * 0.2 : 0.22 + rand() * 0.75) + (h === 'R' ? 0.06 : 0); } }
     }
     op.keyHold -= dt; const shown = op.press.L > op.press.R ? 'L' : 'R'; keyGlow.visible = op.keyHold > 0 && !!op.key[shown]; if (keyGlow.visible) keyGlow.position.set(op.key[shown].x, 0.02, op.key[shown].z);
     // ときどき(game のあいだ)、左手でカップを取って飲む
@@ -517,7 +526,7 @@ export function createIntroRoom(opts = {}) {
       if (td >= D_LOWER && !pcDrink.settled) { pcDrink.settled = true; pcDrink.level -= 0.2; if (pcDrink.level < 0.3) pcDrink.level = 1; }
       if (T >= D_ALL) { pcDrink.t = -1; pcDrink.settled = false; op.switchT = 0.8; pcDrink.next = 25 + rand() * 30; }
     }
-    snow.setMouthOpen(mouth); snow.headGroup.rotation.x -= 0.14 * headBack;
+    if (mouth && !pcSipEdge) sfx('sip', mePos(1.2)); pcSipEdge = !!mouth; snow.setMouthOpen(mouth); snow.headGroup.rotation.x -= 0.14 * headBack;
     if (pcDrink.t < 0 || !held) cup.root.position.copy(CUP_REST);
     cup.root.rotation.y = faceYaw; cup.tilt.rotation.x = -tilt; cup.liquid.position.y = 0.088 - (1 - pcDrink.level) * 0.03; cup.liquid.visible = tilt < 0.7;
     let tgtL = kbWorld(op.handLocal.L.x, op.handLocal.L.z, hoverY - KB_Y - 0.03 * op.press.L);
@@ -539,15 +548,17 @@ export function createIntroRoom(opts = {}) {
     armTgt.L = armTgt.R = null;
     if (me.carry === 'book' && me.activity === 'read' && me.seat === 'sofa') { const d = bookObj.dims; armTgt.L = hold(book, d.pw * 0.85, d.ph * 0.4, 0.03); armTgt.R = hold(book, -d.pw * 0.85, d.ph * 0.4, 0.03); }
     else if (me.carry === 'kb') {
-      if (me.activity === 'play') { const a = Math.sin(t * 3.1), b = Math.sin(t * 2.6 + 1.3); armTgt.L = hold(kbObj, 0.14 + 0.1 * a, 0.0, 0.05); armTgt.R = hold(kbObj, -0.14 - 0.1 * b, 0.0, 0.05); }
+      if (me.activity === 'play' && player && handNote.L.seen && handNote.R.seen) { armTgt.L = hold(kbObj, handNote.L.x, 0.0, 0.05 - 0.03 * handNote.L.press); armTgt.R = hold(kbObj, handNote.R.x, 0.0, 0.05 - 0.03 * handNote.R.press); } // いま鳴らした音の位置へ、手が行って、押す
+      else if (me.activity === 'play') { const a = Math.sin(t * 3.1), b = Math.sin(t * 2.6 + 1.3); armTgt.L = hold(kbObj, 0.14 + 0.1 * a, 0.0, 0.05); armTgt.R = hold(kbObj, -0.14 - 0.1 * b, 0.0, 0.05); }
       else { armTgt.L = hold(kbObj, 0.27, 0.0, 0.03); armTgt.R = hold(kbObj, -0.27, 0.0, 0.03); }
     } else if (me.carry === 'synth') { const [a, b] = synthEnds(); armTgt.L = a; armTgt.R = b; }
+    else if (me.activity === 'floorplay' && me.seat === 'floor' && player && handNote.L.seen && handNote.R.seen) { armTgt.L = hold(bigSynth.group, -handNote.L.x, 0.07, 0.09 - 0.03 * handNote.L.press); armTgt.R = hold(bigSynth.group, -handNote.R.x, 0.07, 0.09 - 0.03 * handNote.R.press); } // 床のシンセは、雪だるまと向かい合うので、左右が逆
     else if (me.activity === 'floorplay' && me.seat === 'floor') { const a = Math.sin(t * 2.7), b = Math.sin(t * 2.2 + 1.1); armTgt.L = hold(bigSynth.group, 0.15 + 0.2 * a, 0.07, 0.09); armTgt.R = hold(bigSynth.group, -0.15 - 0.2 * b, 0.07, 0.09); }
     else if (me.carry === 'cup') {
       const ds = me.activity === 'drink' && curStep && curStep.t === 'do' ? drinkState(curStep.k) : { pos: 0, tilt: 0, headBack: 0, mouth: false };
       const nose = new V3(); snow.getNoseTipWorld(nose); const f = fwdV(), mx = modelX(); const S = new V3(nose.x + f.x * 0.14 - mx.x * 0.03, nose.y - 0.165, nose.z + f.z * 0.14 - mx.z * 0.03);
       const rest = cupHoldPos(), pos = rest.clone().lerp(S, ds.pos); pos.y += 0.2 * ds.pos * (1 - ds.pos);
-      armTgt.L = pos.add(gripV()); sipTilt = 0.62 * ds.tilt; sipHeadBack = ds.headBack; sipMouth = ds.mouth ? 0.2 : null;
+      armTgt.L = pos.add(gripV()); sipTilt = 0.62 * ds.tilt; sipHeadBack = ds.headBack; sipMouth = ds.mouth ? 0.2 : null; if (ds.mouth && !sipEdge) sfx('sip', mePos(1.2)); sipEdge = ds.mouth;
     }
   }
   let sipTilt = 0, sipHeadBack = 0, sipMouth = null;
@@ -587,16 +598,28 @@ export function createIntroRoom(opts = {}) {
     else if (world.cupAt === 'hand') { /* 置いている最中は、手順が動かす */ }
     else if (world.cupAt !== 'hand' && !pcActive) { cup.tilt.rotation.x = 0; cup.liquid.visible = true; }
     if (me.carry === 'book' && me.activity === 'read') { // ときどき、ページをめくる
-      const cycle = (t % 7.5); if (cycle < 0.6 && me.seat === 'sofa') { flapPivot.visible = true; flapPivot.rotation.z = Math.PI * easeInOutCubic(cycle / 0.6); } else flapPivot.visible = false; // ページが、背を軸に、上へ起きて、左へ倒れる
+      const cycle = (t % 7.5); if (cycle < 0.6 && me.seat === 'sofa') { if (!flapOn) { flapOn = true; sfx('page', mePos(0.7)); } flapPivot.visible = true; flapPivot.rotation.z = Math.PI * easeInOutCubic(cycle / 0.6); } else { flapPivot.visible = false; flapOn = false; } // ページが、背を軸に、上へ起きて、左へ倒れる
     }
     const lampTarget = lamp.isOn() ? 5.5 : 0; lampLightPt.intensity += (lampTarget * (0.92 + 0.08 * Math.sin(t * 7.3 + Math.sin(t * 2.1) * 2)) - lampLightPt.intensity) * Math.min(1, dt * 5);
   }
 
+  /** 弾く時は、音(ピアノ / 4オペFMブラス)を鳴らし、鳴らした音の位置へ、手を動かす。弾き終わる・別のことをしたら、止める */
+  function managePlayer(dt) {
+    const want = me.carry === 'kb' && me.activity === 'play' && me.seat === 'sofa' ? 'piano' : (me.activity === 'floorplay' && me.seat === 'floor') ? 'brass' : null;
+    if (player && (!want || player.kind !== want)) { player.stop(); player = null; handNote.L.seen = handNote.R.seen = false; }
+    if (want && !player && audio) player = audio.startPlayer({ kind: want, seed: Math.floor(rand() * 1e9) + 1, getPos: () => mePos(0.7) });
+    if (player) for (const n of player.update(dt)) {
+      const half = want === 'piano' ? 0.3 : 0.38, x = lerp(half, -half, clamp01((n.midi - (want === 'piano' ? 36 : 30)) / 60)); // 低い音は、雪だるまの左(モデルのx+)
+      const arms = n.hand === 'S' ? ['L', 'R'] : [n.hand === 'L' ? 'L' : 'R']; for (const h of arms) { handNote[h].x = n.hand === 'S' ? (h === 'L' ? half * 0.45 : -half * 0.45) : x; handNote[h].press = 1; handNote[h].seen = true; }
+    }
+    for (const h of ['L', 'R']) handNote[h].press = Math.max(0, handNote[h].press - dt * 6);
+  }
   function update(dtSec) {
     const dt = Math.max(0, Math.min(MAX_DT, +dtSec || 1 / 30)); t += dt;
-    advance(dt); updateCamera(dt); updateSnowman(dt); drawScreen(dt);
+    advance(dt); managePlayer(dt); updateCamera(dt); updateSnowman(dt); drawScreen(dt);
     if (me.activity === 'read' && me.seat === 'sofa' && !curStep && !queue.length && !pending) { thirstT -= dt; if (thirstT <= 0) { thirstT = 50 + rand() * 50; api.act({ type: 'cup', thirst: true }); } } // 読書中に、ときどき、飲みたくなる
     const now = nowFn(); city.update(t, dt, now); clock.update(t, now); cup.update(t, 0);
+    if (audio) { const ts = city.trainState(); audio.update(dt, { x: cam.pos.x, y: cam.pos.y, z: cam.pos.z, yaw: cam.yaw }, ts.on, ts.x); const nk = city.state.night; if (Math.abs(nk - lastNight) > 0.02) { lastNight = nk; audio.setNight(nk); } }
     const glow = screenState.mode === 'game' ? 0.7 : 0.4; screenLight.intensity = 3.6 + 1.2 * glow + 0.3 * Math.sin(t * 9); lampLight.intensity = 6.5 + 0.2 * Math.sin(t * 1.3); room.update(t);
   }
 
@@ -608,6 +631,7 @@ export function createIntroRoom(opts = {}) {
     setSize(w, h) { size = { w: Math.max(2, w | 0), h: Math.max(2, h | 0) }; renderer.setSize(size.w, size.h, false); camera.aspect = size.w / size.h; applyCamera(); },
     keyEvent(e, down) { onKey(e, down); },
     clearKeys() { keysDown.clear(); },
+    setAudioMode(m) { if (audio) audio.setMode(m); }, // 'room'(全画面)=通常の音量 / 'wipe'=小さく
     setInteractive(v) { interactive = !!v; if (!interactive) { drag = null; pinch = null; ptrs.clear(); keysDown.clear(); if (opts.onHover) opts.onHover(null, 0, 0); } canvas.style.cursor = interactive ? 'grab' : 'pointer'; },
     /** クリックされたもの { type:'book'|'keyboard'|'monitor'|'sofa'|'snowman', shelf? } に応じて、雪だるまを動かす。 */
     act(p) {
@@ -635,8 +659,9 @@ export function createIntroRoom(opts = {}) {
     isBusy: () => !!curStep || queue.length > 0,
     /** カメラが、いま、決まった画角に固定されているか(モニターの場面)。 */
     isCameraLocked: () => cam.locked,
-    debug: { world, ikErr, pcOp, pcDrink, synthHome, headsetRest, pickAt, setView, city, clock, bookObj, sideTable, bigSynth, lamp, lampLightPt, midi, headset, mixer, cup, nowFn, kbObj, book, kbHome, screenState, get launchedFlag() { return launched; }, get stepInfo() { return curStep && { t: curStep.t, what: curStep.what, at: curStep.at, from: curStep.from }; }, get queue() { return queue.map((s) => s.t); }, get step() { return curStep && curStep.t; }, cam, SHELVES, pathLength },
+    debug: { get player() { return player; }, handNote, audio, world, ikErr, pcOp, pcDrink, synthHome, headsetRest, pickAt, setView, city, clock, bookObj, sideTable, bigSynth, lamp, lampLightPt, midi, headset, mixer, cup, nowFn, kbObj, book, kbHome, screenState, get launchedFlag() { return launched; }, get stepInfo() { return curStep && { t: curStep.t, what: curStep.what, at: curStep.at, from: curStep.from }; }, get queue() { return queue.map((s) => s.t); }, get step() { return curStep && curStep.t; }, cam, SHELVES, pathLength },
     dispose() {
+      if (player) { player.stop(); player = null; }
       try { scene.traverse((o) => { if (o.geometry) o.geometry.dispose(); }); for (const x of owned) if (x && x.dispose) x.dispose(); renderer.dispose(); renderer.forceContextLoss(); } catch (e) { /* もう、捨てられている */ }
     },
   };

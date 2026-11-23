@@ -100,6 +100,8 @@ export function buildCity({ scene, keep, seed = 11 }) {
       if (trainOn) { trainX += trainDir * 9.5 * dt; train.position.x = trainX - (trainDir > 0 ? 0 : 0); train.scale.x = trainDir; if (Math.abs(trainX) > 64) { trainOn = false; train.visible = false; nextTrain = 40 + rand() * 70; } }
     },
     forceHour(h) { lastHourKey = -1; applyState(skyState(h)); },
+    /** 電車の様子(音と合わせる): on=走っているか / x=電車の真ん中あたりの、世界のx */
+    trainState() { return { on: trainOn, x: trainX + trainDir * 9 }; },
   };
 }
 
