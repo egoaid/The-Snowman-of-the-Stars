@@ -60,7 +60,7 @@ export function createModeMachine({ start = 'room', duration = FULL_MS } = {}) {
 }
 
 // ---------------------------------------------------------------- 部屋の中の、場所(m)
-const FACE_YAW = Math.atan2(-1.2 - 0.4, 0.82 - 0.35) + 0.05; // stream-wipe.js の椅子の向き(モニターのほうを向く)
+const FACE_YAW = Math.atan2(-1.2 - 0.4, 0.82 - 0.35) + 0.05; // もとの録画用ワイプの部屋と同じ、椅子の向き(モニターのほうを向く)
 export const SPOTS = {
   hub: { x: 0.0, z: 3.4 }, // 部屋の真ん中あたり。ここを経由すると、家具にぶつからない
   sofa: { seat: { x: -2.95, z: 2.5 }, seatY: 0.45, yaw: Math.PI / 2, front: { x: -2.0, z: 2.5 } }, // 左の壁ぎわ。+x(部屋の中)を向いて座る

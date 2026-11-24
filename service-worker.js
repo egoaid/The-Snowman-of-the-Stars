@@ -5,7 +5,7 @@
  *   ・version.json: 常にネットワーク(更新の確認用。キャッシュしない)
  *   ・新しい版のService Workerは、待機状態になる。画面の「新しい版があります」を押すと(SKIP_WAITING)、切り替わる。
  */
-const BUILD = '1.116-20261122';
+const BUILD = '1.117-20261123';
 const PRECACHE = [
   "./",
   "css/layout.css",
@@ -126,7 +126,7 @@ const PRECACHE = [
   "js/torch.js",
   "js/video-recorder-core.js",
   "js/video-recorder.js",
-  "js/visual3d/stream-wipe.js",
+  "js/visual3d/room-views.js",
   "js/visual3d/stream-room.js",
   "js/visual3d/audio-fx.js",
   "js/visual3d/listener-rel.js",

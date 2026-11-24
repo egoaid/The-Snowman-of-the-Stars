@@ -92,8 +92,7 @@ export const WIPE_BORDER_MAX = 8, WIPE_BORDER_DEFAULT = 2; // 枠の幅(ワイ�
 export const WIPE_BORDER_COLOR_DEFAULT = '#f3efe6';
 // 画角(v1.109): 固定カメラ3つ(room=部屋全体・monitor=モニターを見ている雪だるま・face=顔のアップ)・custom=自分で決めた画角・auto=3つを時々カットで切り替え。
 //   標準は「1つの画角に固定」。パン・徐々にズームは、しない。
-export const WIPE_CAMS = ['room', 'monitor', 'face', 'custom', 'auto'];
-export const WIPE_CAM_INTERVAL_MIN = 5, WIPE_CAM_INTERVAL_MAX = 60, WIPE_CAM_INTERVAL_DEFAULT = 15; // 自動で切り替える間隔(秒)の目安(実際は、±30%ばらつく)
+export const WIPE_CAMS = ['room', 'monitor', 'face', 'custom']; // v1.117: 画角は、固定の3つ(部屋全体・モニターを見ている雪だるま・顔のアップ)と、自分で決めた画角。「3つを、ときどき切り替える」は廃止(部屋の映像が、そのままワイプになるため)
 export const WIPE_CUSTOM_DEFAULT = { px: 0.45, py: 1.65, pz: 4.6, tx: -0.3, ty: 1.38, tz: 0.55, fov: 38 }; // 「モニターを見ている雪だるま」と同じ
 const CUSTOM_RANGE = { px: [-3.4, 3.7], py: [0.3, 3.1], pz: [-2.0, 6.8], tx: [-3.6, 3.9], ty: [0.1, 3.3], tz: [-2.3, 7.0], fov: [12, 70] }; // 部屋の中(stream-room.js の ROOM と同じ広さ)
 /** 設定(画面からの入力・保存された値)を、安全な値にそろえる。知らない値は、既定へ。 */
@@ -110,22 +109,36 @@ export function normalizeWipe(o) {
     borderWidth: num(o.borderWidth, 1, WIPE_BORDER_MAX, WIPE_BORDER_DEFAULT),
     borderColor: typeof o.borderColor === 'string' && /^#[0-9a-fA-F]{6}$/.test(o.borderColor) ? o.borderColor.toLowerCase() : WIPE_BORDER_COLOR_DEFAULT,
     flip: !!o.flip, // 左右反転(鏡のように)。左に置いて、顔を右向きにしたい時に
-    watch: !!o.watch, // 見守りモードの間も、画面の隅に表示する(録画のワイプと同じ設定)
+    show: o.show === undefined ? true : !!o.show, // v1.117: ゲーム中の画面に、ワイプ(部屋の映像)を出すか。録画に入れるかは、別の設定(recWipe)
     cam: WIPE_CAMS.includes(o.cam) ? o.cam : 'room', // 既定は、これまでと同じ「部屋全体」
-    camInterval: num(o.camInterval, WIPE_CAM_INTERVAL_MIN, WIPE_CAM_INTERVAL_MAX, WIPE_CAM_INTERVAL_DEFAULT),
     camCustom: Object.fromEntries(Object.entries(CUSTOM_RANGE).map(([k, [lo, hi]]) => { const v = Number(o.camCustom && o.camCustom[k]); return [k, Number.isFinite(v) ? Math.max(lo, Math.min(hi, v)) : WIPE_CUSTOM_DEFAULT[k]]; })),
   };
 }
 /** ワイプの置き場所と大きさ。mode=出力の種類、opts=設定(normalizeWipe にかける)。 */
-export function wipeLayout(mode, opts) {
-  const c = normalizeWipe(opts), o = outputSize(mode), k = o.w / 960; // k: 4K=4 / フルHD=2(ワイプの1ピクセルが、出力の何ピクセルか)
+export function wipeLayout(mode, opts) { const o = outputSize(mode); return wipeLayoutFor(o.w, o.h, opts); }
+/** v1.117: 出力の大きさ(W×H。録画の映像でも、画面でも)に対する、ワイプの配置。k = W/960 が、ワイプの1ピクセルの大きさ。 */
+export function wipeLayoutFor(W, H, opts) {
+  const c = normalizeWipe(opts), o = { w: W, h: H }, k = o.w / 960; // k: 4K=4 / フルHD=2(ワイプの1ピクセルが、出力の何ピクセルか)
   const [aw, ah] = WIPE_ASPECTS[c.aspect], longer = Math.max(16, Math.round((o.w * c.size) / 100 / k));
   let rw, rh;
   if (aw >= ah) { rw = longer; rh = Math.max(1, Math.round((rw * ah) / aw)); } else { rh = longer; rw = Math.max(1, Math.round((rh * aw) / ah)); }
   if (c.shape === 'circle') rh = rw; // 円は、正方形の中
   const b = c.frame ? c.borderWidth : 0, w = rw * k, h = rh * k, margin = 20 * k; // 余白は、枠の最大(8)より大きい
   const x = c.corner === 'bl' || c.corner === 'tl' ? margin : o.w - margin - w, y = c.corner === 'tl' || c.corner === 'tr' ? margin : o.h - margin - h;
-  return { x, y, w, h, rw, rh, k, b, shape: c.shape, aspect: c.aspect, corner: c.corner, color: c.borderColor, flip: c.flip };
+  return { x, y, w, h, rw, rh, k, b, W, H, shape: c.shape, aspect: c.aspect, corner: c.corner, color: c.borderColor, flip: c.flip };
+}
+/**
+ * v1.117: 部屋の映像(部屋が全画面 ⇄ ワイプ の途中を含む)を、出力の絵に重ねる時の、位置・切り取り・枠・角丸。
+ * L = wipeLayoutFor の結果 / p = 0(全画面の部屋)〜1(ワイプ。イージング後の値)/ srcW・srcH = 部屋のキャンバスの大きさ。
+ * 部屋の絵は、枠の縦横比に合わせて、中央を切り取る(cover。画面の CSS と同じ)ので、画面と録画で同じ見た目になる。
+ */
+export function wipeComposite(L, p, srcW, srcH, flip = L.flip) {
+  p = Math.max(0, Math.min(1, p)); const lerp = (a, b) => a + (b - a) * p;
+  const dx = lerp(0, L.x), dy = lerp(0, L.y), dw = lerp(L.W, L.w), dh = lerp(L.H, L.h);
+  const sa = srcW / srcH, da = dw / dh; let sx = 0, sy = 0, sw = srcW, sh = srcH;
+  if (sa > da) { sw = srcH * da; sx = (srcW - sw) / 2; } else { sh = srcW / da; sy = (srcH - sh) / 2; }
+  const border = L.b > 0 ? L.b * L.k * p : 0, radius = L.shape === 'circle' ? (p * Math.min(dw, dh)) / 2 : 0;
+  return { full: p <= 1e-4, dx, dy, dw, dh, sx, sy, sw, sh, border, radius, flip: !!flip && p > 0.5, color: L.color };
 }
 /** ワイプの内側のピクセル(x,y: 0始まり)か。四角は、すべて内側。円は、中心からの距離で決める(ぼかさない)。 */
 export function wipeInside(shape, rw, rh, x, y) {

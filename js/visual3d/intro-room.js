@@ -12,7 +12,7 @@ import { createMidiKeyboard } from './midi-keyboard.js';
 import { buildCity, createPendulumClock, createBigSynth, createDeskMic, createMiniMixer, createHeadset, createCup, createLampPumpkin, createSideTable, createBook } from './room-props.js';
 import { buildStreamRoom, ROOM } from './stream-room.js';
 import { getSmoothGradientMap } from './shading.js';
-import { WIPE_VIEWS, fitFov, OP_TUNE } from './stream-wipe.js';
+import { WIPE_VIEWS, fitFov, OP_TUNE, clampView, cloneView } from './room-views.js';
 import { SPOTS, SHELVES, planAction, pathLength, pcSequence, pcTotal, drinkState, easeInOutCubic, smoothstep, clamp01, lerp, lerpAngle, angleDiff } from '../intro-room-core.js';
 
 const MAX_DT = 0.1;
@@ -191,6 +191,12 @@ export function createIntroRoom(opts = {}) {
   }
   function setView(v) { const c = viewToCam(v); cam.pos.copy(c.pos); cam.yaw = c.yaw; cam.pitch = c.pitch; cam.fov = c.fov; cam.tween = null; applyCamera(); }
   function tweenTo(v, dur = 1.2) { const c = viewToCam(v); cam.tween = { t: 0, dur, fp: cam.pos.clone(), tp: c.pos, fy: cam.yaw, ty: cam.yaw + angleDiff(cam.yaw, c.yaw), fpi: cam.pitch, tpi: c.pitch, ff: cam.fov, tf: c.fov }; }
+  // ---- ワイプの画角: ゲームを始めて部屋が縮む時、カメラが、設定した画角へ動く。ワイプをクリックして部屋が全画面に戻る時は、もとの(自由に見まわしていた)画角へ戻る ----
+  let wipeView = null, freeSnap = null, inWipe = false;
+  const camSnapshot = () => ({ pos: cam.pos.clone(), yaw: cam.yaw, pitch: cam.pitch, fov: cam.fov });
+  function tweenToSnap(sn, dur) { cam.tween = { t: 0, dur, fp: cam.pos.clone(), tp: sn.pos.clone(), fy: cam.yaw, ty: cam.yaw + angleDiff(cam.yaw, sn.yaw), fpi: cam.pitch, tpi: sn.pitch, ff: cam.fov, tf: sn.fov }; }
+  /** いまのカメラを、画角(pos・target・fov)で返す。target は、正面3m先。 */
+  function getCameraView() { const cp = Math.cos(cam.pitch), f = new THREE.Vector3(-Math.sin(cam.yaw) * cp, Math.sin(cam.pitch), -Math.cos(cam.yaw) * cp); const t = cam.pos.clone().addScaledVector(f, 3); return { pos: [cam.pos.x, cam.pos.y, cam.pos.z], target: [t.x, t.y, t.z], fov: cam.fov }; }
   let size = { w: 480, h: 270 };
   function applyCamera() {
     camera.position.copy(cam.pos); camera.rotation.set(cam.pitch, cam.yaw, 0);
@@ -471,7 +477,7 @@ export function createIntroRoom(opts = {}) {
     }
   }
 
-  // ---- パソコンの操作: 録画のワイプ(stream-wipe.js)と同じ動き(キーを打つ・マウス・ときどきカップで飲む)をそのまま移植 ----
+  // ---- パソコンの操作: 録画のワイプ(v1.116まで stream-wipe.js)と同じ動き(キーを打つ・マウス・ときどきカップで飲む)をそのまま移植 ----
   const DESK_SND = { x: -0.4, y: 0.9, z: 0.8 };
   const KEY_TOP = deskTopY + 0.07, hoverY = KEY_TOP + 0.03;
   const kbWorld = (x, z, y) => deskKb.localToWorld(new V3(x, y, z));
@@ -654,12 +660,19 @@ export function createIntroRoom(opts = {}) {
       putLocal(headset.group, snow.headGroup, new V3(), Q0.clone(), ONE.clone()); world.headset = 'head';
       queue = []; curStep = null; setView(WIPE_VIEWS.monitor); cam.locked = false;
     },
+    /** ワイプになる時(instant=true なら、動きなしで)・全画面の部屋へ戻る時に、呼ぶ。 */
+    enterWipe(instant) { if (inWipe) return; inWipe = true; freeSnap = camSnapshot(); cam.locked = false; if (wipeView) { if (instant) setView(wipeView); else tweenTo(wipeView, 1.0); } },
+    leaveWipe() { if (!inWipe) return; inWipe = false; if (freeSnap) tweenToSnap(freeSnap, 1.0); },
+    /** ワイプの画角を決める(設定)。ワイプの間なら、すぐ、そちらへ動く。 */
+    setWipeCamera(v, instant) { wipeView = v ? clampView(cloneView(v)) : null; if (inWipe && wipeView) { if (instant) setView(wipeView); else tweenTo(wipeView, 0.8); } },
+    getWipeCameraView() { return wipeView ? cloneView(wipeView) : getCameraView(); },
+    isInWipe: () => inWipe,
     isLaunched: () => launched,
     getActivity: () => me.activity,
     isBusy: () => !!curStep || queue.length > 0,
     /** カメラが、いま、決まった画角に固定されているか(モニターの場面)。 */
     isCameraLocked: () => cam.locked,
-    debug: { get player() { return player; }, handNote, audio, world, ikErr, pcOp, pcDrink, synthHome, headsetRest, pickAt, setView, city, clock, bookObj, sideTable, bigSynth, lamp, lampLightPt, midi, headset, mixer, cup, nowFn, kbObj, book, kbHome, screenState, get launchedFlag() { return launched; }, get stepInfo() { return curStep && { t: curStep.t, what: curStep.what, at: curStep.at, from: curStep.from }; }, get queue() { return queue.map((s) => s.t); }, get step() { return curStep && curStep.t; }, cam, SHELVES, pathLength },
+    debug: { get wipeView() { return wipeView; }, getCameraView, get player() { return player; }, handNote, audio, world, ikErr, pcOp, pcDrink, synthHome, headsetRest, pickAt, setView, city, clock, bookObj, sideTable, bigSynth, lamp, lampLightPt, midi, headset, mixer, cup, nowFn, kbObj, book, kbHome, screenState, get launchedFlag() { return launched; }, get stepInfo() { return curStep && { t: curStep.t, what: curStep.what, at: curStep.at, from: curStep.from }; }, get queue() { return queue.map((s) => s.t); }, get step() { return curStep && curStep.t; }, cam, SHELVES, pathLength },
     dispose() {
       if (player) { player.stop(); player = null; }
       try { scene.traverse((o) => { if (o.geometry) o.geometry.dispose(); }); for (const x of owned) if (x && x.dispose) x.dispose(); renderer.dispose(); renderer.forceContextLoss(); } catch (e) { /* もう、捨てられている */ }
