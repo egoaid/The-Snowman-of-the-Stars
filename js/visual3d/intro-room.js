@@ -32,7 +32,7 @@ export function createIntroRoom(opts = {}) {
   renderer.setPixelRatio(1);
   renderer.setClearColor(0x1c1a24, 1);
   const scene = new THREE.Scene();
-  const camera = new THREE.PerspectiveCamera(54, 16 / 9, 0.1, 160);
+  const camera = new THREE.PerspectiveCamera(54, 16 / 9, 0.1, 600); // v1.119: 窓の外の遠くの街まで、描く(far 160 → 600)
   camera.rotation.order = 'YXZ';
   const grad = getSmoothGradientMap();
   const toon = (color) => new THREE.MeshToonMaterial({ color, gradientMap: grad });
@@ -43,7 +43,7 @@ export function createIntroRoom(opts = {}) {
   const pickRoots = [];
 
   // ---- 明かり(録画のワイプの部屋と同じ。夜の部屋) ----
-  scene.add(new THREE.HemisphereLight(0x8a9bd6, 0x4a3a30, 0.85));
+  const hemi = new THREE.HemisphereLight(0x8a9bd6, 0x4a3a30, 0.85); scene.add(hemi); const hemiBase = new THREE.Color(0x8a9bd6), hemiWarm = new THREE.Color(0xffb27a);
   const lampLight = new THREE.PointLight(0xffc27a, 7, 6, 1.6); lampLight.position.set(-1.7, 1.55, 0.6); scene.add(lampLight);
   const screenLight = new THREE.PointLight(0x9fd0ff, 4.2, 4.5, 1.7); screenLight.position.set(-0.7, 1.1, 0.9); scene.add(screenLight);
   const key = new THREE.DirectionalLight(0xdfe6ff, 0.55); key.position.set(2.5, 3, 4); scene.add(key);
@@ -61,6 +61,20 @@ export function createIntroRoom(opts = {}) {
     box(1.66, 0.08, 0.1, woodMat, -0.95, 2.74, -2.2); box(1.66, 0.08, 0.1, woodMat, -0.95, 0.8, -2.2); box(0.08, 2, 0.1, woodMat, -1.78, 1.77, -2.2); box(0.08, 2, 0.1, woodMat, -0.12, 1.77, -2.2); box(0.05, 1.9, 0.08, woodMat, -0.95, 1.77, -2.2); // 窓枠(まんなかに桟)
     box(1.8, 0.04, 0.22, woodMat, -0.95, 0.78, -2.16); } // 窓の下の出っぱり
   const city = buildCity({ scene, keep });
+  // ---- 西陽(v1.119): 窓は、西向き。夕方、窓の形の橙色の光だまりが床にのび、部屋が、橙色に染まる(影は、計算しない。軽い方式) ----
+  const sunLight = new THREE.DirectionalLight(0xff9448, 0); sunLight.position.set(-1.5, 2.4, -7); scene.add(sunLight);
+  const sunPt = new THREE.PointLight(0xff8a3c, 0, 8, 1.4); sunPt.position.set(-0.95, 1.9, -1.2); scene.add(sunPt);
+  const patchGeo = keep(new THREE.BufferGeometry()); const patchPos = new Float32Array(12);
+  patchGeo.setAttribute('position', new THREE.BufferAttribute(patchPos, 3)); patchGeo.setAttribute('uv', new THREE.BufferAttribute(new Float32Array([0, 0, 1, 0, 1, 1, 0, 1]), 2)); patchGeo.setIndex([0, 1, 2, 0, 2, 3]);
+  const patchTex = (() => { const cv = document.createElement('canvas'); cv.width = 64; cv.height = 128; const g = cv.getContext('2d'); const gr = g.createLinearGradient(0, 0, 0, 128); gr.addColorStop(0, 'rgba(255,255,255,0.5)'); gr.addColorStop(1, 'rgba(255,255,255,1)'); g.fillStyle = gr; g.fillRect(2, 2, 60, 124); g.globalCompositeOperation = 'destination-out'; g.fillStyle = '#000'; g.fillRect(31, 0, 2, 128); g.fillRect(0, 0, 2, 128); g.fillRect(62, 0, 2, 128); const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace; return keep(t); })(); // 窓の桟(まんなかの縦の線)が、光だまりにも、写る
+  const patch = new THREE.Mesh(patchGeo, keep(new THREE.MeshBasicMaterial({ map: patchTex, color: 0xffa24a, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, fog: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }))); patch.frustumCulled = false; patch.visible = false; patch.renderOrder = 5; scene.add(patch);
+  /** 太陽の高さ alt(度)から、窓の穴(x -1.7〜-0.2、y 0.8〜2.7、壁は z -2.3)の、床への写り方を、決める。低いほど、奥まで、のびる(部屋の奥の壁で、止める)。 */
+  function updateSunPatch(alt) {
+    const tanE = Math.tan((Math.max(6, Math.min(40, alt)) * Math.PI) / 180), sx = 0.22, zMax = ROOM.z1 - 0.05;
+    const zb = Math.min(zMax, -2.3 + 0.8 / tanE), zt = Math.min(zMax, -2.3 + 2.7 / tanE), db = zb + 2.3, dt2 = zt + 2.3;
+    const v = [-1.7 + sx * db, 0.02, zb, -0.2 + sx * db, 0.02, zb, -0.2 + sx * dt2, 0.02, zt, -1.7 + sx * dt2, 0.02, zt];
+    for (let i = 0; i < 12; i++) patchPos[i] = v[i]; patchGeo.attributes.position.needsUpdate = true;
+  }
   { const pm = keep(toon(0xf2d34f)); box(0.62, 0.8, 0.03, keep(toon(0x2a2f55)), 1.0, 2.0, -2.22); const st = new THREE.Mesh(keep(new THREE.CircleGeometry(0.2, 5)), pm); st.position.set(1.0, 2.04, -2.2); scene.add(st);
     box(1.0, 0.05, 0.28, woodMat, -2.7, 1.55, -2.1); box(0.16, 0.22, 0.16, keep(toon(0x4a9a63)), -2.95, 1.69, -2.1); box(0.2, 0.14, 0.18, keep(toon(0xd2693a)), -2.55, 1.64, -2.1); }
 
@@ -624,7 +638,12 @@ export function createIntroRoom(opts = {}) {
     const dt = Math.max(0, Math.min(MAX_DT, +dtSec || 1 / 30)); t += dt;
     advance(dt); managePlayer(dt); updateCamera(dt); updateSnowman(dt); drawScreen(dt);
     if (me.activity === 'read' && me.seat === 'sofa' && !curStep && !queue.length && !pending) { thirstT -= dt; if (thirstT <= 0) { thirstT = 50 + rand() * 50; api.act({ type: 'cup', thirst: true }); } } // 読書中に、ときどき、飲みたくなる
-    const now = nowFn(); city.update(t, dt, now); clock.update(t, now); cup.update(t, 0);
+    const now = nowFn();
+    if (opts.getOutside) { try { const o = opts.getOutside(); if (o) city.setOutside(o); } catch (e) { /* ゲームの側の準備前は、そのまま */ } } // v1.119: 窓の外の天気・季節は、ゲーム本編と同じ
+    city.update(t, dt, now, camera);
+    { const si = city.sunInfo(), pw = si.power; // 西陽
+      sunLight.intensity = 1.1 * pw; sunPt.intensity = 5 * pw; hemi.color.copy(hemiBase).lerp(hemiWarm, 0.55 * pw); hemi.intensity = 0.85 + 0.25 * pw + 0.5 * si.flash;
+      patch.visible = pw > 0.01; if (patch.visible) { patch.material.opacity = 0.6 * pw; updateSunPatch(si.alt); } } clock.update(t, now); cup.update(t, 0);
     if (audio) { const ts = city.trainState(); audio.update(dt, { x: cam.pos.x, y: cam.pos.y, z: cam.pos.z, yaw: cam.yaw }, ts.on, ts.x); const nk = city.state.night; if (Math.abs(nk - lastNight) > 0.02) { lastNight = nk; audio.setNight(nk); } }
     const glow = screenState.mode === 'game' ? 0.7 : 0.4; screenLight.intensity = 3.6 + 1.2 * glow + 0.3 * Math.sin(t * 9); lampLight.intensity = 6.5 + 0.2 * Math.sin(t * 1.3); room.update(t);
   }

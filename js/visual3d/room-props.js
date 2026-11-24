@@ -22,6 +22,8 @@ function canvasTex(w, h, draw, { nearest = true, repeat = false } = {}) {
  */
 export function buildCity({ scene, keep, seed = 11 }) {
   const rand = mkRng(seed), root = new THREE.Group(); scene.add(root);
+  const clampN = (v) => Math.max(0, Math.min(1, v)), smooth = (a, b, x) => { const k = clampN((x - a) / (b - a)); return k * k * (3 - 2 * k); };
+  const _dir = new THREE.Vector3();
   // ---- 空(上から下へのグラデーション。地平線より下は、ビルの色にとけこむ) ----
   const skyCv = document.createElement('canvas'); skyCv.width = 4; skyCv.height = 128; const sg = skyCv.getContext('2d');
   const skyTex = keep(new THREE.CanvasTexture(skyCv)); skyTex.colorSpace = SRGB;
@@ -35,19 +37,23 @@ export function buildCity({ scene, keep, seed = 11 }) {
   const moonTex = keep(canvasTex(64, 64, (g) => { g.fillStyle = '#fff3c4'; g.beginPath(); g.arc(32, 32, 24, 0, Math.PI * 2); g.fill(); g.globalCompositeOperation = 'destination-out'; g.beginPath(); g.arc(42, 27, 21, 0, Math.PI * 2); g.fill(); }, { nearest: false }));
   const moon = new THREE.Mesh(keep(new THREE.PlaneGeometry(9, 9)), keep(new THREE.MeshBasicMaterial({ map: moonTex, transparent: true, depthWrite: false, fog: false }))); moon.position.set(-13, 17, -76); moon.renderOrder = -8; root.add(moon);
   const sunTex = keep(canvasTex(64, 64, (g) => { const r = g.createRadialGradient(32, 32, 4, 32, 32, 32); r.addColorStop(0, 'rgba(255,248,214,1)'); r.addColorStop(0.35, 'rgba(255,226,150,0.85)'); r.addColorStop(1, 'rgba(255,220,140,0)'); g.fillStyle = r; g.fillRect(0, 0, 64, 64); }, { nearest: false }));
-  const sun = new THREE.Mesh(keep(new THREE.PlaneGeometry(26, 26)), keep(new THREE.MeshBasicMaterial({ map: sunTex, transparent: true, depthWrite: false, fog: false, blending: THREE.AdditiveBlending }))); sun.position.set(-18, 16, -80); sun.renderOrder = -8; root.add(sun);
-  // ---- ビル ----
+  const sun = new THREE.Mesh(keep(new THREE.PlaneGeometry(22, 22)), keep(new THREE.MeshBasicMaterial({ map: sunTex, transparent: true, depthWrite: false, fog: false, blending: THREE.AdditiveBlending }))); sun.position.set(-18, 16, -80); sun.renderOrder = -8; root.add(sun);
+  // ---- ビル(v1.119: 列を、窓の外の遠くまで延ばし、列の両端に、大きな「端ブロック」を置いた。窓から斜めに覗いても、何もない空間が見えない) ----
+  //   窓越しに見えないビルは、毎コマ、非表示にする(3Dカリング。cull())。ネオン看板・屋上の雪も、ビルの子として、いっしょに隠れる。
   const TILE = 7.2; // 窓の模様1枚(4×4個の窓)の、実際の大きさ
   const glassTile = keep(canvasTex(64, 64, (g) => { g.clearRect(0, 0, 64, 64); g.fillStyle = '#fff'; for (let r = 0; r < 4; r++) for (let c = 0; c < 4; c++) g.fillRect(c * 16 + 4, r * 16 + 5, 8, 8); }, { repeat: true }));
   const litTiles = [];
   for (let v = 0; v < 6; v++) litTiles.push(keep(canvasTex(64, 64, (g) => { g.clearRect(0, 0, 64, 64); const dens = 0.28 + (v % 3) * 0.2; for (let r = 0; r < 4; r++) for (let c = 0; c < 4; c++) if (rand() < dens) { g.fillStyle = rand() < 0.78 ? '#ffd98a' : rand() < 0.5 ? '#fff2c8' : '#bfe0ff'; g.fillRect(c * 16 + 4, r * 16 + 5, 8, 8); } }, { repeat: true })));
   const buildings = []; const baseY = -26;
+  const VALLEY = [-22, 12]; // 夕陽が、窓から見えるように、この範囲の、奥の2列は、低くしておく(夕陽の通り道)
   const rows = [
-    { z: -9, d: 4, hMin: 12, hMax: 19, wMin: 2.6, wMax: 4.4, x0: -24, x1: 14, shade: 1.0 },
-    { z: -22, d: 5, hMin: 24, hMax: 36, wMin: 3.2, wMax: 5.6, x0: -38, x1: 26, shade: 0.9 },
-    { z: -44, d: 6, hMin: 34, hMax: 58, wMin: 4, wMax: 7.5, x0: -60, x1: 44, shade: 0.8 },
+    { z: -9, d: 4, hMin: 12, hMax: 19, wMin: 2.6, wMax: 4.4, x0: -60, x1: 60, shade: 1.0 },
+    { z: -22, d: 5, hMin: 24, hMax: 36, wMin: 3.2, wMax: 5.6, x0: -80, x1: 80, shade: 0.9, valley: [18, 24] },
+    { z: -44, d: 6, hMin: 34, hMax: 58, wMin: 4, wMax: 7.5, x0: -100, x1: 100, shade: 0.8, valley: [26, 33] },
   ];
-  function addBuilding(row, x, w, h, litIdx) {
+  const CAP_W = 300; // 列の端の、大きなブロックの幅
+  const capGeo = keep(new THREE.BoxGeometry(1, 1, 1)), snowMat = keep(new THREE.MeshBasicMaterial({ color: 0xf2f6ff, fog: false }));
+  function addBuilding(row, x, w, h, litIdx, isCap) {
     const g = new THREE.Group(); g.position.set(x + w / 2, baseY + h / 2, row.z); root.add(g);
     const bodyMat = keep(new THREE.MeshBasicMaterial({ color: 0x1d2142 })); const body = new THREE.Mesh(keep(new THREE.BoxGeometry(w, h, row.d)), bodyMat); g.add(body);
     const gt = glassTile.clone(); gt.repeat.set(w / TILE, h / TILE); gt.needsUpdate = true; keep(gt);
@@ -55,18 +61,63 @@ export function buildCity({ scene, keep, seed = 11 }) {
     const glassMat = keep(new THREE.MeshBasicMaterial({ map: gt, transparent: true, color: 0x232a52, depthWrite: false })), litMat = keep(new THREE.MeshBasicMaterial({ map: lt, transparent: true, opacity: 1, depthWrite: false, fog: false }));
     const gp = new THREE.Mesh(keep(new THREE.PlaneGeometry(w, h)), glassMat); gp.position.z = row.d / 2 + 0.02; g.add(gp);
     const lp = new THREE.Mesh(keep(new THREE.PlaneGeometry(w, h)), litMat); lp.position.z = row.d / 2 + 0.04; g.add(lp);
-    // 屋上の飾り(室外機・水槽・アンテナ)
-    const roofMat = keep(new THREE.MeshBasicMaterial({ color: 0x151833 })); const top = h / 2;
-    const tank = new THREE.Mesh(keep(new THREE.BoxGeometry(w * 0.28, 1.4, row.d * 0.4)), roofMat); tank.position.set((rand() - 0.5) * w * 0.4, top + 0.7, 0); g.add(tank);
-    if (rand() < 0.6) { const ant = new THREE.Mesh(keep(new THREE.CylinderGeometry(0.05, 0.05, 3 + rand() * 3, 4)), roofMat); ant.position.set((rand() - 0.5) * w * 0.6, top + 2.2, 0); g.add(ant); }
-    const sh = row.shade * (0.82 + rand() * 0.32);
-    buildings.push({ bodyMat, glassMat, litMat, sh, top: baseY + h });
+    const entry = { g, bodyMat, glassMat, litMat, sh: row.shade * (0.82 + rand() * 0.32), top: baseY + h, cx: x + w / 2, cz: row.z, hw: w / 2, hd: row.d / 2, bot: baseY, topY: baseY + h, h, cap: null, isCap: !!isCap };
+    if (!isCap) { // 屋上の飾り(室外機・水槽・アンテナ)と、屋上の雪(冬・雪の日だけ、見える)
+      const roofMat = keep(new THREE.MeshBasicMaterial({ color: 0x151833 })); const top = h / 2;
+      const tank = new THREE.Mesh(keep(new THREE.BoxGeometry(w * 0.28, 1.4, row.d * 0.4)), roofMat); tank.position.set((rand() - 0.5) * w * 0.4, top + 0.7, 0); g.add(tank);
+      if (rand() < 0.6) { const ant = new THREE.Mesh(keep(new THREE.CylinderGeometry(0.05, 0.05, 3 + rand() * 3, 4)), roofMat); ant.position.set((rand() - 0.5) * w * 0.6, top + 2.2, 0); g.add(ant); }
+      const sc = new THREE.Mesh(capGeo, snowMat); sc.scale.set(w * 0.98, 0.1, row.d * 0.98); sc.position.y = top + 0.05; sc.visible = false; g.add(sc); entry.cap = sc;
+    }
+    buildings.push(entry);
     return g;
   }
   let tallest = null;
-  for (const row of rows) { let x = row.x0; while (x < row.x1) { const w = row.wMin + rand() * (row.wMax - row.wMin), h = row.hMin + rand() * (row.hMax - row.hMin); const g = addBuilding(row, x, w, h, Math.floor(rand() * 6)); if (row.z === -44 && (!tallest || h > tallest.h)) tallest = { g, h, w }; x += w + 0.5 + rand() * 1.8; } }
+  for (const row of rows) {
+    let x = row.x0;
+    while (x < row.x1) {
+      const w = row.wMin + rand() * (row.wMax - row.wMin); let h = row.hMin + rand() * (row.hMax - row.hMin);
+      const inValley = row.valley && x + w > VALLEY[0] && x < VALLEY[1]; if (inValley) h = row.valley[0] + rand() * (row.valley[1] - row.valley[0]);
+      const g = addBuilding(row, x, w, h, Math.floor(rand() * 6)); if (row.z === -44 && !inValley && (!tallest || h > tallest.h)) tallest = { g, h, w }; x += w + 0.5 + rand() * 1.8;
+    }
+    addBuilding(row, row.x0 - CAP_W - 0.6, CAP_W, row.hMax, Math.floor(rand() * 6), true); addBuilding(row, x + 0.6, CAP_W, row.hMax, Math.floor(rand() * 6), true); // 列の両端の、大きなブロック
+  }
   // 一番高い塔の先の、赤い点滅灯
   const beacon = new THREE.Mesh(keep(new THREE.SphereGeometry(0.35, 8, 6)), keep(new THREE.MeshBasicMaterial({ color: 0xff3030, fog: false }))); if (tallest) { beacon.position.set(0, tallest.h / 2 + 3.4, 0); tallest.g.add(beacon); }
+  // 奥の、はるか遠くの街のシルエット(1枚の板)。列の向こうにも、街が続いて見える
+  const farMat = keep(new THREE.MeshBasicMaterial({ color: 0x1d2142, transparent: true, depthWrite: false, fog: false }));
+  { const far = new THREE.Mesh(keep(new THREE.PlaneGeometry(1400, 76)), farMat); far.position.set(0, baseY + 38, -112);
+    farMat.map = keep(canvasTex(1024, 128, (g, W, H) => { g.clearRect(0, 0, W, H); g.fillStyle = '#fff'; let xx = 0; while (xx < W) { const bw = 10 + rand() * 26, bh = 24 + rand() * 80; g.fillRect(xx, H - bh, bw, bh); xx += bw + rand() * 4; } }, { nearest: false })); farMat.needsUpdate = true; root.add(far); }
+  // 足もとの地面(ビルの根もと。窓から、急に見下ろしても、何もない空間にならない)
+  const groundMat = keep(new THREE.MeshBasicMaterial({ color: 0x14172e, fog: false }));
+  { const ground = new THREE.Mesh(keep(new THREE.PlaneGeometry(1800, 700)), groundMat); ground.rotation.x = -Math.PI / 2; ground.position.set(0, baseY - 0.02, -150); root.add(ground); }
+  // ---- ネオン看板(サイバーパンク。実在の名前は使わない。夜に、強く光り、昼は、ほぼ消えている) ----
+  const NEON = ['#ff2fa8', '#26e6ff', '#ffb02e', '#7dff5a', '#b46bff', '#ff4b4b'];
+  const WORDS_V = ['電脳', '夜市', 'ネオン', '酒場', 'ホテル', '薬局', '未来', '麺', 'カラオケ', '占い', 'BAR', 'CLUB', '24H', 'ARCADE'];
+  const WORDS_H = ['NEON NIGHT', 'CYBER BAR', '電脳ラーメン', 'HOTEL 未来', 'NOODLE 24H', 'ARCADE', 'ナイトクラブ', 'SAKE & SYNTH'];
+  const FONT = '"Noto Sans JP","Hiragino Sans","Yu Gothic",sans-serif';
+  function signTex(text, color, vertical) {
+    const W = vertical ? 80 : 256, H = vertical ? 256 : 80;
+    return keep(canvasTex(W, H, (g) => {
+      g.clearRect(0, 0, W, H); g.fillStyle = 'rgba(10,6,24,0.84)'; g.fillRect(2, 2, W - 4, H - 4);
+      g.strokeStyle = color; g.lineWidth = 3; g.shadowColor = color; g.shadowBlur = 8; g.strokeRect(5, 5, W - 10, H - 10);
+      g.textAlign = 'center'; g.textBaseline = 'middle'; g.lineJoin = 'round';
+      const chars = vertical ? [...text] : [text]; let fs = vertical ? Math.min(52, Math.floor((H - 24) / chars.length)) : 46;
+      g.font = `bold ${fs}px ${FONT}`; if (!vertical) { while (g.measureText(text).width > W - 24 && fs > 10) { fs -= 2; g.font = `bold ${fs}px ${FONT}`; } }
+      chars.forEach((ch, i) => { const y = vertical ? 12 + ((H - 24) * (i + 0.5)) / chars.length : H / 2 + 2; g.shadowBlur = 12; g.lineWidth = 5; g.strokeStyle = color; g.strokeText(ch, W / 2, y); g.shadowBlur = 0; g.fillStyle = '#fff'; g.fillText(ch, W / 2, y); });
+    }, { nearest: false }));
+  }
+  const haloTex = keep(canvasTex(64, 64, (g) => { const r = g.createRadialGradient(32, 32, 2, 32, 32, 32); r.addColorStop(0, 'rgba(255,255,255,0.9)'); r.addColorStop(0.4, 'rgba(255,255,255,0.35)'); r.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = r; g.fillRect(0, 0, 64, 64); }, { nearest: false }));
+  const signs = [];
+  function addSign(b, vertical) {
+    const color = NEON[Math.floor(rand() * NEON.length)], words = vertical ? WORDS_V : WORDS_H, text = words[Math.floor(rand() * words.length)];
+    const sw = vertical ? 1.1 : Math.min(b.hw * 2 * 0.85, 5.2), sh = vertical ? 4.2 : (sw * 80) / 256;
+    const lx = (rand() - 0.5) * Math.max(0, b.hw * 2 - sw - 0.4), ly = vertical ? (-0.25 + rand() * 0.5) * b.h : b.h / 2 + sh / 2 + 0.3, lz = vertical ? b.hd + 0.12 : b.hd * 0.5;
+    const mat = keep(new THREE.MeshBasicMaterial({ map: signTex(text, color, vertical), transparent: true, depthWrite: false, fog: false, toneMapped: false })); const m = new THREE.Mesh(keep(new THREE.PlaneGeometry(sw, sh)), mat); m.position.set(lx, ly, lz + 0.02); m.renderOrder = 3; b.g.add(m);
+    const hmat = keep(new THREE.MeshBasicMaterial({ map: haloTex, color, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false, toneMapped: false, opacity: 0 })); const hm = new THREE.Mesh(keep(new THREE.PlaneGeometry(sw * 2.4, sh * 1.5)), hmat); hm.position.set(lx, ly, lz - 0.02); hm.renderOrder = 2; b.g.add(hm);
+    signs.push({ b, mat, hmat, flick: rand() < 0.3, phase: rand() * 10 });
+  }
+  for (const b of buildings) { if (b.isCap) continue; const near = b.cz > -30, pv = near ? 0.4 : 0.15, ph = near ? 0.22 : 0.1; if (rand() < pv) addSign(b, true); if (rand() < ph) addSign(b, false); }
+
   // ---- 電車(高架。ときどき、窓の前を通る) ----
   const rail = new THREE.Group(); rail.position.set(0, 0, -16); root.add(rail);
   const railMat = keep(new THREE.MeshBasicMaterial({ color: 0x15182e }));
@@ -76,30 +127,99 @@ export function buildCity({ scene, keep, seed = 11 }) {
   const carMat = keep(new THREE.MeshBasicMaterial({ color: 0x3a3f66 })), stripMat = keep(new THREE.MeshBasicMaterial({ color: 0xffe3a0, fog: false }));
   for (let i = 0; i < 6; i++) { const car = new THREE.Mesh(keep(new THREE.BoxGeometry(3.4, 2.7, 2.5)), carMat); car.position.set(i * 3.6, 1.1, 0); train.add(car); const st = new THREE.Mesh(keep(new THREE.BoxGeometry(3.1, 0.8, 0.05)), stripMat); st.position.set(i * 3.6, 1.45, 1.27); train.add(st); const st2 = st.clone(); st2.position.z = -1.27; train.add(st2); }
   let trainX = 0, trainOn = false, nextTrain = 6 + rand() * 12, trainDir = 1;
+  // ---- 窓の外の天気(ゲーム本編の天候・季節と、同じ): 曇り・雨・雪・雷・屋上の雪 ----
+  const outside = { weather: 'clear', season: 'summer' };
+  let cloudK = 0, rainK = 0, snowK = 0, snowCover = 0, paintedCloud = -1, lastCover = -1, hourNow = 12, flashT = -1, nextFlash = 5, flash = 0, starBase = 0, moonBase = 0, sunBase = 0;
+  const BOX = { x0: -12, x1: 10, y0: -8, y1: 14, z0: -34, z1: -2.6 };
+  const NR = 460, NS = 360;
+  const rainP = new Float32Array(NR * 3), snowP = new Float32Array(NS * 3);
+  for (let i = 0; i < NR; i++) { rainP[i * 3] = BOX.x0 + rand() * (BOX.x1 - BOX.x0); rainP[i * 3 + 1] = BOX.y0 + rand() * (BOX.y1 - BOX.y0); rainP[i * 3 + 2] = BOX.z0 + rand() * (BOX.z1 - BOX.z0); }
+  for (let i = 0; i < NS; i++) { snowP[i * 3] = BOX.x0 + rand() * (BOX.x1 - BOX.x0); snowP[i * 3 + 1] = BOX.y0 + rand() * (BOX.y1 - BOX.y0); snowP[i * 3 + 2] = BOX.z0 + rand() * (BOX.z1 - BOX.z0); }
+  const rainGeo = keep(new THREE.BufferGeometry()); const rainSeg = new Float32Array(NR * 6); rainGeo.setAttribute('position', new THREE.BufferAttribute(rainSeg, 3)); rainGeo.setDrawRange(0, 0);
+  const rainLines = new THREE.LineSegments(rainGeo, keep(new THREE.LineBasicMaterial({ color: 0xaec8e8, transparent: true, opacity: 0.5, depthWrite: false, fog: false }))); rainLines.frustumCulled = false; rainLines.visible = false; rainLines.renderOrder = 4; root.add(rainLines);
+  const snowGeo = keep(new THREE.BufferGeometry()); const snowPos = new Float32Array(NS * 3); snowGeo.setAttribute('position', new THREE.BufferAttribute(snowPos, 3)); snowGeo.setDrawRange(0, 0);
+  const snowPts = new THREE.Points(snowGeo, keep(new THREE.PointsMaterial({ color: 0xffffff, size: 0.22, transparent: true, opacity: 0.9, depthWrite: false, fog: false }))); snowPts.frustumCulled = false; snowPts.visible = false; snowPts.renderOrder = 4; root.add(snowPts);
+  function weatherTargets() {
+    const w = outside.weather, s = outside.season; let cloud = w === 'drizzle' ? 0.55 : w === 'rain' ? 0.8 : w === 'storm' ? 1 : w === 'snow' ? 0.7 : 0;
+    if (w === 'clear') { if (s === 'tsuyu') cloud = 0.35; else if (s === 'typhoon') cloud = 0.25; }
+    return { cloud, rain: w === 'drizzle' ? 0.3 : w === 'rain' ? 0.7 : w === 'storm' ? 1 : 0, snow: w === 'snow' ? 0.85 : 0, cover: s === 'winter' || w === 'snow' ? 1 : 0 };
+  }
   // ---- 色の更新(実時間) ----
   let lastHourKey = -1, state = skyState(12);
+  const grey = (a, k) => { const l = 0.3 * a[0] + 0.59 * a[1] + 0.11 * a[2], g = l * 0.92 + 8; return [a[0] + (g - a[0]) * k, a[1] + (g - a[1]) * k, a[2] + (g - a[2]) * k]; };
   function paintSky(s) {
-    const g = sg.createLinearGradient(0, 0, 0, 128); const css = (a) => `rgb(${a[0] | 0},${a[1] | 0},${a[2] | 0})`;
-    g.addColorStop(0, css(s.top)); g.addColorStop(0.28, css(s.mid)); g.addColorStop(0.49, css(s.hor)); g.addColorStop(0.5, css(s.bld)); g.addColorStop(1, css(s.bld)); sg.fillStyle = g; sg.fillRect(0, 0, 4, 128); skyTex.needsUpdate = true;
+    const k = cloudK * 0.7, g = sg.createLinearGradient(0, 0, 0, 128); const css = (a) => { const c = grey(a, k); return `rgb(${c[0] | 0},${c[1] | 0},${c[2] | 0})`; };
+    g.addColorStop(0, css(s.top)); g.addColorStop(0.28, css(s.mid)); g.addColorStop(0.49, css(s.hor)); g.addColorStop(0.5, css(s.bld)); g.addColorStop(1, css(s.bld)); sg.fillStyle = g; sg.fillRect(0, 0, 4, 128); skyTex.needsUpdate = true; paintedCloud = cloudK;
+  }
+  /** 太陽の高さ(度)。6時に出て、19時に沈む(部屋の西向きの窓から見た、ふつうの、夕方の沈み方)。 */
+  const sunAlt = (h) => (h > 6 && h < 19 ? 70 * Math.sin((Math.PI * (h - 6)) / 13) : 0);
+  function placeSun() {
+    const alt = sunAlt(hourNow), vis = alt * 0.3, low = clampN((14 - alt) / 14); // 見かけの高さは低めにして、夕方だけ、窓から見える
+    sun.position.set(-6 + (hourNow - 18) * 4, 1.8 + 80 * Math.tan((vis * Math.PI) / 180), -80); sun.material.color.setRGB(1, 1 - 0.38 * low, 1 - 0.7 * low); sun.scale.setScalar(1 + 0.7 * low);
   }
   function applyState(s) {
-    state = s; paintSky(s);
+    state = s; paintSky(s); placeSun();
     for (const b of buildings) { const k = b.sh; b.bodyMat.color.setRGB(Math.min(1, s.bld[0] / 255 * k), Math.min(1, s.bld[1] / 255 * k), Math.min(1, s.bld[2] / 255 * k)); b.glassMat.color.copy(c3(s.glass)); b.litMat.opacity = Math.pow(s.night, 0.8); }
-    starMat.opacity = Math.max(0, (s.night - 0.55) / 0.45); moon.visible = s.night > 0.5; moon.material.opacity = clampN((s.night - 0.5) / 0.4); sun.visible = s.night < 0.45; sun.material.opacity = clampN((0.45 - s.night) / 0.35);
+    groundMat.color.setRGB(Math.min(1, s.bld[0] / 255 * 0.55), Math.min(1, s.bld[1] / 255 * 0.55), Math.min(1, s.bld[2] / 255 * 0.6));
+    farMat.color.setRGB(Math.min(1, s.bld[0] / 255 * 0.7), Math.min(1, s.bld[1] / 255 * 0.7), Math.min(1, s.bld[2] / 255 * 0.78));
+    snowMat.color.setRGB(0.95 - 0.7 * s.night, 0.97 - 0.68 * s.night, 1 - 0.55 * s.night);
+    starBase = Math.max(0, (s.night - 0.55) / 0.45); moonBase = s.night > 0.5 ? clampN((s.night - 0.5) / 0.4) : 0; sunBase = sunAlt(hourNow) > 0 ? clampN((0.8 - s.night) / 0.3) : 0;
     stripMat.color.setHex(s.night > 0.4 ? 0xffe3a0 : 0xb8c4d8);
   }
-  const clampN = (v) => Math.max(0, Math.min(1, v));
+  function applyCloud() { starMat.opacity = starBase * (1 - cloudK * 0.9); moon.visible = moonBase > 0.01; moon.material.opacity = moonBase * (1 - cloudK * 0.85); sun.visible = sunBase > 0.01; sun.material.opacity = sunBase * (1 - cloudK * 0.95); }
+  // ---- 3Dカリング: 窓の穴から見えるビルだけを、描く ----
+  const WIN = { x0: -1.7, x1: -0.2, y0: 0.8, y1: 2.7, z: -2.3 }, WM = 0.5;
+  function cull(cp) {
+    if (!cp || cp.z <= WIN.z + 0.05) { for (const b of buildings) b.g.visible = true; return; }
+    for (const b of buildings) {
+      let vis = false;
+      for (const zz of [b.cz + b.hd, b.cz - b.hd]) {
+        const t = (WIN.z - cp.z) / (zz - cp.z); if (!(t > 0 && t <= 1)) { vis = true; break; }
+        const xa = cp.x + (b.cx - b.hw - cp.x) * t, xb = cp.x + (b.cx + b.hw - cp.x) * t, ya = cp.y + (b.bot - cp.y) * t, yb = cp.y + (b.topY + 6 - cp.y) * t; // +6: 屋上の飾り・看板
+        if (Math.max(xa, xb) >= WIN.x0 - WM && Math.min(xa, xb) <= WIN.x1 + WM && yb >= WIN.y0 - WM && ya <= WIN.y1 + WM) { vis = true; break; }
+      }
+      b.g.visible = vis;
+    }
+  }
+  let culled = 0;
   return {
-    root, buildings, train, get state() { return state; },
-    /** 実時間 date から、空と明かりを更新(15秒に1回ほど)。電車は、毎コマ。 */
-    update(t, dt, date) {
+    root, buildings, signs, train, get state() { return state; },
+    /** ゲーム本編の天気・季節(weather: clear/drizzle/rain/storm/snow, season: spring/tsuyu/summer/typhoon/autumn/winter)。 */
+    setOutside(o) { if (!o) return; if (typeof o.weather === 'string') outside.weather = o.weather; if (typeof o.season === 'string') outside.season = o.season; },
+    weatherState() { return { cloud: cloudK, rain: rainK, snow: snowK, cover: snowCover, flash }; },
+    /** 西陽: power(0〜1。夕方の数時間に、山なり。曇りで弱まる)・alt(度)・flash(稲光 0〜1)。 */
+    sunInfo() { return { power: smooth(15, 17.2, hourNow) * (1 - smooth(18.5, 19.3, hourNow)) * (1 - cloudK * 0.92), alt: sunAlt(hourNow), flash, cloud: cloudK, hour: hourNow }; },
+    visibleCount() { let n = 0; for (const b of buildings) if (b.g.visible) n++; return n; },
+    /** 実時間 date から、空と明かりを更新(15秒に1回ほど)。電車・天気・看板は、毎コマ。camera があれば、窓から見えないビルを隠す。 */
+    update(t, dt, date, camera) {
       const hour = date.getHours() + date.getMinutes() / 60 + date.getSeconds() / 3600, key = Math.floor(hour * 240); // 15秒ごと
-      if (key !== lastHourKey) { lastHourKey = key; applyState(skyState(hour)); }
+      hourNow = hour; if (key !== lastHourKey) { lastHourKey = key; applyState(skyState(hour)); }
+      let lookingOut = true;
+      if (camera) { camera.getWorldDirection(_dir); lookingOut = _dir.z < 0.25; cull(lookingOut ? camera.position : null); if (!lookingOut) { for (const b of buildings) b.g.visible = false; } }
+      // 天気を、ゆっくり近づける
+      const tg = weatherTargets(), kk = Math.min(1, dt * 0.35);
+      cloudK += (tg.cloud - cloudK) * kk; rainK += (tg.rain - rainK) * Math.min(1, dt * 0.5); snowK += (tg.snow - snowK) * Math.min(1, dt * 0.5); snowCover += Math.sign(tg.cover - snowCover) * Math.min(Math.abs(tg.cover - snowCover), dt * 0.08);
+      if (Math.abs(cloudK - paintedCloud) > 0.02) paintSky(state); applyCloud();
+      // 雷(雷雨の間だけ。稲光は、空を一瞬、明るくする)
+      if (outside.weather === 'storm') { nextFlash -= dt; if (nextFlash <= 0 && flashT < 0) { flashT = 0; nextFlash = 3 + rand() * 9; } } else if (flashT < 0) nextFlash = 2 + rand() * 4;
+      if (flashT >= 0) { flashT += dt; const e = flashT; flash = e < 0.08 ? 1 : e < 0.14 ? 0.15 : e < 0.24 ? 0.9 : e < 0.5 ? 0.9 * (1 - (e - 0.24) / 0.26) : 0; if (e > 0.5) { flashT = -1; flash = 0; } } else flash = 0;
+      dome.material.color.setScalar(1 + 0.8 * flash);
+      if (lookingOut) {
+        // 雨・雪
+        const wind = outside.weather === 'storm' ? 0.35 : 0.12;
+        rainLines.visible = rainK > 0.01; if (rainLines.visible) { const n = Math.min(NR, Math.floor(NR * rainK)), v = 16 + 6 * rainK, len = 0.9; for (let i = 0; i < n; i++) { let x = rainP[i * 3], y = rainP[i * 3 + 1] - v * dt, z = rainP[i * 3 + 2]; x += wind * v * dt; if (y < BOX.y0 || x > BOX.x1) { y = BOX.y1 + rand() * 2; x = BOX.x0 + rand() * (BOX.x1 - BOX.x0); z = BOX.z0 + rand() * (BOX.z1 - BOX.z0); } rainP[i * 3] = x; rainP[i * 3 + 1] = y; rainP[i * 3 + 2] = z; rainSeg[i * 6] = x; rainSeg[i * 6 + 1] = y; rainSeg[i * 6 + 2] = z; rainSeg[i * 6 + 3] = x - wind * len; rainSeg[i * 6 + 4] = y + len; rainSeg[i * 6 + 5] = z; } rainGeo.setDrawRange(0, n * 2); rainGeo.attributes.position.needsUpdate = true; }
+        snowPts.visible = snowK > 0.01; if (snowPts.visible) { const n = Math.min(NS, Math.floor((NS * snowK) / 0.85)); for (let i = 0; i < n; i++) { let x = snowP[i * 3] + (Math.sin(t * 0.7 + i) * 0.5 + wind) * dt, y = snowP[i * 3 + 1] - 1.3 * dt, z = snowP[i * 3 + 2]; if (y < BOX.y0 || x > BOX.x1 || x < BOX.x0) { y = BOX.y1 + rand() * 2; x = BOX.x0 + rand() * (BOX.x1 - BOX.x0); z = BOX.z0 + rand() * (BOX.z1 - BOX.z0); } snowP[i * 3] = x; snowP[i * 3 + 1] = y; snowP[i * 3 + 2] = z; snowPos[i * 3] = x; snowPos[i * 3 + 1] = y; snowPos[i * 3 + 2] = z; } snowGeo.setDrawRange(0, n); snowGeo.attributes.position.needsUpdate = true; }
+        // 屋上の雪(積もり具合)
+        if (Math.abs(snowCover - lastCover) > 0.004) { lastCover = snowCover; const on = snowCover > 0.03; for (const b of buildings) if (b.cap) { b.cap.visible = on; if (on) { b.cap.scale.y = 0.15 + 0.7 * snowCover; b.cap.position.y = b.h / 2 + b.cap.scale.y / 2; } } }
+        // ネオン看板
+        const nk = clampN((state.night - 0.2) / 0.6);
+        for (const s of signs) { if (!s.b.g.visible) continue; const fl = s.flick ? (Math.sin(t * 17 + s.phase * 10) * Math.sin(t * 3.7 + s.phase) > -0.8 ? 1 : 0.25) : 1; s.mat.opacity = 0.14 + 0.86 * nk * fl; s.hmat.opacity = 0.6 * nk * fl * (1 - cloudK * 0.3); }
+      }
       beacon.material.color.setHex(Math.sin(t * 3.1) > 0.2 ? 0xff3030 : 0x401010);
       nextTrain -= dt; if (!trainOn && nextTrain <= 0) { trainOn = true; trainDir = rand() < 0.5 ? 1 : -1; trainX = trainDir > 0 ? -60 : 60; train.visible = true; }
       if (trainOn) { trainX += trainDir * 9.5 * dt; train.position.x = trainX - (trainDir > 0 ? 0 : 0); train.scale.x = trainDir; if (Math.abs(trainX) > 64) { trainOn = false; train.visible = false; nextTrain = 40 + rand() * 70; } }
     },
-    forceHour(h) { lastHourKey = -1; applyState(skyState(h)); },
+    forceHour(h) { hourNow = h; lastHourKey = -1; applyState(skyState(h)); applyCloud(); },
     /** 電車の様子(音と合わせる): on=走っているか / x=電車の真ん中あたりの、世界のx */
     trainState() { return { on: trainOn, x: trainX + trainDir * 9 }; },
   };

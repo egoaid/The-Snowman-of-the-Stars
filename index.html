@@ -663,8 +663,9 @@ import { createMidiInput } from './js/music/midi-input.js'; // v1.104: 外部MID
     // v1.113: 起動の「部屋の演出」。ほかの入力の受け口より先に作る(部屋が全画面の間、ゲームへキーを渡さないため)。作れなくても、ゲームには影響しない
     const roomAudio = createRoomAudio(); // ゲーム本編と同じ AudioContext・バスにつなぐ(録画にも入る)。最初の操作まで、音は出さない
     { const unlock = () => roomAudio.unlock(); window.addEventListener('pointerdown', unlock, { capture: true, once: true }); window.addEventListener('keydown', unlock, { capture: true, once: true }); }
+    const outsideRef = { get: null }; // v1.119: 窓の外の天気・季節(シーンができたら、ここへ、つなぐ)
     const introLayer = createIntroLayer({
-      createRoom: (o) => createIntroRoom({ ...o, audio: roomAudio }), title: APP.titleJa, titleEn: APP.titleEn,
+      createRoom: (o) => createIntroRoom({ ...o, audio: roomAudio, getOutside: () => (outsideRef.get ? outsideRef.get() : null) }), title: APP.titleJa, titleEn: APP.titleEn,
       labels: () => ({ book: tr('intro.book'), keyboard: tr('intro.keyboard'), monitor: tr('intro.monitor'), cup: tr('intro.cup'), lamp: tr('intro.lamp'), lampOff: tr('intro.lampOff'), synth: tr('intro.synth'), sofa: tr('intro.sofa'), snowman: tr('intro.snowman'), wipe: tr('intro.wipe'), skip: tr('intro.skip'), guide: tr('intro.guide') }),
     });
     live.push(() => { if (introLayer.refreshTexts) introLayer.refreshTexts(); });
@@ -1973,6 +1974,7 @@ import { createMidiInput } from './js/music/midi-input.js'; // v1.104: 外部MID
         });
         setSceneForTouchControls(scene); // v1.37: スマホの画面上コントローラから操作できるようにする
         if (ADMIN) window.__snowmanScene = scene; // 開発・検証用。管理者だけ(公開版の訪問者には出さない)
+        outsideRef.get = () => ({ weather: scene.getWeather(), season: scene.getSeason() }); // v1.119: 部屋の窓の外の天気・季節を、ゲーム本編と同じにする
         // v1.50: 設定パネルの「歩行/見守り/編集」ボタン。起動画面で選んだモードがシーン準備前だった場合はここで適用する。
         document.querySelectorAll('#sessionModeRow [data-session-mode]').forEach((b) => {
           b.addEventListener('click', () => startSessionMode(b.dataset.sessionMode));
