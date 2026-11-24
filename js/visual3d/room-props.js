@@ -106,28 +106,54 @@ export function buildCity({ scene, keep, seed = 11 }) {
 }
 
 // ================================================================ 振り子時計(実時間。音は鳴らさない)
-/** 壁掛けの振り子時計。原点=壁にふれる背面の中心の高さ0(下端)。+z=正面。高さ約1.25m。 */
+/**
+ * 壁掛けの振り子時計(vintage の、ウィーン・レギュレーター風)。原点=壁にふれる背面の中心の高さ0(下端)。+z=正面。高さ約1.3m。
+ * v1.118: 作り直し。以前は、振り子が胴の箱の中に埋まって見えず、頭と胴が別々の箱で、屋根の三角もずれていた。
+ *   いまは、胴の窓の「手前」に振り子をつるし(ガラスは、その、さらに手前)、頭と胴は、つなぎ目を、飾り縁(モールディング)でつなぐ。
+ *   頭の上は、三角の破風(はふ)と、旋盤で挽いたような飾り(フィニアル)。
+ */
 export function createPendulumClock({ toon, keep }) {
-  const g = new THREE.Group(); const wood = keep(toon(0x6b4630)), wood2 = keep(toon(0x7a5238)), brass = keep(new THREE.MeshBasicMaterial({ color: 0xd9b45a })), dark = keep(toon(0x15171c));
+  const g = new THREE.Group();
+  const wood = keep(toon(0x6b4630)), wood2 = keep(toon(0x7a5238)), woodDark = keep(toon(0x4a2f1e)), brass = keep(new THREE.MeshBasicMaterial({ color: 0xd9b45a })), dark = keep(toon(0x15171c)), navy = keep(new THREE.MeshBasicMaterial({ color: 0x1b2230 }));
   const box = (w, h, d, m, x, y, z, p = g) => { const o = new THREE.Mesh(keep(new THREE.BoxGeometry(w, h, d)), m); o.position.set(x, y, z); p.add(o); return o; };
-  box(0.3, 0.78, 0.13, wood, 0, 0.39 + 0.0, 0.07); // 胴(下の長い箱)
-  box(0.36, 0.06, 0.15, wood2, 0, 0.03, 0.075); // 台
-  box(0.4, 0.42, 0.15, wood2, 0, 1.0, 0.075); // 頭(文字盤の箱)
-  { const roof = new THREE.Mesh(keep(new THREE.ConeGeometry(0.3, 0.14, 4)), wood); roof.rotation.y = Math.PI / 4; roof.scale.set(1, 1, 0.38); roof.position.set(0, 1.28, 0.075); g.add(roof); }
-  // 文字盤(数字ではなく、目盛りの点だけ。文字は出さない)
+  // ---- 本体: 台 → 胴 → 頭(すき間なし。上下に少し重ねる) ----
+  box(0.38, 0.05, 0.15, woodDark, 0, 0.025, 0.075); // 台(いちばん下)
+  box(0.34, 0.03, 0.14, wood2, 0, 0.065, 0.07); // 台の上の縁
+  box(0.32, 0.66, 0.13, wood, 0, 0.38, 0.065); // 胴(y 0.05〜0.71)
+  box(0.37, 0.025, 0.145, wood2, 0, 0.7, 0.0725); // 胴と頭のつなぎ目の飾り縁
+  box(0.4, 0.4, 0.15, wood2, 0, 0.9, 0.075); // 頭(文字盤の箱。y 0.70〜1.10)
+  box(0.44, 0.03, 0.17, woodDark, 0, 1.105, 0.085); // 頭の上の飾り縁(コーニス)
+  // ---- 頭の上: 三角の破風(はふ)・円盤の飾り・フィニアル ----
+  { const sh = new THREE.Shape(); sh.moveTo(-0.215, 0); sh.lineTo(0.215, 0); sh.lineTo(0, 0.095); sh.closePath();
+    const ped = new THREE.Mesh(keep(new THREE.ExtrudeGeometry(sh, { depth: 0.14, bevelEnabled: false })), wood); ped.position.set(0, 1.12, 0.015); g.add(ped); }
+  { const med = new THREE.Mesh(keep(new THREE.CircleGeometry(0.02, 14)), brass); med.position.set(0, 1.147, 0.157); g.add(med); }
+  { const prof = [[0.001, 0], [0.014, 0], [0.009, 0.018], [0.021, 0.036], [0.023, 0.056], [0.012, 0.078], [0.001, 0.09]].map(([x, y]) => new THREE.Vector2(x, y));
+    const fin = new THREE.Mesh(keep(new THREE.LatheGeometry(prof, 8)), brass); fin.position.set(0, 1.208, 0.085); g.add(fin);
+    for (const sx of [-1, 1]) { const ball = new THREE.Mesh(keep(new THREE.SphereGeometry(0.017, 8, 6)), brass); ball.position.set(sx * 0.2, 1.135, 0.085); g.add(ball); } }
+  { const drop = new THREE.Mesh(keep(new THREE.ConeGeometry(0.02, 0.05, 8)), brass); drop.rotation.x = Math.PI; drop.position.set(0, -0.025, 0.075); g.add(drop); } // 下の飾り
+  // ---- 文字盤(数字ではなく、目盛りの点だけ。文字は出さない)。真鍮の縁つき ----
   const faceTex = keep(canvasTex(128, 128, (c) => { c.fillStyle = '#f3ecd8'; c.beginPath(); c.arc(64, 64, 62, 0, Math.PI * 2); c.fill(); c.strokeStyle = '#3b2c20'; c.lineWidth = 3; c.stroke(); c.fillStyle = '#2c2218'; for (let i = 0; i < 12; i++) { const a = (i / 12) * Math.PI * 2, r = 52; c.beginPath(); c.arc(64 + Math.sin(a) * r, 64 - Math.cos(a) * r, i % 3 === 0 ? 4.2 : 2.4, 0, Math.PI * 2); c.fill(); } }, { nearest: false }));
-  const face = new THREE.Mesh(keep(new THREE.CircleGeometry(0.17, 28)), keep(new THREE.MeshBasicMaterial({ map: faceTex }))); face.position.set(0, 1.0, 0.152); g.add(face);
-  const hands = new THREE.Group(); hands.position.set(0, 1.0, 0.158); g.add(hands);
+  const FY = 0.9, FZ = 0.152;
+  const face = new THREE.Mesh(keep(new THREE.CircleGeometry(0.15, 30)), keep(new THREE.MeshBasicMaterial({ map: faceTex }))); face.position.set(0, FY, FZ); g.add(face);
+  { const bez = new THREE.Mesh(keep(new THREE.TorusGeometry(0.157, 0.011, 6, 30)), brass); bez.position.set(0, FY, FZ); g.add(bez); }
+  const hands = new THREE.Group(); hands.position.set(0, FY, FZ + 0.006); g.add(hands);
   const mkHand = (len, wd, mat, z) => { const piv = new THREE.Group(); const m = new THREE.Mesh(keep(new THREE.BoxGeometry(wd, len, 0.004)), mat); m.position.y = len / 2 - 0.012; piv.add(m); piv.position.z = z; hands.add(piv); return piv; };
-  const hHour = mkHand(0.095, 0.014, dark, 0), hMin = mkHand(0.14, 0.01, dark, 0.003), hSec = mkHand(0.15, 0.004, keep(new THREE.MeshBasicMaterial({ color: 0xb03030 })), 0.006);
-  // 胴の窓(中に、振り子が見える)
-  box(0.2, 0.56, 0.01, dark, 0, 0.42, 0.139); const glass = box(0.2, 0.56, 0.004, keep(new THREE.MeshBasicMaterial({ color: 0x8fb4d8, transparent: true, opacity: 0.12, depthWrite: false })), 0, 0.42, 0.146);
-  glass.raycast = () => {};
-  const pend = new THREE.Group(); pend.position.set(0, 0.68, 0.132); g.add(pend);
+  const hHour = mkHand(0.085, 0.014, dark, 0), hMin = mkHand(0.125, 0.01, dark, 0.003), hSec = mkHand(0.13, 0.004, keep(new THREE.MeshBasicMaterial({ color: 0xb03030 })), 0.006);
+  { const cap = new THREE.Mesh(keep(new THREE.CircleGeometry(0.01, 10)), brass); cap.position.set(0, 0, 0.011); hands.add(cap); }
+  // ---- 胴の窓: 暗い背板(胴の前面より少し手前) → 振り子(その手前) → 枠 → ガラス(いちばん手前) ----
+  const WY = 0.38, WW = 0.24, WH = 0.56, PZ = 0.14;
+  box(WW, WH, 0.004, navy, 0, WY, 0.132); // 背板
+  const pend = new THREE.Group(); pend.position.set(0, WY + WH / 2 - 0.03, PZ); g.add(pend); // 吊り点は、窓の上の近く
   const rod = new THREE.Mesh(keep(new THREE.CylinderGeometry(0.004, 0.004, 0.4, 5)), brass); rod.position.y = -0.2; pend.add(rod);
-  const bob = new THREE.Mesh(keep(new THREE.CylinderGeometry(0.058, 0.058, 0.012, 18)), brass); bob.rotation.x = Math.PI / 2; bob.position.y = -0.43; pend.add(bob);
+  const bob = new THREE.Mesh(keep(new THREE.CylinderGeometry(0.046, 0.046, 0.012, 18)), brass); bob.rotation.x = Math.PI / 2; bob.position.y = -0.43; pend.add(bob);
+  { const hub = new THREE.Mesh(keep(new THREE.CircleGeometry(0.014, 10)), brass); hub.position.set(0, 0, 0.002); pend.add(hub); }
+  { const fz = 0.152, ft = 0.02; // 窓の枠(4本)
+    box(WW + 2 * ft, ft, 0.022, woodDark, 0, WY + WH / 2 + ft / 2, fz); box(WW + 2 * ft, ft, 0.022, woodDark, 0, WY - WH / 2 - ft / 2, fz);
+    box(ft, WH, 0.022, woodDark, -(WW / 2 + ft / 2), WY, fz); box(ft, WH, 0.022, woodDark, WW / 2 + ft / 2, WY, fz); }
+  const glass = box(WW, WH, 0.003, keep(new THREE.MeshBasicMaterial({ color: 0x8fb4d8, transparent: true, opacity: 0.1, depthWrite: false })), 0, WY, 0.155);
+  glass.raycast = () => {};
   return { group: g, pend, hands: { hour: hHour, minute: hMin, second: hSec },
-    update(t, date) { const a = clockAngles(date); hHour.rotation.z = -a.hour; hMin.rotation.z = -a.minute; hSec.rotation.z = -a.second; pend.rotation.z = pendulumAngle(t, 0.2); } };
+    update(t, date) { const a = clockAngles(date); hHour.rotation.z = -a.hour; hMin.rotation.z = -a.minute; hSec.rotation.z = -a.second; pend.rotation.z = pendulumAngle(t, 0.15); } };
 }
 
 // ================================================================ 大きなシンセ(61鍵。実寸 W1.018 × D0.329 × H0.102 m、14.2kg)

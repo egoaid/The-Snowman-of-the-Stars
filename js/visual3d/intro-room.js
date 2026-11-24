@@ -28,7 +28,7 @@ export function createIntroRoom(opts = {}) {
   const nowFn = opts.nowFn || (() => new Date()); // 実時間(窓の外の空・時計)。試験では、差し替える
   const labels = opts.labels || (() => ({}));
   const canvas = document.createElement('canvas');
-  const renderer = opts.renderer || new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'low-power' }); // opts.renderer: 試験用(WebGLの無いNodeで、動きだけ確かめる)
+  const renderer = opts.renderer || new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'low-power', preserveDrawingBuffer: true }); // v1.118: preserveDrawingBuffer=true(部屋は15〜30fpsでしか描かないため、描いていないフレームに drawImage で読むと、空の絵になる。これが、プレビューの空白と、録画の点滅の原因だった)。 opts.renderer: 試験用(WebGLの無いNodeで、動きだけ確かめる)
   renderer.setPixelRatio(1);
   renderer.setClearColor(0x1c1a24, 1);
   const scene = new THREE.Scene();
@@ -81,7 +81,7 @@ export function createIntroRoom(opts = {}) {
     const sh = new THREE.Mesh(keep(new THREE.CylinderGeometry(0.13, 0.19, 0.24, 12, 1, true)), keep(new THREE.MeshBasicMaterial({ color: 0xffdca0, side: THREE.DoubleSide, toneMapped: false }))); sh.position.y = 1.32; g.add(sh); }
   const sofaLight = new THREE.PointLight(0xffc88a, 2.6, 5, 1.5); sofaLight.position.set(-3.0, 1.5, 1.2); scene.add(sofaLight);
   // サイドテーブル(ソファの、机がわの横)
-  const sideTable = createSideTable({ toon, keep }); sideTable.group.position.set(-2.95, 0, 3.95); // 低い本棚の前・ソファの端のとなり scene.add(sideTable.group);
+  const sideTable = createSideTable({ toon, keep }); sideTable.group.position.set(-2.95, 0, 3.95); scene.add(sideTable.group); // 低い本棚の前・ソファの端のとなり(v1.118: scene.add が、コメントの中に入っていて、テーブルが、シーンに入っていなかった)
 
   // ---- 机・モニター・椅子・キーボード・マウス(録画のワイプの部屋と、同じ置き方。画角が、そのまま使える) ----
   const deskTopY = 0.78;
@@ -142,7 +142,7 @@ export function createIntroRoom(opts = {}) {
   scene.updateMatrixWorld(true);
   const kbHomeWorld = kbObj.getWorldPosition(new THREE.Vector3());
   // ---- 低い本棚(ソファのとなり)の上の、ジャックオーランタンの小型ランプ(ゲームの中と同じ顔。はじめは、電源オフ) ----
-  const lamp = createLampPumpkin({ keep, radius: 0.11 }); lamp.group.position.set(-3.4, 1.51, 5.35); scene.add(lamp.group);
+  const lamp = createLampPumpkin({ keep, radius: 0.11 }); lamp.group.position.set(-3.4, 1.51, 5.35); lamp.group.rotation.y = Math.PI / 2; scene.add(lamp.group); // v1.118: 顔は、部屋の中(+x。本棚の正面)を向く(以前は、+zの壁を向いて、横顔に見えていた)
   { const m = new THREE.Mesh(keep(new THREE.SphereGeometry(0.2, 8, 6)), keep(new THREE.MeshBasicMaterial({ visible: false }))); m.visible = false; m.position.y = 0.12; lamp.group.add(m); tag(lamp.group, { type: 'lamp' }); pickRoots.push(lamp.group); }
   const lampLightPt = new THREE.PointLight(0xffa640, 0, 7, 1.8); lampLightPt.position.set(-3.3, 1.7, 5.35); scene.add(lampLightPt);
   // ---- 壁の振り子時計(実時間。音は鳴らさない) ----
