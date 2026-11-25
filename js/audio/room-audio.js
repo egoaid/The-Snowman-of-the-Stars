@@ -81,6 +81,9 @@ export function createRoomAudio({ SE, rand = Math.random } = {}) {
     headset: (p) => { burst({ pos: p, f: 2500, dur: 0.05, gain: 0.1 }); tone({ pos: p, f: 820, f2: 600, dur: 0.07, gain: 0.04 }); },
     thud: (p, d) => { const h = !d || d.heavy !== false; tone({ pos: p, f: h ? 58 : 110, f2: h ? 36 : 70, dur: h ? 0.38 : 0.16, gain: h ? 0.5 : 0.2 }); burst({ pos: p, type: 'lowpass', f: h ? 220 : 400, dur: h ? 0.22 : 0.1, gain: h ? 0.25 : 0.1 }); },
     key: (p) => burst({ pos: p, f: 2600 + rand() * 900, q: 1.2, dur: 0.02, gain: 0.05 }),
+    // v1.121: ビデオテープを入れる音(プラスチックの、カチャ → モーターの、ウィーン → 奥で、コトン)。コントローラのボタン。
+    vhs: (p) => { burst({ pos: p, f: 1800, q: 1, dur: 0.045, gain: 0.2, hp: 600 }); tone({ pos: p, f: 150, f2: 95, dur: 0.12, gain: 0.12 }); setTimeout(() => { try { tone({ pos: p, f: 260, f2: 640, dur: 0.6, gain: 0.05, attack: 0.12 }); burst({ pos: p, f: 2400, q: 0.8, dur: 0.5, gain: 0.025, hp: 1200, attack: 0.2 }); } catch (e) { /* もう、止まっている */ } }, 220); setTimeout(() => { try { tone({ pos: p, f: 110, f2: 70, dur: 0.14, gain: 0.16 }); burst({ pos: p, f: 1500, q: 1, dur: 0.03, gain: 0.14, hp: 500 }); } catch (e) { /* 済 */ } }, 900); },
+    pad: (p) => burst({ pos: p, f: 1500 + rand() * 500, q: 1.4, dur: 0.016, gain: 0.04 }),
     mouse: (p) => { burst({ pos: p, f: 2200, q: 1.5, dur: 0.018, gain: 0.07 }); setTimeout(() => { try { burst({ pos: p, f: 1700, q: 1.5, dur: 0.014, gain: 0.04 }); } catch (e) { /* もう、止まっている */ } }, 70); },
   };
   function syncVolumes() { if (ambVol && SE.getAmbientVolume) ambVol.gain.value = SE.getAmbientVolume(); if (sfxVol && SE.getSfxVolume) sfxVol.gain.value = SE.getSfxVolume(); }
@@ -108,13 +111,16 @@ export function createRoomAudio({ SE, rand = Math.random } = {}) {
     evT.siren -= dt; if (evT.siren <= 0) { evT.siren = 150 + rand() * 200; for (let i = 0; i < 6; i++) setTimeout(() => { try { tone({ pos: { x: -8, y: 1, z: -30 }, f: i % 2 ? 870 : 650, dur: 0.62, gain: 0.008, attack: 0.08, out: ambOut }); } catch (e) { /* 止まっている */ } }, i * 640); }
   }
   /** 電車(目に見えるものと同じ。v1.120: 5種類で、音が違う)。ゴーッという走行音(電車の位置に追従)と、継ぎ目のガタンゴトン(車両の間隔÷速さの間隔)。どれも、かすかに。 */
+  // 音量の決め方(v1.121): 電車は、窓の外 約20m。距離で 1/7ほどに減り、低い音だけを通すフィルターで、ノイズの大半も削られるので、
+  //   以前の値(0.09)では、−58dBFS(ほぼ無音。街の音と同じ)だった。連続音は、かすかに聞こえる −40dBFS前後、継ぎ目は、ピーク −31dBFS前後になるよう、数値で決めた。
   const TRAIN_SND = {
-    commuter: { type: 'lowpass', f: 240, q: 0.7, gain: 0.09, tau: 0.8, clack: { f: 900, gain: 0.05, dur: 0.07, hp: 400 } }, // ふつうの、ゴーッ+ガタンゴトン
-    express: { type: 'lowpass', f: 320, q: 0.7, gain: 0.09, tau: 0.7, clack: { f: 1150, gain: 0.05, dur: 0.06, hp: 500 } }, // 少し高く、速い継ぎ目
-    freight: { type: 'lowpass', f: 150, q: 0.9, gain: 0.12, tau: 1.0, clack: { f: 620, gain: 0.07, dur: 0.11, hp: 250 } }, // 低い重低音と、ゆっくり重い継ぎ目
-    bullet: { type: 'bandpass', f: 800, q: 0.5, gain: 0.08, tau: 0.25, clack: null }, // シュッと一瞬で抜ける風切り音(継ぎ目は、目立たない)
-    maglev: { type: 'bandpass', f: 1500, q: 2.4, gain: 0.035, tau: 0.5, clack: null }, // かすかな、高い唸り(継ぎ目なし)
+    commuter: { type: 'lowpass', f: 240, q: 0.7, gain: 0.7, tau: 0.8, clack: { f: 900, gain: 0.5, dur: 0.08, hp: 400 } }, // ふつうの、ゴーッ+ガタンゴトン
+    express: { type: 'lowpass', f: 320, q: 0.7, gain: 0.6, tau: 0.7, clack: { f: 1150, gain: 0.5, dur: 0.07, hp: 500 } }, // 少し高く、速い継ぎ目
+    freight: { type: 'lowpass', f: 150, q: 0.9, gain: 1.1, tau: 1.0, clack: { f: 620, gain: 0.7, dur: 0.12, hp: 250 } }, // 低い重低音と、ゆっくり重い継ぎ目
+    bullet: { type: 'bandpass', f: 800, q: 0.5, gain: 0.28, tau: 0.25, clack: null }, // シュッと一瞬で抜ける風切り音(継ぎ目は、目立たない)
+    maglev: { type: 'bandpass', f: 1500, q: 2.4, gain: 0.33, tau: 0.5, clack: null }, // かすかな、高い唸り(継ぎ目なし)
   };
+
   function trainUpdate(on, x, dt, info) {
     if (!beds) return;
     const kind = (info && TRAIN_SND[info.kind]) ? info.kind : 'commuter', snd = TRAIN_SND[kind], pitch = (info && info.pitch) || 3.6, speed = (info && info.speed) || 9.5, dir = (info && info.dir) || 1;

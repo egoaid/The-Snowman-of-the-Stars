@@ -667,7 +667,7 @@ import { createMidiInput } from './js/music/midi-input.js'; // v1.104: 外部MID
     const introLayer = createIntroLayer({
       setGameAudio: (on) => { const se = window.SoundEngine; if (se && se.setGameGate) se.setGameGate(on); }, // v1.120: 部屋が全画面の間は、ゲームの音を、完全に消す(ゲームの間は、部屋の音が消える)
       createRoom: (o) => createIntroRoom({ ...o, audio: roomAudio, getOutside: () => (outsideRef.get ? outsideRef.get() : null) }), title: APP.titleJa, titleEn: APP.titleEn,
-      labels: () => ({ book: tr('intro.book'), keyboard: tr('intro.keyboard'), monitor: tr('intro.monitor'), cup: tr('intro.cup'), lamp: tr('intro.lamp'), lampOff: tr('intro.lampOff'), synth: tr('intro.synth'), sofa: tr('intro.sofa'), snowman: tr('intro.snowman'), wipe: tr('intro.wipe'), skip: tr('intro.skip'), guide: tr('intro.guide') }),
+      labels: () => ({ book: tr('intro.book'), keyboard: tr('intro.keyboard'), monitor: tr('intro.monitor'), cup: tr('intro.cup'), lamp: tr('intro.lamp'), lampOff: tr('intro.lampOff'), synth: tr('intro.synth'), sofa: tr('intro.sofa'), sofa2: tr('intro.sofa2'), tv: tr('intro.tv'), vhs: tr('intro.vhs'), console: tr('intro.console'), kettle: tr('intro.kettle'), snowman: tr('intro.snowman'), wipe: tr('intro.wipe'), skip: tr('intro.skip'), guide: tr('intro.guide') }),
     });
     live.push(() => { if (introLayer.refreshTexts) introLayer.refreshTexts(); });
     { const chk = document.getElementById('introRoomCheckbox'); if (chk) { chk.checked = introLayer.isEnabledSetting(); chk.addEventListener('change', () => introLayer.setEnabledSetting(chk.checked)); } }

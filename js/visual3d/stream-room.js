@@ -145,7 +145,7 @@ export function buildStreamRoom(ctx) {
     const shade = new THREE.Mesh(keep(new THREE.CylinderGeometry(0.15, 0.22, 0.28, 12, 1, true)), keep(new THREE.MeshBasicMaterial({ color: 0xffdca0, side: THREE.DoubleSide, toneMapped: false }))); shade.position.y = 1.72; fl.add(shade); }
   function plant(x, z, s) { const g = new THREE.Group(); g.position.set(x, 0, z); g.scale.setScalar(s); add(g); const pot = new THREE.Mesh(keep(new THREE.CylinderGeometry(0.2, 0.15, 0.3, 10)), potMat); pot.position.y = 0.15; g.add(pot);
     for (let i = 0; i < 9; i++) { const a = (i / 9) * Math.PI * 2, leaf = new THREE.Mesh(keep(new THREE.ConeGeometry(0.1, 0.62 + (i % 3) * 0.12, 5)), i % 2 ? leafMat : leafMat2); leaf.position.set(Math.cos(a) * 0.1, 0.55 + (i % 3) * 0.06, Math.sin(a) * 0.1); leaf.rotation.set(Math.sin(a) * 0.5, 0, -Math.cos(a) * 0.5); g.add(leaf); } return g; }
-  plant(-3.2, 6.4, 1.15); plant(ROOM.x1 - 0.35, -1.7, 1.0); plant(-3.2, -1.7, 0.9);
+  plant(-3.2, 6.4, 1.15); if (!omit.cornerPlant) plant(ROOM.x1 - 0.35, -1.7, 1.0); // v1.121: 部屋の演出では、奥の右の角に、テレビデオを置くので、省く plant(-3.2, -1.7, 0.9);
   if (!omit.bean) { // ビーンバッグ(部屋の演出では、ソファを置くので、省く)
     const bean = new THREE.Mesh(keep(new THREE.SphereGeometry(0.5, 12, 9)), keep(toon(0x4a8c8c))); bean.scale.set(1, 0.62, 0.95); bean.position.set(-2.6, 0.31, 2.9); add(bean); // ビーンバッグ
     const bean2 = new THREE.Mesh(keep(new THREE.SphereGeometry(0.22, 8, 6)), keep(toon(0xf2d34f))); bean2.scale.set(1, 0.5, 0.9); bean2.position.set(-2.5, 0.64, 2.8); add(bean2);

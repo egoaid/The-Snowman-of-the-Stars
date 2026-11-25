@@ -476,3 +476,94 @@ export function createBook({ toon, keep, rand = Math.random }) {
   build();
   return { group, closed, open, flapPivot, get dims() { return dims; }, get color() { return coverMat.color.getHex(); }, randomize, setOpen(v) { open.visible = !!v; closed.visible = !v; if (!v) flapPivot.visible = false; }, isOpen: () => open.visible };
 }
+
+// ================================================================ テレビ台・テレビデオ・ゲーム機・コントローラ(v1.121)
+/**
+ * 部屋の奥の右の角に置く、低い台の上の、テレビデオ(ブラウン管+ビデオデッキ一体型)と、ゲーム機。
+ * 原点=台の床の真ん中。+z=正面(部屋のほう)。台は、幅1.3m(x)・高さ0.38m・奥行0.58m。
+ * 戻り値: group, screenMesh(画面の板。screenTex を貼る)、con(ゲーム機のグループ)、slot(ビデオの差し込み口 = 台のローカル座標)、portL/portR(ゲーム機の、コントローラの差し込み口 = con のローカル座標)、padHome/padHomeB(コントローラの、置き場所 = 台のローカル座標と向き)。
+ */
+export function createTvStand({ toon, keep, screenTex }) {
+  const g = new THREE.Group();
+  const wood = keep(toon(0x4d3827)), wood2 = keep(toon(0x6a4d36)), plastic = keep(toon(0x3a3c44)), plastic2 = keep(toon(0x2a2c33)), dark = keep(toon(0x15161a)), gray = keep(toon(0xb9bcc2)), gray2 = keep(toon(0x8f929a));
+  const bx = (w, h, d, m, x, y, z, p = g) => { const o = new THREE.Mesh(keep(new THREE.BoxGeometry(w, h, d)), m); o.position.set(x, y, z); p.add(o); return o; };
+  // 台(引き出しつき)
+  bx(1.3, 0.05, 0.58, wood2, 0, 0.355, 0); bx(1.3, 0.33, 0.54, wood, 0, 0.165, -0.01);
+  for (const sx of [-1, 1]) { bx(0.58, 0.22, 0.02, wood2, sx * 0.32, 0.17, 0.268); bx(0.14, 0.02, 0.02, dark, sx * 0.32, 0.2, 0.285); }
+  for (const [lx, lz] of [[-0.6, -0.22], [0.6, -0.22], [-0.6, 0.22], [0.6, 0.22]]) bx(0.05, 0.04, 0.05, dark, lx, 0.02, lz);
+  // テレビデオ(右寄り)
+  const TX = 0.2, TY = 0.38;
+  bx(0.74, 0.6, 0.62, plastic, TX, TY + 0.3, 0); bx(0.5, 0.44, 0.34, plastic2, TX, TY + 0.28, -0.45); // 本体と、背中のふくらみ(ブラウン管)
+  bx(0.7, 0.04, 0.58, plastic2, TX, TY + 0.62, 0); // 天板のへり
+  bx(0.5, 0.4, 0.02, dark, TX - 0.07, TY + 0.38, 0.311); // 画面の枠
+  const screenMesh = new THREE.Mesh(keep(new THREE.PlaneGeometry(0.44, 0.33)), keep(new THREE.MeshBasicMaterial({ map: screenTex, toneMapped: false }))); screenMesh.position.set(TX - 0.07, TY + 0.38, 0.323); g.add(screenMesh);
+  const glass = new THREE.Mesh(keep(new THREE.PlaneGeometry(0.44, 0.33)), keep(new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.07, depthWrite: false }))); glass.position.set(TX - 0.07, TY + 0.38, 0.326); glass.raycast = () => {}; g.add(glass); // 画面の、うすい反射
+  for (let i = 0; i < 2; i++) { const kn = new THREE.Mesh(keep(new THREE.CylinderGeometry(0.025, 0.025, 0.02, 10)), gray2); kn.rotation.x = Math.PI / 2; kn.position.set(TX + 0.27, TY + 0.5 - i * 0.07, 0.318); g.add(kn); }
+  for (let i = 0; i < 4; i++) bx(0.022, 0.012, 0.01, i === 0 ? keep(new THREE.MeshBasicMaterial({ color: 0xff3030 })) : gray2, TX + 0.2 + (i % 2) * 0.04, TY + 0.33 - Math.floor(i / 2) * 0.03, 0.317); // 小さなボタンとランプ
+  bx(0.46, 0.075, 0.012, gray2, TX, TY + 0.11, 0.312); bx(0.34, 0.025, 0.016, dark, TX - 0.04, TY + 0.11, 0.318); // ビデオデッキの、差し込み口
+  bx(0.03, 0.025, 0.014, gray, TX + 0.17, TY + 0.11, 0.318); bx(0.07, 0.012, 0.01, keep(new THREE.MeshBasicMaterial({ color: 0x40ff60 })), TX - 0.2, TY + 0.065, 0.32); // 取り出しボタンと、電源ランプ
+  for (const s of [-1, 1]) { const ant = new THREE.Mesh(keep(new THREE.CylinderGeometry(0.005, 0.005, 0.38, 4)), gray); ant.position.set(TX + s * 0.1, TY + 0.82, -0.05); ant.rotation.z = -s * 0.5; g.add(ant); } // うさぎの耳(アンテナ)
+  { const base = new THREE.Mesh(keep(new THREE.SphereGeometry(0.05, 8, 5, 0, Math.PI * 2, 0, Math.PI / 2)), dark); base.position.set(TX, TY + 0.64, -0.05); g.add(base); }
+  // ゲーム機(左寄り。灰色)
+  const con = new THREE.Group(); con.position.set(-0.45, TY, 0.02); g.add(con);
+  bx(0.3, 0.065, 0.24, gray, 0, 0.0325, 0, con); bx(0.3, 0.012, 0.24, gray2, 0, 0.071, 0, con);
+  { const dome = new THREE.Mesh(keep(new THREE.CylinderGeometry(0.075, 0.08, 0.022, 14)), gray2); dome.position.set(0, 0.088, -0.015); con.add(dome); }
+  bx(0.035, 0.012, 0.02, keep(new THREE.MeshBasicMaterial({ color: 0x40d860 })), -0.1, 0.082, 0.085, con); bx(0.035, 0.012, 0.02, gray, -0.055, 0.082, 0.085, con); bx(0.035, 0.012, 0.02, gray, 0.1, 0.082, 0.085, con);
+  for (const sx of [-1, 1]) bx(0.055, 0.03, 0.012, dark, sx * 0.07, 0.035, 0.122, con); // コントローラの差し込み口(2つ)
+  const portL = new THREE.Vector3(-0.07, 0.035, 0.13), portR = new THREE.Vector3(0.07, 0.035, 0.13);
+  return { group: g, screenMesh, con, slot: new THREE.Vector3(TX - 0.04, TY + 0.11, 0.33), portL, portR, padHome: { x: -0.4, y: TY + 0.016, z: 0.2, ry: 0.15 }, padHomeB: { x: -0.58, y: TY + 0.016, z: 0.15, ry: -0.35 } };
+}
+
+/** ゲーム機のコントローラ(灰色。十字ボタンと、4つのカラフルなボタン)。原点=真ん中、+z=手前(持つ人のほう)。 */
+export function createGamePad({ toon, keep }) {
+  const g = new THREE.Group(), body = keep(toon(0xb4b7be)), dk = keep(toon(0x4a4c55));
+  const bx = (w, h, d, m, x, y, z) => { const o = new THREE.Mesh(keep(new THREE.BoxGeometry(w, h, d)), m); o.position.set(x, y, z); g.add(o); return o; };
+  bx(0.16, 0.03, 0.075, body, 0, 0, 0); for (const s of [-1, 1]) { const gr = bx(0.04, 0.03, 0.08, body, s * 0.066, 0, 0.05); gr.rotation.y = s * 0.2; }
+  bx(0.034, 0.008, 0.01, dk, -0.048, 0.02, -0.006); bx(0.01, 0.008, 0.034, dk, -0.048, 0.02, -0.006); bx(0.02, 0.006, 0.01, dk, -0.014, 0.018, 0.012); bx(0.02, 0.006, 0.01, dk, 0.014, 0.018, 0.012);
+  [[0x3cb371, 0, -0.022], [0x4a7fe0, 0.022, 0], [0xe05c5c, 0, 0.022], [0xe07fb8, -0.022, 0]].forEach(([c, dx, dz]) => { const b = new THREE.Mesh(keep(new THREE.CylinderGeometry(0.009, 0.009, 0.008, 8)), keep(new THREE.MeshBasicMaterial({ color: c }))); b.position.set(0.05 + dx, 0.02, -0.006 + dz); g.add(b); });
+  return { group: g };
+}
+
+/** ビデオテープ(VHS。黒いケース+色のラベル)。実寸の約1.3倍(見えやすいように)。原点=真ん中。 */
+export function createVhsTape({ toon, keep, color = 0xd0d0c0 }) {
+  const g = new THREE.Group(), S = 1.3, bodyM = keep(toon(0x1c1c21));
+  const bx = (w, h, d, m, x, y, z) => { const o = new THREE.Mesh(keep(new THREE.BoxGeometry(w * S, h * S, d * S)), m); o.position.set(x * S, y * S, z * S); g.add(o); return o; };
+  const labelMat = keep(new THREE.MeshBasicMaterial({ color }));
+  bx(0.188, 0.025, 0.104, bodyM, 0, 0, 0); bx(0.1, 0.0014, 0.068, labelMat, 0.018, 0.0134, 0); bx(0.05, 0.0014, 0.02, keep(toon(0x6a7078)), -0.058, 0.0134, 0.0);
+  for (const dx of [-0.05, -0.012]) { const reel = new THREE.Mesh(keep(new THREE.CylinderGeometry(0.009 * S, 0.009 * S, 0.0016 * S, 8)), keep(toon(0xd8d8d0))); reel.position.set((dx - 0.0) * S - 0.0, 0.0138 * S, 0.0); g.add(reel); }
+  return { group: g, labelMat };
+}
+
+/** 床に、無造作に積まれた、ビデオテープの山。原点=山の真ん中(床)。各テープは、色のちがうラベル。 */
+export function createVhsPile({ toon, keep, rand = Math.random }) {
+  const g = new THREE.Group(), cols = [0xd8cfa0, 0xe8a0a0, 0xa0c8e8, 0xb8e0a0, 0xe8d070, 0xc8a0e0, 0xf0f0e8, 0xe0b080];
+  const spec = [[-0.1, 0.017, 0.03, 0.1], [0.12, 0.017, -0.02, -0.15], [0.0, 0.017, 0.19, 0.3], [-0.05, 0.05, 0.0, -0.2], [0.1, 0.05, 0.06, 0.35], [0.05, 0.05, -0.1, 0.05], [0.0, 0.083, 0.02, 0.6], [-0.04, 0.083, 0.1, -0.4], [0.02, 0.116, 0.0, 0.9], [0.36, 0.017, 0.1, 0.8], [0.3, 0.017, -0.15, -0.5]];
+  spec.forEach(([x, y, z, ry], i) => { const t = createVhsTape({ toon, keep, color: cols[(i * 3 + Math.floor(rand() * 3)) % cols.length] }).group; t.position.set(x, y, z); t.rotation.y = ry; g.add(t); });
+  return { group: g };
+}
+
+/** ケトルベル(鉄の球に、持ち手。赤い帯)。原点=床に置いた時の底の真ん中。 */
+export function createKettlebell({ toon, keep }) {
+  const g = new THREE.Group(), iron = keep(toon(0x2d3036)), red = keep(toon(0xc43c3c));
+  const ball = new THREE.Mesh(keep(new THREE.SphereGeometry(0.1, 14, 10)), iron); ball.position.y = 0.105; ball.scale.set(1, 0.95, 1); g.add(ball);
+  const base = new THREE.Mesh(keep(new THREE.CylinderGeometry(0.06, 0.065, 0.02, 12)), iron); base.position.y = 0.01; g.add(base);
+  const band = new THREE.Mesh(keep(new THREE.TorusGeometry(0.1, 0.008, 5, 18)), red); band.rotation.x = Math.PI / 2; band.position.y = 0.105; g.add(band);
+  const handle = new THREE.Mesh(keep(new THREE.TorusGeometry(0.058, 0.014, 6, 14, Math.PI * 1.15)), iron); handle.position.y = 0.2; handle.rotation.z = Math.PI * 0.425; g.add(handle);
+  return { group: g, handleY: 0.255 };
+}
+
+/** 床のクッション(テレビの前に、座るところ)。原点=床の真ん中。 */
+export function createFloorCushion({ toon, keep }) {
+  const g = new THREE.Group(), m = keep(toon(0x9b4d4d)), m2 = keep(toon(0x7a3a3a));
+  const c = new THREE.Mesh(keep(new THREE.CylinderGeometry(0.3, 0.32, 0.075, 16)), m); c.position.y = 0.0375; g.add(c);
+  const t = new THREE.Mesh(keep(new THREE.CylinderGeometry(0.28, 0.3, 0.012, 16)), m2); t.position.y = 0.081; g.add(t);
+  const b = new THREE.Mesh(keep(new THREE.SphereGeometry(0.02, 6, 4)), keep(toon(0xe8d8a0))); b.position.y = 0.09; g.add(b);
+  return { group: g };
+}
+
+/** 運動用のマット(窓の前)。 */
+export function createExerciseMat({ toon, keep }) {
+  const g = new THREE.Group(); const m = new THREE.Mesh(keep(new THREE.BoxGeometry(0.75, 0.014, 1.7)), keep(toon(0x3f8f8a))); m.position.y = 0.007; g.add(m);
+  const st = new THREE.Mesh(keep(new THREE.BoxGeometry(0.6, 0.0155, 0.04)), keep(toon(0xe8e0c0))); st.position.set(0, 0.0075, 0.3); g.add(st);
+  return { group: g };
+}
