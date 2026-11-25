@@ -644,7 +644,7 @@ export function createIntroRoom(opts = {}) {
     { const si = city.sunInfo(), pw = si.power; // 西陽
       sunLight.intensity = 1.1 * pw; sunPt.intensity = 5 * pw; hemi.color.copy(hemiBase).lerp(hemiWarm, 0.55 * pw); hemi.intensity = 0.85 + 0.25 * pw + 0.5 * si.flash;
       patch.visible = pw > 0.01; if (patch.visible) { patch.material.opacity = 0.6 * pw; updateSunPatch(si.alt); } } clock.update(t, now); cup.update(t, 0);
-    if (audio) { const ts = city.trainState(); audio.update(dt, { x: cam.pos.x, y: cam.pos.y, z: cam.pos.z, yaw: cam.yaw }, ts.on, ts.x); const nk = city.state.night; if (Math.abs(nk - lastNight) > 0.02) { lastNight = nk; audio.setNight(nk); } }
+    if (audio) { const ts = city.trainState(); audio.update(dt, { x: cam.pos.x, y: cam.pos.y, z: cam.pos.z, yaw: cam.yaw }, ts.on, ts.x, ts); const nk = city.state.night; if (Math.abs(nk - lastNight) > 0.02) { lastNight = nk; audio.setNight(nk); } }
     const glow = screenState.mode === 'game' ? 0.7 : 0.4; screenLight.intensity = 3.6 + 1.2 * glow + 0.3 * Math.sin(t * 9); lampLight.intensity = 6.5 + 0.2 * Math.sin(t * 1.3); room.update(t);
   }
 

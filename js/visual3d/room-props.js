@@ -118,15 +118,49 @@ export function buildCity({ scene, keep, seed = 11 }) {
   }
   for (const b of buildings) { if (b.isCap) continue; const near = b.cz > -30, pv = near ? 0.4 : 0.15, ph = near ? 0.22 : 0.1; if (rand() < pv) addSign(b, true); if (rand() < ph) addSign(b, false); }
 
-  // ---- 電車(高架。ときどき、窓の前を通る) ----
+  // ---- 電車(高架。ときどき、窓の前を通る。v1.120: 5種類 — 通勤・特急・貨物・高速・リニア。実在の名前・ロゴは使わない) ----
   const rail = new THREE.Group(); rail.position.set(0, 0, -16); root.add(rail);
   const railMat = keep(new THREE.MeshBasicMaterial({ color: 0x15182e }));
   const bed = new THREE.Mesh(keep(new THREE.BoxGeometry(150, 0.5, 3.2)), railMat); bed.position.y = -0.5; rail.add(bed);
   for (let x = -70; x <= 70; x += 14) { const p = new THREE.Mesh(keep(new THREE.BoxGeometry(1.1, 26, 1.1)), railMat); p.position.set(x, -13.5, 0); rail.add(p); }
   const train = new THREE.Group(); train.visible = false; rail.add(train);
-  const carMat = keep(new THREE.MeshBasicMaterial({ color: 0x3a3f66 })), stripMat = keep(new THREE.MeshBasicMaterial({ color: 0xffe3a0, fog: false }));
-  for (let i = 0; i < 6; i++) { const car = new THREE.Mesh(keep(new THREE.BoxGeometry(3.4, 2.7, 2.5)), carMat); car.position.set(i * 3.6, 1.1, 0); train.add(car); const st = new THREE.Mesh(keep(new THREE.BoxGeometry(3.1, 0.8, 0.05)), stripMat); st.position.set(i * 3.6, 1.45, 1.27); train.add(st); const st2 = st.clone(); st2.position.z = -1.27; train.add(st2); }
-  let trainX = 0, trainOn = false, nextTrain = 6 + rand() * 12, trainDir = 1;
+  const stripMat = keep(new THREE.MeshBasicMaterial({ color: 0xffe3a0, fog: false })); // 窓の帯(夜は、あたたかい灯り。applyState が、色を変える)
+  const bm = (c) => keep(new THREE.MeshBasicMaterial({ color: c, fog: false }));
+  /** 種類ごとの、両数・車両の間隔(m)・速さ(m/秒)。音(room-audio.js)も、この値(車両の間隔÷速さ=継ぎ目の音の間隔)を使う。 */
+  const TRAIN_KINDS = { commuter: { cars: 6, pitch: 3.6, speed: 9.5 }, express: { cars: 8, pitch: 3.6, speed: 13 }, freight: { cars: 11, pitch: 3.7, speed: 6 }, bullet: { cars: 8, pitch: 4.0, speed: 30 }, maglev: { cars: 5, pitch: 3.4, speed: 22 } };
+  const trainLen = (k) => (TRAIN_KINDS[k].cars - 1) * TRAIN_KINDS[k].pitch + 3.4;
+  const box3 = (par, w, h, d, m, x, y, z) => { const o = new THREE.Mesh(keep(new THREE.BoxGeometry(w, h, d)), m); o.position.set(x, y, z); par.add(o); return o; };
+  /** 側面の形(+x が先)を、幅 w ぶん押し出した、先頭の形。 */
+  function noseGeo(h, w, tip) { const sh = new THREE.Shape(); sh.moveTo(0, 0); sh.lineTo(0.01, 0); sh.lineTo(tip, h * 0.38); sh.lineTo(tip * 0.55, h * 0.92); sh.lineTo(tip * 0.2, h); sh.lineTo(0, h); sh.closePath(); const g = new THREE.ExtrudeGeometry(sh, { depth: w, bevelEnabled: false }); g.translate(0, 0, -w / 2); return keep(g); }
+  function addLamps(g, xFront, xBack, y) { const lw = bm(0xfff6d8), lr = bm(0xff3030), sg = keep(new THREE.SphereGeometry(0.22, 6, 4)); for (const zz of [-0.7, 0.7]) { const a = new THREE.Mesh(sg, lw); a.position.set(xFront, y, zz); g.add(a); const b2 = new THREE.Mesh(sg, lr); b2.position.set(xBack, y, zz); g.add(b2); } }
+  function buildTrain(kind) {
+    const g = new THREE.Group(), K = TRAIN_KINDS[kind], P = K.pitch, n = K.cars, xEnd = (n - 1) * P + (P - 0.15) / 2, xStart = -(P - 0.15) / 2;
+    if (kind === 'commuter') { // 銀色の車体に、窓の帯(いまの電車)
+      const cm = bm(0x3a3f66); for (let i = 0; i < n; i++) { box3(g, 3.4, 2.7, 2.5, cm, i * P, 1.1, 0); box3(g, 3.1, 0.8, 0.05, stripMat, i * P, 1.45, 1.27); box3(g, 3.1, 0.8, 0.05, stripMat, i * P, 1.45, -1.27); }
+      addLamps(g, xEnd + 0.1, xStart - 0.1, 0.5);
+    } else if (kind === 'express' || kind === 'bullet') { // 白い車体に、色の帯。先頭は流線形
+      const fast = kind === 'bullet', bodyM = bm(fast ? 0xf4f6fb : 0xe9edf5), lineM = bm(fast ? 0x2a63c4 : 0xd23a3a), roofM = bm(fast ? 0x9aa6bd : 0xb7bfcc), h = fast ? 2.5 : 2.7, tip = fast ? 4.8 : 2.6, yb = 1.1 + (h - 2.7) / 2;
+      for (let i = 0; i < n; i++) { box3(g, P - 0.15, h, 2.5, bodyM, i * P, yb, 0); box3(g, P - 0.35, 0.6, 0.05, stripMat, i * P, yb + 0.35, 1.27); box3(g, P - 0.35, 0.6, 0.05, stripMat, i * P, yb + 0.35, -1.27); box3(g, P - 0.15, fast ? 0.32 : 0.26, 2.54, lineM, i * P, yb - 0.55, 0); box3(g, P - 0.3, 0.12, 1.8, roofM, i * P, yb + h / 2 + 0.05, 0); }
+      for (const sgn of [1, -1]) { const nose = new THREE.Mesh(noseGeo(h, 2.5, tip), bodyM); nose.position.set(sgn > 0 ? xEnd : xStart, yb - h / 2, 0); nose.scale.x = sgn; g.add(nose); const ws = box3(g, 0.9, 0.55, 1.5, bm(0x1c2236), sgn * (tip * 0.5) + (sgn > 0 ? xEnd : xStart), yb + h * 0.18, 0); ws.rotation.z = sgn > 0 ? -0.45 : 0.45; }
+      addLamps(g, xEnd + tip * 0.62, xStart - tip * 0.62, yb - 0.3);
+    } else if (kind === 'maglev') { // 暗い車体に、ネオンの線(サイバーパンク)。継ぎ目なし・足もとが光る
+      const dark = bm(0x12131f), cy = bm(0x26e6ff), mg = bm(0xff2fa8), tip = 3.2;
+      for (let i = 0; i < n; i++) { box3(g, P, 2.5, 2.4, dark, i * P, 1.05, 0); box3(g, P, 0.14, 2.46, cy, i * P, 0.25, 0); box3(g, P, 0.09, 2.46, mg, i * P, 1.85, 0); box3(g, P - 0.4, 0.5, 0.05, cy, i * P, 1.25, 1.22); box3(g, P - 0.4, 0.5, 0.05, cy, i * P, 1.25, -1.22); box3(g, P - 0.2, 0.1, 1.8, cy, i * P, -0.35, 0); }
+      for (const sgn of [1, -1]) { const nose = new THREE.Mesh(noseGeo(2.5, 2.4, tip), dark); nose.position.set((sgn > 0 ? (n - 1) * P : 0) + sgn * P / 2, -0.2, 0); nose.scale.x = sgn; g.add(nose); }
+      addLamps(g, (n - 1) * P + P / 2 + tip * 0.6, -P / 2 - tip * 0.6, 0.55);
+    } else { // freight: 先頭に機関車、あとは、コンテナ車とタンク車
+      const loco = bm(0x7a2a22), yel = bm(0xe0b030), flat = bm(0x23242c), tankM = bm(0x4a5060), cols = [0xb5472a, 0x2b6aa3, 0x3e7c4a, 0xc99a2e, 0x7c4a8f, 0x8a8d93].map(bm);
+      for (let i = 0; i < n - 1; i++) { box3(g, 3.5, 0.35, 2.2, flat, i * P, 0.0, 0); if (i % 3 === 2) { const t = new THREE.Mesh(keep(new THREE.CylinderGeometry(1.0, 1.0, 3.2, 10)), tankM); t.rotation.z = Math.PI / 2; t.position.set(i * P, 1.25, 0); g.add(t); } else { box3(g, 3.3, 2.6, 2.3, cols[Math.floor(rand() * cols.length)], i * P, 1.5, 0); box3(g, 3.3, 0.05, 2.34, flat, i * P, 1.5, 0); } }
+      const lx = (n - 1) * P + 0.5; box3(g, 4.6, 3.0, 2.6, loco, lx, 1.25, 0); box3(g, 4.6, 0.5, 2.64, yel, lx, 0.3, 0); box3(g, 1.6, 0.7, 2.7, bm(0x1c2236), lx + 1.3, 2.15, 0);
+      addLamps(g, lx + 2.35, -1.8, 0.8);
+    }
+    g.visible = false; train.add(g); return g;
+  }
+  const trainModels = {}; for (const k of Object.keys(TRAIN_KINDS)) trainModels[k] = buildTrain(k);
+  let trainX = 0, trainOn = false, nextTrain = 6 + rand() * 12, trainDir = 1, trainKind = 'commuter';
+  /** どの電車が来るか。夜は、貨物が増え、リニアは、夜だけ。 */
+  function pickTrain(night) { const w = { commuter: 4, express: 2, freight: 1.2 + 1.8 * night, bullet: 1, maglev: night > 0.4 ? 1 + 2.5 * night : 0 }; let sum = 0; for (const k in w) sum += w[k]; let r = rand() * sum; for (const k in w) { r -= w[k]; if (r <= 0) return k; } return 'commuter'; }
+  function startTrain(kind, dir) { trainKind = kind; trainDir = dir; trainOn = true; trainX = dir > 0 ? -66 : 66; for (const k in trainModels) trainModels[k].visible = k === kind; train.visible = true; }
   // ---- 窓の外の天気(ゲーム本編の天候・季節と、同じ): 曇り・雨・雪・雷・屋上の雪 ----
   const outside = { weather: 'clear', season: 'summer' };
   let cloudK = 0, rainK = 0, snowK = 0, snowCover = 0, paintedCloud = -1, lastCover = -1, hourNow = 12, flashT = -1, nextFlash = 5, flash = 0, starBase = 0, moonBase = 0, sunBase = 0;
@@ -216,12 +250,16 @@ export function buildCity({ scene, keep, seed = 11 }) {
         for (const s of signs) { if (!s.b.g.visible) continue; const fl = s.flick ? (Math.sin(t * 17 + s.phase * 10) * Math.sin(t * 3.7 + s.phase) > -0.8 ? 1 : 0.25) : 1; s.mat.opacity = 0.14 + 0.86 * nk * fl; s.hmat.opacity = 0.6 * nk * fl * (1 - cloudK * 0.3); }
       }
       beacon.material.color.setHex(Math.sin(t * 3.1) > 0.2 ? 0xff3030 : 0x401010);
-      nextTrain -= dt; if (!trainOn && nextTrain <= 0) { trainOn = true; trainDir = rand() < 0.5 ? 1 : -1; trainX = trainDir > 0 ? -60 : 60; train.visible = true; }
-      if (trainOn) { trainX += trainDir * 9.5 * dt; train.position.x = trainX - (trainDir > 0 ? 0 : 0); train.scale.x = trainDir; if (Math.abs(trainX) > 64) { trainOn = false; train.visible = false; nextTrain = 40 + rand() * 70; } }
+      nextTrain -= dt; if (!trainOn && nextTrain <= 0) startTrain(pickTrain(state.night), rand() < 0.5 ? 1 : -1);
+      if (trainOn) { trainX += trainDir * TRAIN_KINDS[trainKind].speed * dt; train.position.x = trainX; train.scale.x = trainDir; if (trainX * trainDir > 66) { trainOn = false; train.visible = false; nextTrain = 40 + rand() * 70; } }
     },
     forceHour(h) { hourNow = h; lastHourKey = -1; applyState(skyState(h)); applyCloud(); },
-    /** 電車の様子(音と合わせる): on=走っているか / x=電車の真ん中あたりの、世界のx */
-    trainState() { return { on: trainOn, x: trainX + trainDir * 9 }; },
+    /** 電車の様子(音と合わせる): on=走っているか / x=電車の真ん中あたりの、世界のx / kind・speed・pitch(車両の間隔)・cars・dir。 */
+    trainState() { const K = TRAIN_KINDS[trainKind]; return { on: trainOn, x: trainX + (trainDir * trainLen(trainKind)) / 2, kind: trainKind, speed: K.speed, pitch: K.pitch, cars: K.cars, dir: trainDir }; },
+    trainKinds: Object.keys(TRAIN_KINDS),
+    pickTrainForTest() { return pickTrain(state.night); }, // 試験用: 来る電車の種類を、いまの夜の度合いで、ひとつ選ぶ
+    /** 試験・見た目の確認用: 指定した電車を、いま、走らせる。 */
+    forceTrain(kind, dir = 1) { if (TRAIN_KINDS[kind]) startTrain(kind, dir < 0 ? -1 : 1); },
   };
 }
 

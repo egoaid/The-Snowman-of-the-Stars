@@ -9,7 +9,8 @@ import { renderPiano } from './piano-synth.js';
 import { renderFm4 } from './fm4op.js';
 import { createMelody } from '../music/room-melody.js';
 
-const MODE_GAIN = { room: 1, toRoom: 1, toWipe: 0.22, wipe: 0.22 };
+const MODE_GAIN = { room: 1, toRoom: 1, toWipe: 0, wipe: 0 }; // v1.120: ゲームの間(ワイプ)は、部屋の音を、完全に消す(以前は0.22)
+const MODE_TAU = 0.12; // 切り替えの速さ(秒)。約1秒で、聞こえなくなる
 const LOOK = 0.35; // 先読み(秒)
 const clampN = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 const WINDOW_POS = { x: -0.95, y: 1.75, z: -2.4 }, DESK_POS = { x: -1.2, y: 1.0, z: 0.8 };
@@ -29,14 +30,16 @@ function makeStub() {
 export function createRoomAudio({ SE, rand = Math.random } = {}) {
   SE = SE || (typeof window !== 'undefined' ? window.SoundEngine : null);
   if (!SE || !SE.getContext || !SE.getAmbientBus || !SE.getSfxBus) return makeStub();
-  let ctx = null, ambMode = null, sfxMode = null, ambOut = null, sfxOut = null, revIn = null, noiseBuf = null, unlocked = false, mode = 'room', night = 1;
+  let ctx = null, ambVol = null, sfxVol = null, ambMode = null, sfxMode = null, ambOut = null, sfxOut = null, revIn = null, noiseBuf = null, unlocked = false, mode = 'room', night = 1;
   const cam = { x: 0, y: 1.6, z: 5, yaw: 0 }; const players = new Set(); let beds = null; let evT = { car: 8 + rand() * 10, siren: 120 + rand() * 120, gust: 4 };
   const train = { on: false, x: 0, node: null, clackT: 0 };
 
   function ensure() {
     if (ctx) return true; try { ctx = SE.getContext(); } catch (e) { ctx = null; return false; } if (!ctx) return false;
-    ambMode = ctx.createGain(); ambMode.gain.value = MODE_GAIN[mode]; ambMode.connect(SE.getAmbientBus());
-    sfxMode = ctx.createGain(); sfxMode.gain.value = MODE_GAIN[mode]; sfxMode.connect(SE.getSfxBus());
+    ambMode = ctx.createGain(); ambMode.gain.value = MODE_GAIN[mode]; sfxMode = ctx.createGain(); sfxMode.gain.value = MODE_GAIN[mode];
+    if (SE.getRoomBus) { // v1.120: 部屋の音は、ゲームの音の門を通らない専用のバスへ。音量は、設定画面の環境音・効果音のスライダーに、そのまま従う
+      const rb = SE.getRoomBus(); ambVol = ctx.createGain(); sfxVol = ctx.createGain(); ambMode.connect(ambVol); sfxMode.connect(sfxVol); ambVol.connect(rb); sfxVol.connect(rb); syncVolumes();
+    } else { ambMode.connect(SE.getAmbientBus()); sfxMode.connect(SE.getSfxBus()); }
     ambOut = ctx.createGain(); ambOut.gain.value = 0; ambOut.connect(ambMode);
     sfxOut = ctx.createGain(); sfxOut.gain.value = 1; sfxOut.connect(sfxMode);
     // 短い部屋の響き(楽器の音に、すこし足す)
@@ -80,14 +83,16 @@ export function createRoomAudio({ SE, rand = Math.random } = {}) {
     key: (p) => burst({ pos: p, f: 2600 + rand() * 900, q: 1.2, dur: 0.02, gain: 0.05 }),
     mouse: (p) => { burst({ pos: p, f: 2200, q: 1.5, dur: 0.018, gain: 0.07 }); setTimeout(() => { try { burst({ pos: p, f: 1700, q: 1.5, dur: 0.014, gain: 0.04 }); } catch (e) { /* もう、止まっている */ } }, 70); },
   };
-  function sfx(name, pos, data) { if (!unlocked || !ctx || !SFX[name]) return; try { SFX[name](pos, data); } catch (e) { /* 音の失敗は、動きに影響させない */ } }
+  function syncVolumes() { if (ambVol && SE.getAmbientVolume) ambVol.gain.value = SE.getAmbientVolume(); if (sfxVol && SE.getSfxVolume) sfxVol.gain.value = SE.getSfxVolume(); }
+  const silentMode = () => (MODE_GAIN[mode] ?? 1) === 0; // ワイプの間(部屋の音を出さない間)は、音を作らない・動かさない
+  function sfx(name, pos, data) { if (!unlocked || !ctx || !SFX[name] || silentMode()) return; try { SFX[name](pos, data); } catch (e) { /* 音の失敗は、動きに影響させない */ } }
 
   // ---- 環境音 ----
   function loopNoise() { const s = ctx.createBufferSource(); s.buffer = noiseBuf; s.loop = true; s.start(ctx.currentTime, rand() * 1.5); return s; }
   function bed(type, f, q, gain, pos) { // 常に鳴っている、音源(位置を持つ時は、毎コマ、カメラとの関係で、左右・音量が変わる)
     const s = loopNoise(), flt = ctx.createBiquadFilter(); flt.type = type; flt.frequency.value = f; flt.Q.value = q; const g = ctx.createGain(); g.gain.value = gain; const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 18000;
     const sp = ctx.createGain(); sp.gain.value = 1; const pn = ctx.createStereoPanner ? ctx.createStereoPanner() : null;
-    s.connect(flt); flt.connect(g); g.connect(lp); lp.connect(sp); if (pn) { sp.connect(pn); pn.connect(ambOut); } else sp.connect(ambOut); return { g, lp, sp, pn, pos, base: gain, flt };
+    s.connect(flt); flt.connect(g); g.connect(lp); lp.connect(sp); if (pn) { sp.connect(pn); pn.connect(ambOut); } else sp.connect(ambOut); return { g, lp, sp, pn, pos, base: gain, flt, s };
   }
   function startBeds() {
     beds = { tone: bed('lowpass', 170, 0.5, 0.05, null), hiss: bed('bandpass', 1300, 0.3, 0.007, null), city: bed('bandpass', 320, 0.6, 0.03, WINDOW_POS), wind: bed('bandpass', 520, 0.4, 0.0, WINDOW_POS), fan: bed('lowpass', 260, 0.7, 0.02, DESK_POS) };
@@ -102,11 +107,26 @@ export function createRoomAudio({ SE, rand = Math.random } = {}) {
     evT.car -= dt; if (evT.car <= 0) { evT.car = 18 + rand() * 24; const lr = rand() < 0.5; burst({ pos: { x: WINDOW_POS.x + (lr ? -6 : 6), y: 1, z: -14 }, f: 260, f2: 860, q: 1.2, dur: 4.5, gain: 0.05 * (0.4 + 0.6 * (1 - night)), attack: 1.8, out: ambOut }); }
     evT.siren -= dt; if (evT.siren <= 0) { evT.siren = 150 + rand() * 200; for (let i = 0; i < 6; i++) setTimeout(() => { try { tone({ pos: { x: -8, y: 1, z: -30 }, f: i % 2 ? 870 : 650, dur: 0.62, gain: 0.008, attack: 0.08, out: ambOut }); } catch (e) { /* 止まっている */ } }, i * 640); }
   }
-  /** 電車(目に見えるものと同じ): on=走っているか / x=電車の位置(世界のx)。ゴーッという音は、電車の位置に追従し、ガタンゴトンは、車両の長さ/速さの間隔で。 */
-  function trainUpdate(on, x, dt) {
+  /** 電車(目に見えるものと同じ。v1.120: 5種類で、音が違う)。ゴーッという走行音(電車の位置に追従)と、継ぎ目のガタンゴトン(車両の間隔÷速さの間隔)。どれも、かすかに。 */
+  const TRAIN_SND = {
+    commuter: { type: 'lowpass', f: 240, q: 0.7, gain: 0.09, tau: 0.8, clack: { f: 900, gain: 0.05, dur: 0.07, hp: 400 } }, // ふつうの、ゴーッ+ガタンゴトン
+    express: { type: 'lowpass', f: 320, q: 0.7, gain: 0.09, tau: 0.7, clack: { f: 1150, gain: 0.05, dur: 0.06, hp: 500 } }, // 少し高く、速い継ぎ目
+    freight: { type: 'lowpass', f: 150, q: 0.9, gain: 0.12, tau: 1.0, clack: { f: 620, gain: 0.07, dur: 0.11, hp: 250 } }, // 低い重低音と、ゆっくり重い継ぎ目
+    bullet: { type: 'bandpass', f: 800, q: 0.5, gain: 0.08, tau: 0.25, clack: null }, // シュッと一瞬で抜ける風切り音(継ぎ目は、目立たない)
+    maglev: { type: 'bandpass', f: 1500, q: 2.4, gain: 0.035, tau: 0.5, clack: null }, // かすかな、高い唸り(継ぎ目なし)
+  };
+  function trainUpdate(on, x, dt, info) {
     if (!beds) return;
-    if (on && !train.node) { const b = bed('lowpass', 240, 0.7, 0.0, { x, y: 1, z: -16 }); b.g.gain.setTargetAtTime(0.09, ctx.currentTime, 0.8); train.node = b; train.clackT = 0; }
-    if (train.node) { train.node.pos = { x, y: 1, z: -16 }; updateBed(train.node); if (!on) { train.node.g.gain.setTargetAtTime(0, ctx.currentTime, 0.6); const n = train.node; train.node = null; setTimeout(() => { try { n.sp.disconnect(); } catch (e) { /* 済 */ } }, 3000); } else { train.clackT -= dt; if (train.clackT <= 0) { train.clackT = 3.6 / 9.5; burst({ pos: { x, y: 1, z: -16 }, f: 900, q: 1.1, dur: 0.07, gain: 0.05, hp: 400, out: ambOut }); } } }
+    const kind = (info && TRAIN_SND[info.kind]) ? info.kind : 'commuter', snd = TRAIN_SND[kind], pitch = (info && info.pitch) || 3.6, speed = (info && info.speed) || 9.5, dir = (info && info.dir) || 1;
+    if (on && !train.node) { const b = bed(snd.type, snd.f, snd.q, 0.0, { x, y: 1, z: -16 }); b.g.gain.setTargetAtTime(snd.gain, ctx.currentTime, snd.tau); train.node = b; train.snd = snd; train.clackT = 0; }
+    if (train.node) {
+      train.node.pos = { x, y: 1, z: -16 }; updateBed(train.node);
+      if (!on) { train.node.g.gain.setTargetAtTime(0, ctx.currentTime, 0.6); const n = train.node; train.node = null; setTimeout(() => { try { n.s.stop(); n.sp.disconnect(); } catch (e) { /* 済 */ } }, 3000); }
+      else {
+        const appr = Math.sign((cam.x - x) * dir); train.node.flt.frequency.setTargetAtTime(train.snd.f * (1 + 0.07 * appr), ctx.currentTime, 0.3); // 近づく時は少し高く、遠ざかる時は少し低く
+        const ck = train.snd.clack; if (ck) { train.clackT -= dt; if (train.clackT <= 0) { train.clackT = pitch / speed; burst({ pos: { x, y: 1, z: -16 }, f: ck.f, q: 1.1, dur: ck.dur, gain: ck.gain, hp: ck.hp, out: ambOut }); } }
+      }
+    }
   }
 
   // ---- 演奏(ピアノ・シンセブラス)----
@@ -162,12 +182,14 @@ export function createRoomAudio({ SE, rand = Math.random } = {}) {
     enabled: true,
     /** 最初のクリックなどの後に呼ぶ(ブラウザが、音を出す許可を出す)。環境音が、ゆっくり入ってくる。 */
     unlock() { if (unlocked) return; if (!ensure()) return; unlocked = true; try { const p = SE.resume && SE.resume(); if (p && p.catch) p.catch(() => {}); } catch (e) { /* ゲーム側が、あとで再開する */ } startBeds(); },
-    setMode(m) { mode = m; if (!ctx) return; const v = MODE_GAIN[m] ?? 1, t = ctx.currentTime; ambMode.gain.setTargetAtTime(v, t, 0.35); sfxMode.gain.setTargetAtTime(v, t, 0.35); },
+    setMode(m) { mode = m; if (!ctx) return; const v = MODE_GAIN[m] ?? 1, t = ctx.currentTime; ambMode.gain.setTargetAtTime(v, t, MODE_TAU); sfxMode.gain.setTargetAtTime(v, t, MODE_TAU); },
     setNight(k) { night = clampN(+k || 0, 0, 1); applyNight(); },
     /** 毎コマ: カメラの位置と向き(yaw)・電車の様子。 */
-    update(dt, camPose, trainOn = false, trainX = 0) {
+    update(dt, camPose, trainOn = false, trainX = 0, info = null) {
       if (camPose) { cam.x = camPose.x; cam.y = camPose.y; cam.z = camPose.z; cam.yaw = camPose.yaw; }
-      if (!unlocked) return; ambience(dt); trainUpdate(trainOn, trainX, dt);
+      if (!unlocked) return;
+      if (silentMode()) { if (train.node) trainUpdate(false, trainX, dt, info); return; } // ゲームの間は、部屋の音の計算もしない(軽くする)
+      syncVolumes(); ambience(dt); trainUpdate(trainOn, trainX, dt, info);
     },
     sfx, startPlayer(o) { const p = startPlayer(o); if (!p.silent) players.add(p); return p; },
     dispose() { for (const p of [...players]) p.stop(); try { if (beds) { for (const b of Object.values(beds)) { if (b && b.stop) b.stop(); } ambOut.disconnect(); } } catch (e) { /* 済 */ } },

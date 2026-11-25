@@ -66,7 +66,8 @@ export function createIntroLayer(opts = {}) {
       const was = lastMode; lastMode = m;
       const blocking = machine.isBlocking();
       room.setInteractive(m === 'room');
-      if (room.setAudioMode) room.setAudioMode(m); // 部屋の音: 全画面は通常、ワイプは小さく
+      if (room.setAudioMode) room.setAudioMode(m); // 部屋の音: 全画面は通常、ワイプ(ゲーム)の間は、完全に消す
+      if (opts.setGameAudio) { try { opts.setGameAudio(m === 'wipe' || m === 'toWipe'); } catch (e) { /* 音の側の失敗は、部屋に、影響させない */ } } // ゲームの音: 部屋が全画面の間は、完全に消す
       if (m === 'toWipe' && room.enterWipe) room.enterWipe(); // カメラが、ワイプの画角へ動く
       if (m === 'toRoom' && room.leaveWipe) room.leaveWipe(); // カメラが、自由に見まわしていた画角へ戻る
       box.classList.toggle('is-wipe', m === 'wipe'); box.classList.toggle('is-room', m === 'room');
@@ -144,7 +145,8 @@ export function createIntroLayer(opts = {}) {
     },
     refreshTexts,
     isEnabledSetting: readSetting, setEnabledSetting: writeSetting,
-    dispose() { disposed = true; cancelAnimationFrame(raf); window.removeEventListener('resize', onResize); try { room.dispose(); } catch (e) { /* もう、捨てられている */ } box.remove(); document.body.classList.remove('intro-room-open'); },
+    dispose() { disposed = true; if (opts.setGameAudio) { try { opts.setGameAudio(true); } catch (e) { /* 済 */ } } // 部屋が無くなったら、ゲームの音は、いつも通す
+      cancelAnimationFrame(raf); window.removeEventListener('resize', onResize); try { room.dispose(); } catch (e) { /* もう、捨てられている */ } box.remove(); document.body.classList.remove('intro-room-open'); },
     room, // 試験用
   };
   fitBuffer(); refreshTexts(); applyMode(); layout();

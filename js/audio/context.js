@@ -19,6 +19,9 @@
   let masterGain = null;   // 最終出力(環境音バスと効果音バスの合流点。録音もここから取る)
   let ambientBus = null;   // v1.56-H3: 環境音(川・雨・風・虫・鳥・焚き火・雷・蜂)のバス
   let sfxBus = null;       // v1.56-H3: 効果音(足音・拾う/置く・チェスト・丸太・UI・星の鈴)のバス
+  let gameGate = null;     // v1.120: ゲーム本編の音(環境音バスと効果音バス)の出口の門。部屋が全画面の間は、閉じて、ゲームの音を、完全に消す
+  let roomBus = null;      // v1.120: 部屋の音(起動の部屋)のバス。門を通らず、そのまま、最終出力へ。ワイプの間は、部屋の側で、音を消す
+  let gameGateOpen = true; // AudioContext作成前に決まった値も、作成時に反映する
   let ambientVolume = 1;   // 設定画面の音量(0〜1.5)。AudioContext作成前に決まった値も、作成時に反映する
   let sfxVolume = 1;
   let dryGain = null;
@@ -38,8 +41,14 @@
     ambientBus.gain.value = ambientVolume;
     sfxBus = ctx.createGain();
     sfxBus.gain.value = sfxVolume;
-    ambientBus.connect(masterGain);
-    sfxBus.connect(masterGain);
+    gameGate = ctx.createGain();
+    gameGate.gain.value = gameGateOpen ? 1 : 0;
+    ambientBus.connect(gameGate);
+    sfxBus.connect(gameGate);
+    gameGate.connect(masterGain);
+    roomBus = ctx.createGain();
+    roomBus.gain.value = 1;
+    roomBus.connect(masterGain);
 
     dryGain = ctx.createGain();
     wetGain = ctx.createGain();
@@ -78,6 +87,17 @@
     if (!sfxBus) init();
     return sfxBus;
   }
+  /** 部屋の音のバス(部屋の音は、ここへつなぐ。ゲームの音の門を通らない)。 */
+  function getRoomBus() {
+    if (!roomBus) init();
+    return roomBus;
+  }
+  /** v1.120: ゲーム本編の音を、通す(true)/完全に消す(false)。tau は、消え方・戻り方の速さ(秒)。部屋が全画面の間は false、ゲームの間は true。 */
+  function setGameGate(open, tau = 0.12) {
+    gameGateOpen = !!open;
+    if (gameGate) gameGate.gain.setTargetAtTime(gameGateOpen ? 1 : 0, ctx.currentTime, tau);
+  }
+  const isGameGateOpen = () => gameGateOpen;
   const clampVol = (v) => Math.max(0, Math.min(1.5, Number.isFinite(v) ? v : 1));
   /** 設定画面の音量。AudioContextがまだ無くても値は覚えておき、作成時に反映する(音を有効にする前でも動かせる)。 */
   function setAmbientVolume(v) {
@@ -515,6 +535,9 @@
   SoundEngine.getMasterGain = getMasterGain;
   SoundEngine.setMasterVolume = setMasterVolume;
   SoundEngine.getAmbientBus = getAmbientBus;
+  SoundEngine.getRoomBus = getRoomBus;
+  SoundEngine.setGameGate = setGameGate;
+  SoundEngine.isGameGateOpen = isGameGateOpen;
   SoundEngine.getSfxBus = getSfxBus;
   SoundEngine.setAmbientVolume = setAmbientVolume;
   SoundEngine.setSfxVolume = setSfxVolume;

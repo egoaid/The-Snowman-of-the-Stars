@@ -665,6 +665,7 @@ import { createMidiInput } from './js/music/midi-input.js'; // v1.104: 外部MID
     { const unlock = () => roomAudio.unlock(); window.addEventListener('pointerdown', unlock, { capture: true, once: true }); window.addEventListener('keydown', unlock, { capture: true, once: true }); }
     const outsideRef = { get: null }; // v1.119: 窓の外の天気・季節(シーンができたら、ここへ、つなぐ)
     const introLayer = createIntroLayer({
+      setGameAudio: (on) => { const se = window.SoundEngine; if (se && se.setGameGate) se.setGameGate(on); }, // v1.120: 部屋が全画面の間は、ゲームの音を、完全に消す(ゲームの間は、部屋の音が消える)
       createRoom: (o) => createIntroRoom({ ...o, audio: roomAudio, getOutside: () => (outsideRef.get ? outsideRef.get() : null) }), title: APP.titleJa, titleEn: APP.titleEn,
       labels: () => ({ book: tr('intro.book'), keyboard: tr('intro.keyboard'), monitor: tr('intro.monitor'), cup: tr('intro.cup'), lamp: tr('intro.lamp'), lampOff: tr('intro.lampOff'), synth: tr('intro.synth'), sofa: tr('intro.sofa'), snowman: tr('intro.snowman'), wipe: tr('intro.wipe'), skip: tr('intro.skip'), guide: tr('intro.guide') }),
     });
