@@ -4,7 +4,9 @@
 //   ・ワイプをクリックすると、部屋が全画面に戻る。
 //   このファイルは「数式・状態の遷移・行動の計画(歩く道すじ、座る、本を取る…)」だけを持つ。
 
-export const ROOM = { x0: -3.6, x1: 3.9, z0: -2.3, z1: 7.0, h: 3.3 }; // stream-room.js と同じ広さ(m)
+import { ROOM, DEFAULT_LAYOUT } from './room-layout.js';
+import { planRoute } from './room-nav.js';
+export { ROOM }; // 部屋の広さ(m)。定義は room-layout.js(stream-room.js も同じものを使う)
 
 // ---------------------------------------------------------------- イージング・矩形
 export const clamp01 = (x) => Math.max(0, Math.min(1, x));
@@ -60,34 +62,12 @@ export function createModeMachine({ start = 'room', duration = FULL_MS } = {}) {
 }
 
 // ---------------------------------------------------------------- 部屋の中の、場所(m)
-const FACE_YAW = Math.atan2(-1.2 - 0.4, 0.82 - 0.35) + 0.05; // もとの録画用ワイプの部屋と同じ、椅子の向き(モニターのほうを向く)
-const TV_YAW = 2.48; // テレビデオ(奥の右の角に、斜めに置く)の正面の、反対の向き = テレビを見る人が、向く向き
-export const SPOTS = {
-  hub: { x: 0.0, z: 3.4 }, // 部屋の真ん中あたり。ここを経由すると、家具にぶつからない
-  sofa: { seat: { x: -2.95, z: 2.5 }, seatY: 0.45, yaw: Math.PI / 2, front: { x: -2.0, z: 2.5 } }, // 左の壁ぎわ。+x(部屋の中)を向いて座る
-  chair: { seat: { x: 0.4, z: 0.35 }, seatY: 0.42, yaw: FACE_YAW, side: { x: 0.71, z: 1.25 } }, // 机の椅子(stream-wipe.js と同じ位置)
-  kb: { stand: { x: -0.25, z: 6.3 }, yaw: 0 }, // 手前の壁に縦に立てかけたMIDIキーボードの前(壁のほう=+zを向く)。腕が伸びすぎないよう、近くに立つ
-  synth: { stand: { x: -0.95, z: 6.3 }, yaw: 0 }, // その横に立てかけた、大きなシンセの前
-  lamp: { stand: { x: -2.75, z: 4.89 }, yaw: -Math.PI / 2, target: { x: -3.4, y: 1.5, z: 5.35 } }, // 低い本棚の上のランプ(ソファのとなり)。左肩が、ランプの正面に来る位置
-  floor: { seat: { x: 0.2, z: 5.3 }, seatY: 0, yaw: Math.PI, front: { x: 0.2, z: 5.95 }, pickup: { x: 0.2, z: 5.35 }, synth: { x: 0.2, z: 4.62 } }, // 大きなシンセを床へ寝かせて、床に座って弾く場所(敷物の上)
-  table: { stand: { x: -2.2, z: 3.49 }, yaw: -Math.PI / 2, target: { x: -2.8, y: 0.6, z: 3.95 } }, // ソファの横のサイドテーブル(左肩が、テーブルの正面)
-  cupDesk: { stand: { x: 0.2, z: 1.97 }, yaw: Math.PI, target: { x: -0.26, y: 0.9, z: 1.24 } }, // 机の上のカップ
-  headsetDesk: { stand: { x: -2.0, z: 1.97 }, yaw: Math.PI, target: { x: -1.55, y: 0.92, z: 1.25 } }, // 机の上のヘッドセット(右肩が、ヘッドセットの正面)
-  // ---- v1.121: 2つ目のソファ(右の壁ぎわ・手前)・テレビデオ・ゲーム機・ビデオテープの山・ケトルベル ----
-  sofa2: { seat: { x: 2.95, z: 4.9 }, seatY: 0.45, yaw: -Math.PI / 2, front: { x: 2.0, z: 4.9 } }, // 右の壁ぎわ。-x(部屋の中)を向いて座る
-  tv: { seat: { x: 1.9, z: 0.25 }, seatY: 0, yaw: TV_YAW, front: { x: 1.4, z: 0.95 } }, // テレビの前の、床のクッション(床に座る)
-  tvDeck: { stand: { x: 2.6, z: -0.4 }, yaw: TV_YAW, target: { x: 3.07, y: 0.5, z: -1.04 } }, // テレビデオの、テープの差し込み口の前
-  vhsPile: { stand: { x: 2.1, z: -1.15 }, yaw: Math.PI, target: { x: 2.2, y: 0.15, z: -1.95 } }, // 床に積んだ、ビデオテープの山の前
-  console: { stand: { x: 2.3, z: -1.05 }, yaw: TV_YAW, target: { x: 2.78, y: 0.45, z: -1.66 }, padTarget: { x: 2.71, y: 0.42, z: -1.49 } }, // ゲーム機(台の上、左)と、そのコントローラ
-  kettle: { stand: { x: -0.95, z: -0.85 }, yaw: Math.PI, target: { x: -0.95, y: 0.14, z: -1.45 } }, // 窓の前の、運動用のマットと、ケトルベル(窓のほうを向いて、使う)
-};
+//   v1.122: 場所(SPOTS)と本棚(SHELVES)は、家具の定義表(room-layout.js)から導く。以前は、ここに、座標を直接書いていた。
+//   家具が動いた時(将来のドールハウス)は、makeLayout({ 家具のid: { x, z, ry } }) で作った layout を、planAction / tidy / route へ渡す。
+//   渡さなければ、既定の配置(DEFAULT_LAYOUT。ここの SPOTS / SHELVES と同じ)。
+export const SPOTS = DEFAULT_LAYOUT.spots;
 /** 本棚(stream-room.js の置き方と同じ)。front=前を向く向き(ry)。w=横幅。 */
-export const SHELVES = [
-  { id: 'R', x: 3.71, z: 1.6, ry: -Math.PI / 2, w: 3.6 }, // 右の壁の大きな本棚
-  { id: 'F1', x: -2.75, z: 6.83, ry: Math.PI, w: 1.5 }, // 手前の壁(ドアの左)
-  { id: 'F2', x: 3.0, z: 6.84, ry: Math.PI, w: 1.2 }, // 手前の壁(ドアの右)
-  { id: 'L', x: -3.43, z: 4.7, ry: Math.PI / 2, w: 2.4 }, // 左の壁の低い本棚(ソファのとなり)
-];
+export const SHELVES = DEFAULT_LAYOUT.shelves;
 export const SHELF_STAND = 0.82; // 棚の中心から、立つ場所までの距離(胴体の半径0.5+棚の奥行きの半分。腕が、伸びすぎない近さ)
 /** 本棚の前に立つ場所と、本棚のほうを向く向き。lateral=棚の横方向のずらし(-1〜1)。 */
 export function shelfStand(shelf, lateral = 0) {
@@ -100,24 +80,12 @@ export function shelfStand(shelf, lateral = 0) {
 // ---------------------------------------------------------------- 行動の計画
 const dist = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
 const same = (a, b) => dist(a, b) < 0.05;
-// 机の裏(窓がわ)は、机と椅子にふさがれている。出入りは、椅子の右側の通路(x=1.25)を通る(v1.121)
-const REAR = (p) => p.z < 1.0 && p.x < 0.9;
-const GATE = { x: 1.25, z: 1.0 }, REAR_EXIT = { x: 1.25, z: -0.6 };
-/** from → to の道すじ(途中の経由点つき)。近ければ、そのまま。 */
-export function route(from, to) {
-  const pts = [];
-  const fr = REAR(from), tr = REAR(to);
-  if (fr !== tr) { // 机の裏との出入り: 椅子の右側を通る
-    if (tr) { if (dist(from, SPOTS.hub) > 0.4 && dist(from, GATE) > 1.6) pts.push({ ...SPOTS.hub }); pts.push({ ...GATE }, { ...REAR_EXIT }); }
-    else { pts.push({ ...REAR_EXIT }, { ...GATE }); if (dist(to, GATE) > 1.6 && dist(to, SPOTS.hub) > 0.4) pts.push({ ...SPOTS.hub }); }
-    pts.push({ x: to.x, z: to.z }); return pts;
-  }
-  const direct = dist(from, to) < 1.6;
-  if (!direct) { if (dist(from, SPOTS.hub) > 0.4 && dist(to, SPOTS.hub) > 0.4) pts.push({ ...SPOTS.hub }); }
-  pts.push({ x: to.x, z: to.z });
-  return pts;
-}
-const walk = (from, to) => (same(from, to) ? null : { t: 'walk', path: route(from, to) });
+/**
+ * from → to の道すじ(途中の経由点つき)。近くても、遠くても、家具の足あと(layout.obstacles)をよけて、いちばん短い道を選ぶ(room-nav.js)。
+ * v1.122: 以前は、部屋の真ん中(hub)と、机の裏の出入口(椅子の右側 x=1.25)を、手で決めていた。
+ */
+export function route(from, to, layout = DEFAULT_LAYOUT) { return planRoute(from, to, layout.obstacles); }
+const walkIn = (from, to, layout) => (same(from, to) ? null : { t: 'walk', path: route(from, to, layout) });
 
 /**
  * いまの状態から、あとかたづけ(立つ・ものを元の場所へ戻す・ヘッドセットを外す)の手順を作る。
@@ -126,27 +94,28 @@ const walk = (from, to) => (same(from, to) ? null : { t: 'walk', path: route(fro
  * 戻り値 { steps, pos }(あとかたづけが終わった時の位置)
  */
 export function tidy(st, opt = {}) {
+  const L = opt.layout || DEFAULT_LAYOUT, S = L.spots, walk = (a, b) => walkIn(a, b, L); // v1.122: 場所は、layout(家具の定義表)から
   const steps = []; let pos = { x: st.x, z: st.z }; let carry = st.carry;
   const go = (to) => { const w = walk(pos, to); if (w) steps.push(w); pos = { x: to.x, z: to.z }; };
-  const putCup = (to) => { const sp = to === 'desk' ? SPOTS.cupDesk : SPOTS.table; go(sp.stand); steps.push({ t: 'face', yaw: sp.yaw }, { t: 'reach', target: sp.target }, { t: 'place', what: 'cup', at: to }); carry = null; };
-  const takeOffHeadset = () => { const sp = SPOTS.headsetDesk; go(sp.stand); steps.push({ t: 'face', yaw: sp.yaw }, { t: 'equip', on: false }, { t: 'place', what: 'headset', at: 'desk', target: sp.target }); };
+  const putCup = (to) => { const sp = to === 'desk' ? S.cupDesk : S.table; go(sp.stand); steps.push({ t: 'face', yaw: sp.yaw }, { t: 'reach', target: sp.target }, { t: 'place', what: 'cup', at: to }); carry = null; };
+  const takeOffHeadset = () => { const sp = S.headsetDesk; go(sp.stand); steps.push({ t: 'face', yaw: sp.yaw }, { t: 'equip', on: false }, { t: 'place', what: 'headset', at: 'desk', target: sp.target }); };
   if (st.seat) {
     steps.push({ t: 'stand', seat: st.seat });
-    pos = st.seat === 'sofa' ? { ...SPOTS.sofa.front } : st.seat === 'floor' ? { ...SPOTS.floor.front } : st.seat === 'tv' ? { ...SPOTS.tv.front } : st.seat === 'sofa2' ? { ...SPOTS.sofa2.front } : { ...SPOTS.chair.side };
-    if (st.seat === 'sofa' && carry === 'book') { steps.push({ t: 'face', yaw: -Math.PI / 2 }, { t: 'place', what: 'book', at: 'sofa' }); carry = null; } // ソファのほう(-x)を向いて、本を置く // 読んでいた本は、ソファの上へ
+    pos = st.seat === 'sofa' ? { ...S.sofa.front } : st.seat === 'floor' ? { ...S.floor.front } : st.seat === 'tv' ? { ...S.tv.front } : st.seat === 'sofa2' ? { ...S.sofa2.front } : { ...S.chair.side };
+    if (st.seat === 'sofa' && carry === 'book') { steps.push({ t: 'face', yaw: S.sofa.frontYaw }, { t: 'place', what: 'book', at: 'sofa' }); carry = null; } // ソファのほう(-x)を向いて、本を置く // 読んでいた本は、ソファの上へ
     if (st.seat === 'chair' && st.headset === 'head') takeOffHeadset();
     if (st.seat === 'floor' && st.synthAt === 'floor') { // 床のシンセを持ち上げて、壁へ立てかけ直す
-      go(SPOTS.floor.pickup); steps.push({ t: 'face', yaw: Math.PI }, { t: 'reach', target: { x: SPOTS.floor.synth.x, y: 0.2, z: SPOTS.floor.synth.z + 0.1 } }, { t: 'pick', what: 'synth', from: 'floor' }); carry = 'synth';
+      go(S.floor.pickup); steps.push({ t: 'face', yaw: S.floor.pickupYaw }, { t: 'reach', target: S.floor.synthReach }, { t: 'pick', what: 'synth', from: 'floor' }); carry = 'synth';
     }
   }
-  if (carry === 'pad') { const sp = SPOTS.console; go(sp.stand); steps.push({ t: 'face', yaw: sp.yaw }, { t: 'reach', target: sp.padTarget }, { t: 'place', what: 'pad', at: 'console' }); carry = null; } // コントローラは、ゲーム機のところへ戻す
-  if (carry === 'vhs') { const sp = SPOTS.vhsPile; go(sp.stand); steps.push({ t: 'face', yaw: sp.yaw }, { t: 'reach', target: sp.target }, { t: 'place', what: 'vhs', at: 'pile' }); carry = null; } // テープは、山へ戻す
-  if (carry === 'kettle') { const sp = SPOTS.kettle; go(sp.stand); steps.push({ t: 'face', yaw: sp.yaw }, { t: 'reach', target: sp.target }, { t: 'place', what: 'kettle', at: 'mat' }); carry = null; } // ケトルベルは、マットへ戻す
+  if (carry === 'pad') { const sp = S.console; go(sp.stand); steps.push({ t: 'face', yaw: sp.yaw }, { t: 'reach', target: sp.padTarget }, { t: 'place', what: 'pad', at: 'console' }); carry = null; } // コントローラは、ゲーム機のところへ戻す
+  if (carry === 'vhs') { const sp = S.vhsPile; go(sp.stand); steps.push({ t: 'face', yaw: sp.yaw }, { t: 'reach', target: sp.target }, { t: 'place', what: 'vhs', at: 'pile' }); carry = null; } // テープは、山へ戻す
+  if (carry === 'kettle') { const sp = S.kettle; go(sp.stand); steps.push({ t: 'face', yaw: sp.yaw }, { t: 'reach', target: sp.target }, { t: 'place', what: 'kettle', at: 'mat' }); carry = null; } // ケトルベルは、マットへ戻す
   if (carry === 'cup') putCup(opt.cupTo === 'desk' ? 'desk' : 'table');
-  if (carry === 'synth') { go(SPOTS.synth.stand); steps.push({ t: 'face', yaw: SPOTS.synth.yaw }, { t: 'place', what: 'synth', at: 'wall' }); carry = null; }
-  if (carry === 'kb') { go(SPOTS.kb.stand); steps.push({ t: 'face', yaw: SPOTS.kb.yaw }, { t: 'place', what: 'kb', at: 'wall' }); carry = null; }
-  if (carry === 'book') { go(SPOTS.sofa.front); steps.push({ t: 'face', yaw: -Math.PI / 2 }, { t: 'place', what: 'book', at: 'sofa' }); carry = null; } // 立ったまま持っている(途中)。ソファの上へ置きに行く
-  if (carry === 'headset') { const sp = SPOTS.headsetDesk; go(sp.stand); steps.push({ t: 'face', yaw: sp.yaw }, { t: 'place', what: 'headset', at: 'desk', target: sp.target }); carry = null; }
+  if (carry === 'synth') { go(S.synth.stand); steps.push({ t: 'face', yaw: S.synth.yaw }, { t: 'place', what: 'synth', at: 'wall' }); carry = null; }
+  if (carry === 'kb') { go(S.kb.stand); steps.push({ t: 'face', yaw: S.kb.yaw }, { t: 'place', what: 'kb', at: 'wall' }); carry = null; }
+  if (carry === 'book') { go(S.sofa.front); steps.push({ t: 'face', yaw: S.sofa.frontYaw }, { t: 'place', what: 'book', at: 'sofa' }); carry = null; } // 立ったまま持っている(途中)。ソファの上へ置きに行く
+  if (carry === 'headset') { const sp = S.headsetDesk; go(sp.stand); steps.push({ t: 'face', yaw: sp.yaw }, { t: 'place', what: 'headset', at: 'desk', target: sp.target }); carry = null; }
   if (!st.seat && st.headset === 'head') takeOffHeadset(); // 立ったまま着けている(途中)
   return { steps, pos };
 }
@@ -157,63 +126,64 @@ export function tidy(st, opt = {}) {
  * st = { x, z, seat, carry, launched }。手順の種類:
  *   walk{path} / face{yaw} / sit{seat} / stand{seat} / reach / pick{what} / place{what,at} / camera{view} / do{what,dur} / emit{event}
  */
-export function planAction(action, st, rand = Math.random) {
+export function planAction(action, st, rand = Math.random, layout = DEFAULT_LAYOUT) {
   if (!action) return [];
+  const L = layout, S = L.spots, walk = (a, b) => walkIn(a, b, L);
   if (action.type === 'monitor') {
     if (st.seat === 'chair') return [{ t: 'camera', view: 'monitor' }, { t: 'do', what: 'pc' }];
-    const td = tidy(st, { cupTo: 'desk' }); const steps = [...td.steps]; let pos = td.pos;
+    const td = tidy(st, { cupTo: 'desk', layout: L }); const steps = [...td.steps]; let pos = td.pos;
     const go = (to) => { const w = walk(pos, to); if (w) steps.push(w); pos = { x: to.x, z: to.z }; };
     if (st.cupAt === 'table' && st.carry !== 'cup') { // サイドテーブルのカップを、先に、机へ移す
-      go(SPOTS.table.stand); steps.push({ t: 'face', yaw: SPOTS.table.yaw }, { t: 'reach', target: SPOTS.table.target }, { t: 'pick', what: 'cup', from: 'table' });
-      go(SPOTS.cupDesk.stand); steps.push({ t: 'face', yaw: SPOTS.cupDesk.yaw }, { t: 'reach', target: SPOTS.cupDesk.target }, { t: 'place', what: 'cup', at: 'desk' });
+      go(S.table.stand); steps.push({ t: 'face', yaw: S.table.yaw }, { t: 'reach', target: S.table.target }, { t: 'pick', what: 'cup', from: 'table' });
+      go(S.cupDesk.stand); steps.push({ t: 'face', yaw: S.cupDesk.yaw }, { t: 'reach', target: S.cupDesk.target }, { t: 'place', what: 'cup', at: 'desk' });
     }
     if ((st.headset || 'desk') === 'desk') { // 机の上のヘッドセットを、頭にかけてから、座る
-      const sp = SPOTS.headsetDesk; go(sp.stand); steps.push({ t: 'face', yaw: sp.yaw }, { t: 'reach', target: sp.target }, { t: 'pick', what: 'headset', from: 'desk' }, { t: 'equip', on: true });
+      const sp = S.headsetDesk; go(sp.stand); steps.push({ t: 'face', yaw: sp.yaw }, { t: 'reach', target: sp.target }, { t: 'pick', what: 'headset', from: 'desk' }, { t: 'equip', on: true });
     }
-    go(SPOTS.chair.side);
+    go(S.chair.side);
     steps.push({ t: 'sit', seat: 'chair' }, { t: 'camera', view: 'monitor' }, { t: 'do', what: 'pc' });
     return steps;
   }
   if (action.type === 'cup') { // カップをクリック(または、読書中に飲みたくなる): カップを取って、ソファで飲む → サイドテーブルへ置く → (読書していたなら)本を取って再開
     if (st.carry === 'cup' && st.seat === 'sofa') return [];
     const resume = st.carry === 'book' && st.seat === 'sofa';
-    const td = tidy(st); const steps = [...td.steps]; let pos = td.pos;
+    const td = tidy(st, { layout: L }); const steps = [...td.steps]; let pos = td.pos;
     const go = (to) => { const w = walk(pos, to); if (w) steps.push(w); pos = { x: to.x, z: to.z }; };
-    const from = st.cupAt === 'table' ? 'table' : 'desk', sp = from === 'table' ? SPOTS.table : SPOTS.cupDesk;
+    const from = st.cupAt === 'table' ? 'table' : 'desk', sp = from === 'table' ? S.table : S.cupDesk;
     go(sp.stand); steps.push({ t: 'face', yaw: sp.yaw }, { t: 'reach', target: sp.target }, { t: 'pick', what: 'cup', from });
-    go(SPOTS.sofa.front); steps.push({ t: 'sit', seat: 'sofa' }, { t: 'do', what: 'drink', dur: DRINK_TOTAL(3) });
-    steps.push({ t: 'stand', seat: 'sofa' }); pos = { ...SPOTS.sofa.front }; go(SPOTS.table.stand);
-    steps.push({ t: 'face', yaw: SPOTS.table.yaw }, { t: 'reach', target: SPOTS.table.target }, { t: 'place', what: 'cup', at: 'table' }); go(SPOTS.sofa.front); steps.push({ t: 'sit', seat: 'sofa' });
-    if (resume) steps.push({ t: 'reach', target: { x: -2.95, y: 0.5, z: 2.1 } }, { t: 'pick', what: 'book', from: 'sofa', keep: true }, { t: 'do', what: 'read', dur: 40 + rand() * 40 });
+    go(S.sofa.front); steps.push({ t: 'sit', seat: 'sofa' }, { t: 'do', what: 'drink', dur: DRINK_TOTAL(3) });
+    steps.push({ t: 'stand', seat: 'sofa' }); pos = { ...S.sofa.front }; go(S.table.stand);
+    steps.push({ t: 'face', yaw: S.table.yaw }, { t: 'reach', target: S.table.target }, { t: 'place', what: 'cup', at: 'table' }); go(S.sofa.front); steps.push({ t: 'sit', seat: 'sofa' });
+    if (resume) steps.push({ t: 'reach', target: S.sofa.bookTarget }, { t: 'pick', what: 'book', from: 'sofa', keep: true }, { t: 'do', what: 'read', dur: 40 + rand() * 40 });
     return steps;
   }
   if (action.type === 'lamp') { // ランプのスイッチを入れる(入っていれば、切る)。そのあと、ソファへ
-    const td = tidy(st); const steps = [...td.steps]; let pos = td.pos;
-    const w = walk(pos, SPOTS.lamp.stand); if (w) steps.push(w); pos = { ...SPOTS.lamp.stand };
-    steps.push({ t: 'face', yaw: SPOTS.lamp.yaw }, { t: 'reach', target: SPOTS.lamp.target }, { t: 'toggle', what: 'lamp' });
-    const w2 = walk(pos, SPOTS.sofa.front); if (w2) steps.push(w2); steps.push({ t: 'sit', seat: 'sofa' }); return steps;
+    const td = tidy(st, { layout: L }); const steps = [...td.steps]; let pos = td.pos;
+    const w = walk(pos, S.lamp.stand); if (w) steps.push(w); pos = { ...S.lamp.stand };
+    steps.push({ t: 'face', yaw: S.lamp.yaw }, { t: 'reach', target: S.lamp.target }, { t: 'toggle', what: 'lamp' });
+    const w2 = walk(pos, S.sofa.front); if (w2) steps.push(w2); steps.push({ t: 'sit', seat: 'sofa' }); return steps;
   }
   if (action.type === 'synth') { // 大きなシンセ(14.2kg): 重そうに運んで、床へ寝かせ、床に座って弾く
     if (st.seat === 'floor' && st.synthAt === 'floor') return [];
-    const td = tidy(st); const steps = [...td.steps]; let pos = td.pos;
-    const w = walk(pos, SPOTS.synth.stand); if (w) steps.push(w); pos = { ...SPOTS.synth.stand };
-    steps.push({ t: 'face', yaw: SPOTS.synth.yaw }, { t: 'reach', target: { x: -0.95, y: 0.6, z: 6.85 } }, { t: 'pick', what: 'synth', from: 'wall' });
-    const w2 = walk(pos, SPOTS.floor.front); if (w2) steps.push({ ...w2, heavy: true });
+    const td = tidy(st, { layout: L }); const steps = [...td.steps]; let pos = td.pos;
+    const w = walk(pos, S.synth.stand); if (w) steps.push(w); pos = { ...S.synth.stand };
+    steps.push({ t: 'face', yaw: S.synth.yaw }, { t: 'reach', target: S.synth.reach }, { t: 'pick', what: 'synth', from: 'wall' });
+    const w2 = walk(pos, S.floor.front); if (w2) steps.push({ ...w2, heavy: true });
     steps.push({ t: 'sit', seat: 'floor' }, { t: 'do', what: 'floorplay', dur: 80 + rand() * 60 }); return steps;
   }
   if (action.type === 'keyboard') {
     if (st.carry === 'kb' && st.seat === 'sofa') return []; // もう弾いている
-    const td = tidy(st); const steps = [...td.steps]; let pos = td.pos;
-    const w = walk(pos, SPOTS.kb.stand); if (w) steps.push(w); pos = { ...SPOTS.kb.stand };
-    steps.push({ t: 'face', yaw: SPOTS.kb.yaw }, { t: 'reach' }, { t: 'pick', what: 'kb' });
-    const w2 = walk(pos, SPOTS.sofa.front); if (w2) steps.push(w2);
+    const td = tidy(st, { layout: L }); const steps = [...td.steps]; let pos = td.pos;
+    const w = walk(pos, S.kb.stand); if (w) steps.push(w); pos = { ...S.kb.stand };
+    steps.push({ t: 'face', yaw: S.kb.yaw }, { t: 'reach' }, { t: 'pick', what: 'kb' });
+    const w2 = walk(pos, S.sofa.front); if (w2) steps.push(w2);
     steps.push({ t: 'sit', seat: 'sofa' }, { t: 'do', what: 'play', dur: 90 + rand() * 60 });
     return steps;
   }
   const sitDown = (seat, extra) => { // 片づけてから、その席へ座る(extra=座ったあとの手順)
-    const td = tidy(st); const steps = [...td.steps]; let pos = td.pos;
+    const td = tidy(st, { layout: L }); const steps = [...td.steps]; let pos = td.pos;
     const go = (to) => { const w = walk(pos, to); if (w) steps.push(w); pos = { x: to.x, z: to.z }; };
-    return { steps, go, finish: () => { go(SPOTS[seat].front); steps.push({ t: 'sit', seat }, ...(extra || [])); return steps; } };
+    return { steps, go, finish: () => { go(S[seat].front); steps.push({ t: 'sit', seat }, ...(extra || [])); return steps; } };
   };
   if (action.type === 'sofa2') { // 2つ目のソファ(右の壁ぎわ)をクリック: 座ってくつろぐ
     if (st.seat === 'sofa2') return []; return sitDown('sofa2').finish();
@@ -224,45 +194,45 @@ export function planAction(action, st, rand = Math.random) {
   }
   if (action.type === 'vhs') { // ビデオテープの山をクリック: テープを1本取って、テレビデオに入れ替えて、座って、別の映画を見る
     const sd = sitDown('tv'); const steps = sd.steps; let at = null; const go = sd.go; void at;
-    go(SPOTS.vhsPile.stand); steps.push({ t: 'face', yaw: SPOTS.vhsPile.yaw }, { t: 'reach', target: SPOTS.vhsPile.target }, { t: 'pick', what: 'vhs', from: 'pile' });
-    go(SPOTS.tvDeck.stand); steps.push({ t: 'face', yaw: SPOTS.tvDeck.yaw }, { t: 'reach', target: SPOTS.tvDeck.target }, { t: 'place', what: 'vhs', at: 'deck' });
-    go(SPOTS.tv.front); steps.push({ t: 'sit', seat: 'tv' }, { t: 'do', what: 'watch', dur: 70 + rand() * 50 }); return steps;
+    go(S.vhsPile.stand); steps.push({ t: 'face', yaw: S.vhsPile.yaw }, { t: 'reach', target: S.vhsPile.target }, { t: 'pick', what: 'vhs', from: 'pile' });
+    go(S.tvDeck.stand); steps.push({ t: 'face', yaw: S.tvDeck.yaw }, { t: 'reach', target: S.tvDeck.target }, { t: 'place', what: 'vhs', at: 'deck' });
+    go(S.tv.front); steps.push({ t: 'sit', seat: 'tv' }, { t: 'do', what: 'watch', dur: 70 + rand() * 50 }); return steps;
   }
   if (action.type === 'console') { // ゲーム機(コントローラ)をクリック: コントローラを持って、テレビの前に座って、ゲームをする
     if (st.seat === 'tv' && st.carry === 'pad' && st.activity === 'game') return [];
     const sd = sitDown('tv'); const steps = sd.steps; const go = sd.go;
-    go(SPOTS.console.stand); steps.push({ t: 'face', yaw: SPOTS.console.yaw }, { t: 'reach', target: SPOTS.console.padTarget }, { t: 'pick', what: 'pad', from: 'console' });
-    go(SPOTS.tv.front); steps.push({ t: 'sit', seat: 'tv' }, { t: 'do', what: 'game', dur: 80 + rand() * 60 }); return steps;
+    go(S.console.stand); steps.push({ t: 'face', yaw: S.console.yaw }, { t: 'reach', target: S.console.padTarget }, { t: 'pick', what: 'pad', from: 'console' });
+    go(S.tv.front); steps.push({ t: 'sit', seat: 'tv' }, { t: 'do', what: 'game', dur: 80 + rand() * 60 }); return steps;
   }
   if (action.type === 'kettle') { // ケトルベルをクリック: 窓の前のマットで、ケトルベルを持ち上げて、筋トレ
     if (st.carry === 'kettle') return [];
-    const td = tidy(st); const steps = [...td.steps]; let pos = td.pos;
-    const w = walk(pos, SPOTS.kettle.stand); if (w) steps.push(w);
-    steps.push({ t: 'face', yaw: SPOTS.kettle.yaw }, { t: 'reach', target: SPOTS.kettle.target }, { t: 'pick', what: 'kettle', from: 'mat' }, { t: 'do', what: 'workout', dur: 34 + rand() * 24 },
-      { t: 'face', yaw: SPOTS.kettle.yaw }, { t: 'reach', target: SPOTS.kettle.target }, { t: 'place', what: 'kettle', at: 'mat' });
+    const td = tidy(st, { layout: L }); const steps = [...td.steps]; let pos = td.pos;
+    const w = walk(pos, S.kettle.stand); if (w) steps.push(w);
+    steps.push({ t: 'face', yaw: S.kettle.yaw }, { t: 'reach', target: S.kettle.target }, { t: 'pick', what: 'kettle', from: 'mat' }, { t: 'do', what: 'workout', dur: 34 + rand() * 24 },
+      { t: 'face', yaw: S.kettle.yaw }, { t: 'reach', target: S.kettle.target }, { t: 'place', what: 'kettle', at: 'mat' });
     return steps;
   }
   if (action.type === 'sofa') { // ソファをクリック: 座ってくつろぐ
     if (st.seat === 'sofa') return [];
-    const td = tidy(st); const steps = [...td.steps]; const w = walk(td.pos, SPOTS.sofa.front); if (w) steps.push(w);
+    const td = tidy(st, { layout: L }); const steps = [...td.steps]; const w = walk(td.pos, S.sofa.front); if (w) steps.push(w);
     steps.push({ t: 'sit', seat: 'sofa' }); return steps;
   }
   if (action.type === 'book') {
-    const shelf = SHELVES.find((s) => s.id === action.shelf) || SHELVES[0];
+    const shelf = L.shelves.find((s) => s.id === action.shelf) || L.shelves[0];
     const stand = shelfStand(shelf, rand() * 2 - 1);
     let steps = [], pos;
     if (st.carry === 'book') { // 読んでいる(持っている)本は、先に、この本棚へ戻す。そのあとで、別の本を取る
       pos = { x: st.x, z: st.z };
-      if (st.seat) { steps.push({ t: 'stand', seat: st.seat }); pos = st.seat === 'sofa' ? { ...SPOTS.sofa.front } : { ...SPOTS.chair.side }; }
+      if (st.seat) { steps.push({ t: 'stand', seat: st.seat }); pos = st.seat === 'sofa' ? { ...S.sofa.front } : { ...S.chair.side }; }
       const w0 = walk(pos, stand); if (w0) steps.push(w0); pos = { x: stand.x, z: stand.z };
       steps.push({ t: 'face', yaw: stand.yaw }, { t: 'place', what: 'book', at: 'shelf', shelf: shelf.id });
     } else {
-      const td = tidy(st); steps = [...td.steps]; pos = td.pos;
+      const td = tidy(st, { layout: L }); steps = [...td.steps]; pos = td.pos;
       const w = walk(pos, stand); if (w) steps.push(w); pos = { x: stand.x, z: stand.z };
       steps.push({ t: 'face', yaw: stand.yaw });
     }
     steps.push({ t: 'reach' }, { t: 'pick', what: 'book', shelf: shelf.id });
-    const w2 = walk(pos, SPOTS.sofa.front); if (w2) steps.push(w2);
+    const w2 = walk(pos, S.sofa.front); if (w2) steps.push(w2);
     steps.push({ t: 'sit', seat: 'sofa' }, { t: 'do', what: 'read', dur: 70 + rand() * 50 });
     return steps;
   }

@@ -6,7 +6,8 @@
 import * as THREE from 'three';
 import { createMidiKeyboard } from './midi-keyboard.js';
 
-export const ROOM = { x0: -3.6, x1: 3.9, z0: -2.3, z1: 7.0, h: 3.3 };
+import { ROOM } from '../room-layout.js';
+export { ROOM }; // v1.122: 部屋の広さの定義は、room-layout.js に1つだけ
 
 function rng(seed) { // 毎回、同じ並びになる乱数(プレビューと録画で、本の並びが違わないように)
   let a = seed >>> 0;

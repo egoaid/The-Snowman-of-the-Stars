@@ -14,7 +14,8 @@ import { buildStreamRoom, ROOM } from './stream-room.js';
 import { getSmoothGradientMap } from './shading.js';
 import { createTvScreen, FILM_COUNT, GAMES } from './tv-screen.js';
 import { WIPE_VIEWS, fitFov, OP_TUNE, clampView, cloneView } from './room-views.js';
-import { SPOTS, SHELVES, planAction, pathLength, pcSequence, pcTotal, drinkState, easeInOutCubic, smoothstep, clamp01, lerp, lerpAngle, angleDiff } from '../intro-room-core.js';
+import { DEFAULT_LAYOUT } from '../room-layout.js';
+import { planAction, pathLength, pcSequence, pcTotal, drinkState, easeInOutCubic, smoothstep, clamp01, lerp, lerpAngle, angleDiff } from '../intro-room-core.js';
 
 const MAX_DT = 0.1;
 const WALK_SPEED = 1.25, WALK_HEAVY = 0.55; // m/s(大きなシンセ 14.2kg を抱えている間は、ゆっくり)
@@ -24,6 +25,9 @@ const ATOMIC = new Set(['sit', 'stand', 'pick', 'place', 'equip', 'toggle']); //
 
 export function createIntroRoom(opts = {}) {
   const rand = opts.rand || Math.random;
+  const layout = opts.layout || DEFAULT_LAYOUT; // v1.122: 家具の置き場所・使う位置は、家具の定義表(room-layout.js)から。将来、ドールハウスで並べ替えた layout を渡す
+  const SPOTS = layout.spots, SHELVES = layout.shelves;
+  const placeAt = (obj, id, y = 0) => { const q = layout.byId[id].place; obj.position.set(q.x, y, q.z); obj.rotation.y = q.ry; return obj; }; // 家具(id)を、定義表の置き場所へ
   const audio = opts.audio || null; // 部屋の音(js/audio/room-audio.js)。無くても動く
   const sfx = (name, pos, data) => { if (audio) { try { audio.sfx(name, pos, data); } catch (e) { /* 音の失敗は、動きに影響させない */ } } };
   const nowFn = opts.nowFn || (() => new Date()); // 実時間(窓の外の空・時計)。試験では、差し替える
@@ -90,7 +94,7 @@ export function createIntroRoom(opts = {}) {
     for (const [lx, lz] of [[-0.9, -0.48], [0.9, -0.48], [-0.9, 0.48], [0.9, 0.48]]) box(0.07, 0.1, 0.07, darkMat, lx, 0.05, lz, sofa);
     const c1 = box(0.34, 0.34, 0.1, cush, -0.7, 0.66, -0.12, sofa); c1.rotation.set(-0.3, 0.2, 0.15); const c2 = box(0.3, 0.3, 0.1, cush2, 0.68, 0.64, -0.13, sofa); c2.rotation.set(-0.3, -0.25, -0.1); }
   return sofa; }
-  const sofa = makeSofa([0x5f7f72, 0x4d6a5e, 0xd2a05a, 0xc4604a]); sofa.position.set(-3.05, 0, 2.5); sofa.rotation.y = Math.PI / 2; scene.add(sofa);
+  const sofa = makeSofa([0x5f7f72, 0x4d6a5e, 0xd2a05a, 0xc4604a]); placeAt(sofa, 'sofa'); scene.add(sofa);
   tag(sofa, { type: 'sofa' }); pickRoots.push(sofa);
   // ソファのわきの、床置きの小さなランプ(くつろぐ場所の、暖かい明かり)
   { const g = new THREE.Group(); g.position.set(-3.4, 0, 0.35); scene.add(g); const base = new THREE.Mesh(keep(new THREE.CylinderGeometry(0.13, 0.15, 0.04, 12)), darkMat); base.position.y = 0.02; g.add(base);
@@ -98,17 +102,17 @@ export function createIntroRoom(opts = {}) {
     const sh = new THREE.Mesh(keep(new THREE.CylinderGeometry(0.13, 0.19, 0.24, 12, 1, true)), keep(new THREE.MeshBasicMaterial({ color: 0xffdca0, side: THREE.DoubleSide, toneMapped: false }))); sh.position.y = 1.32; g.add(sh); }
   const sofaLight = new THREE.PointLight(0xffc88a, 2.6, 5, 1.5); sofaLight.position.set(-3.0, 1.5, 1.2); scene.add(sofaLight);
   // サイドテーブル(ソファの、机がわの横)
-  const sideTable = createSideTable({ toon, keep }); sideTable.group.position.set(-2.95, 0, 3.95); scene.add(sideTable.group); // 低い本棚の前・ソファの端のとなり(v1.118: scene.add が、コメントの中に入っていて、テーブルが、シーンに入っていなかった)
+  const sideTable = createSideTable({ toon, keep }); placeAt(sideTable.group, 'sideTable'); scene.add(sideTable.group); // 低い本棚の前・ソファの端のとなり(v1.118: scene.add が、コメントの中に入っていて、テーブルが、シーンに入っていなかった)
   // ---- v1.121: 2つ目のソファ(右の壁ぎわ・手前)・テレビデオ・ゲーム機・ビデオテープの山・ケトルベル・運動マット ----
-  const sofa2 = makeSofa([0x7a5560, 0x634452, 0xe0c070, 0x5a8aa8]); sofa2.position.set(3.05, 0, 4.9); sofa2.rotation.y = -Math.PI / 2; scene.add(sofa2); tag(sofa2, { type: 'sofa2' }); pickRoots.push(sofa2);
+  const sofa2 = makeSofa([0x7a5560, 0x634452, 0xe0c070, 0x5a8aa8]); placeAt(sofa2, 'sofa2'); scene.add(sofa2); tag(sofa2, { type: 'sofa2' }); pickRoots.push(sofa2);
   const tvScreen = createTvScreen();
-  const tvStand = createTvStand({ toon, keep, screenTex: tvScreen.texture }); tvStand.group.position.set(3.15, 0, -1.4); tvStand.group.rotation.y = -0.66; scene.add(tvStand.group); // 奥の右の角に、斜めに(振り子時計の下あたり)
+  const tvStand = createTvStand({ toon, keep, screenTex: tvScreen.texture }); placeAt(tvStand.group, 'tvStand'); scene.add(tvStand.group); // 奥の右の角に、斜めに(振り子時計の下あたり)
   tag(tvStand.group, { type: 'tv' }); tag(tvStand.con, { type: 'console' }); pickRoots.push(tvStand.group);
   const tvLight = new THREE.PointLight(0x9fb8ff, 1.6, 4.4, 1.7); tvLight.position.set(2.6, 0.85, -0.4); scene.add(tvLight); // 画面の色の、部屋への映り込み
   const cushion = createFloorCushion({ toon, keep }).group; cushion.position.set(SPOTS.tv.seat.x, 0, SPOTS.tv.seat.z); scene.add(cushion);
   const exMat = createExerciseMat({ toon, keep }).group; exMat.position.set(SPOTS.kettle.target.x, 0, SPOTS.kettle.target.z + 0.25); scene.add(exMat);
-  const kettle = createKettlebell({ toon, keep }); kettle.group.position.set(SPOTS.kettle.target.x, 0.014, SPOTS.kettle.target.z); scene.add(kettle.group); tag(kettle.group, { type: 'kettle' }); pickRoots.push(kettle.group);
-  const vhsPile = createVhsPile({ toon, keep, rand }); vhsPile.group.position.set(2.2, 0, -1.95); vhsPile.group.rotation.y = 0.4; scene.add(vhsPile.group); tag(vhsPile.group, { type: 'vhs' }); pickRoots.push(vhsPile.group);
+  const kettle = createKettlebell({ toon, keep }); placeAt(kettle.group, 'kettle', 0.014); scene.add(kettle.group); tag(kettle.group, { type: 'kettle' }); pickRoots.push(kettle.group);
+  const vhsPile = createVhsPile({ toon, keep, rand }); placeAt(vhsPile.group, 'vhsPile'); scene.add(vhsPile.group); tag(vhsPile.group, { type: 'vhs' }); pickRoots.push(vhsPile.group);
   const tapeObj = createVhsTape({ toon, keep, color: 0xe8d070 }); const tape = tapeObj.group; tape.visible = false; scene.add(tape); // 手に持つ、1本のテープ
   const padA = createGamePad({ toon, keep }).group, padB = createGamePad({ toon, keep }).group; // padA=雪だるまが使う / padB=ゲーム機のそばに置いたまま
   for (const [pad, h] of [[padA, tvStand.padHome], [padB, tvStand.padHomeB]]) { pad.position.set(h.x, h.y, h.z); pad.rotation.y = h.ry; tvStand.group.add(pad); tag(pad, { type: 'console' }); }
@@ -170,8 +174,8 @@ export function createIntroRoom(opts = {}) {
     obj.rotation.order = 'YXZ'; obj.rotation.set(0, -Math.PI / 2, Math.PI / 2); obj.position.set(0, halfLen + 0.012, 0); pivot.add(obj); return { stand, pivot };
   }
   const midi = createMidiKeyboard(); const kbObj = midi.group; // 実寸(長さ0.66m)のまま。もとの1.45倍には、しない
-  const kbLean = leanOnWall(kbObj, -0.25, 0.33, 0.1); tag(kbObj, { type: 'keyboard' }); pickRoots.push(kbObj);
-  const bigSynth = createBigSynth({ keep }); const synthLean = leanOnWall(bigSynth.group, -0.95, 0.509, 0.09); // タグは、行動(運ぶ・床で弾く)を作る次の版で付ける
+  const kbLean = leanOnWall(kbObj, layout.byId.kb.place.x, 0.33, 0.1); tag(kbObj, { type: 'keyboard' }); pickRoots.push(kbObj);
+  const bigSynth = createBigSynth({ keep }); const synthLean = leanOnWall(bigSynth.group, layout.byId.synth.place.x, 0.509, 0.09); // タグは、行動(運ぶ・床で弾く)を作る次の版で付ける
   const kbHome = { parent: kbLean.pivot, pos: kbObj.position.clone(), rot: kbObj.rotation.clone(), scale: kbObj.scale.clone() };
   { const fl = new THREE.Mesh(keep(new THREE.PlaneGeometry(1.5, 0.35)), keep(new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.2, depthWrite: false }))); fl.rotation.x = -Math.PI / 2; fl.position.set(-0.6, 0.013, ROOM.z1 - 0.2); scene.add(fl); } // 足もとの影
   const synthHome = { parent: synthLean.pivot, pos: bigSynth.group.position.clone(), rot: bigSynth.group.rotation.clone(), scale: bigSynth.group.scale.clone() };
@@ -179,7 +183,7 @@ export function createIntroRoom(opts = {}) {
   scene.updateMatrixWorld(true);
   const kbHomeWorld = kbObj.getWorldPosition(new THREE.Vector3());
   // ---- 低い本棚(ソファのとなり)の上の、ジャックオーランタンの小型ランプ(ゲームの中と同じ顔。はじめは、電源オフ) ----
-  const lamp = createLampPumpkin({ keep, radius: 0.11 }); lamp.group.position.set(-3.4, 1.51, 5.35); lamp.group.rotation.y = Math.PI / 2; scene.add(lamp.group); // v1.118: 顔は、部屋の中(+x。本棚の正面)を向く(以前は、+zの壁を向いて、横顔に見えていた)
+  const lamp = createLampPumpkin({ keep, radius: 0.11 }); placeAt(lamp.group, 'lampPumpkin', 1.51); scene.add(lamp.group); // v1.118: 顔は、部屋の中(+x。本棚の正面)を向く(以前は、+zの壁を向いて、横顔に見えていた)
   { const m = new THREE.Mesh(keep(new THREE.SphereGeometry(0.2, 8, 6)), keep(new THREE.MeshBasicMaterial({ visible: false }))); m.visible = false; m.position.y = 0.12; lamp.group.add(m); tag(lamp.group, { type: 'lamp' }); pickRoots.push(lamp.group); }
   const lampLightPt = new THREE.PointLight(0xffa640, 0, 7, 1.8); lampLightPt.position.set(-3.3, 1.7, 5.35); scene.add(lampLightPt);
   // ---- 壁の振り子時計(実時間。音は鳴らさない) ----
@@ -353,7 +357,7 @@ export function createIntroRoom(opts = {}) {
   const synthFloorPose = () => ({ p: new V3(SPOTS.floor.synth.x, 0.0, SPOTS.floor.synth.z), q: new Q4(), sc: ONE.clone() }); // 床に寝かせる(鍵盤は上)
   const headPose = () => localPose(snow.headGroup, new V3(), Q0, ONE);
   const handPose = (hscale = 0.45) => localPose(snow.itemSocket, new V3(0, 0.02, 0.08), Q0, new V3(hscale, hscale, hscale));
-  const cupRestPose = () => ({ p: CUP_REST.clone(), yaw: faceYaw }), tableCupPose = () => ({ p: new V3(-2.95, 0.55, 3.95), yaw: Math.PI / 2 });
+  const cupRestPose = () => ({ p: CUP_REST.clone(), yaw: faceYaw }), tableCupPose = () => { const q = layout.byId.sideTable.place; return { p: new V3(q.x, 0.55, q.z), yaw: Math.PI / 2 + q.ry }; }; // v1.122: サイドテーブルの置き場所について行く
   const synthEnds = () => [bigSynth.group.localToWorld(new V3(0.42, 0.07, 0.05)), bigSynth.group.localToWorld(new V3(-0.42, 0.07, 0.05))];
   const cupHoldPos = () => { const f = fwdV(), mx = modelX(); return new V3(me.x + f.x * 0.55 + mx.x * 0.25, me.y + 0.78 - 0.23 * me.sitK, me.z + f.z * 0.55 + mx.z * 0.25); }; // 手に持った(飲まない時の)カップの位置
   const DUR = { cup: 0.6, headset: 0.7, synth: 1.9, book: 0.55, kb: 0.55, vhs: 0.7, pad: 0.7, kettle: 0.85 };
@@ -405,7 +409,7 @@ export function createIntroRoom(opts = {}) {
       case 'pick': {
         const what = s.what;
         if (what === 'kb') armTgt.L = armTgt.R = kbHomeWorld.clone().add(new V3(0, 0.2, -0.05));
-        else if (what === 'book' && s.from === 'sofa') { const tv = new V3(-2.95, 0.5, 2.1); armTgt[armFor(tv)] = tv; }
+        else if (what === 'book' && s.from === 'sofa') { const bt = SPOTS.sofa.bookTarget, tv = new V3(bt.x, bt.y, bt.z); armTgt[armFor(tv)] = tv; }
         else if (what === 'book') armTgt.R = reachTarget({ what: 'book', shelf: s.shelf });
         else if (what === 'cup') { const sp = s.from === 'table' ? tableCupPose() : cupRestPose(); armTgt.L = sp.p.clone().add(gripV()); }
         else if (what === 'headset') armTgt.R = s.p0.p.clone();
@@ -454,7 +458,7 @@ export function createIntroRoom(opts = {}) {
           s.done = true;
           if (what === 'kb') { kbHome.parent.add(kbObj); kbObj.position.copy(kbHome.pos); kbObj.rotation.copy(kbHome.rot); kbObj.scale.copy(kbHome.scale); }
           else if (what === 'book' && s.at === 'shelf') { book.visible = false; bookObj.setOpen(false); } // 本棚へ戻した
-          else if (what === 'book') { scene.add(book); bookObj.setOpen(false); book.position.set(-2.95, 0.452, 2.05 + (rand() - 0.5) * 0.3); book.rotation.set(0, 0.6 + rand() * 0.5, 0); book.scale.setScalar(1); book.visible = true; }
+          else if (what === 'book') { scene.add(book); bookObj.setOpen(false); { const br = SPOTS.sofa.bookRest, sry = layout.byId.sofa.place.ry, jit = (rand() - 0.5) * 0.3, ax = Math.sin(sry - Math.PI / 2), az = Math.cos(sry - Math.PI / 2); book.position.set(br.x + ax * jit, br.y, br.z + az * jit); book.rotation.set(0, 0.6 + rand() * 0.5 + (sry - Math.PI / 2), 0); } book.scale.setScalar(1); book.visible = true; } // v1.122: 本の置き場所は、ソファの置き場所について行く(ソファの幅の向きに、ばらつかせる)
           else if (what === 'cup') { world.cupAt = s.at; cup.root.position.copy(s.spot.p); cup.root.rotation.y = s.spot.yaw; }
           else if (what === 'synth') { synthHome.parent.add(bigSynth.group); bigSynth.group.position.copy(synthHome.pos); bigSynth.group.rotation.copy(synthHome.rot); bigSynth.group.scale.copy(synthHome.scale); world.synthAt = 'wall'; }
           else if (what === 'headset') { scene.add(headset.group); headset.group.position.copy(headsetRest.p); headset.group.quaternion.copy(headsetRest.q); headset.group.scale.copy(headsetRest.sc); world.headset = 'desk'; }
@@ -488,7 +492,7 @@ export function createIntroRoom(opts = {}) {
   }
   const lerpV = (a, b, k, lift = 0) => { const p = a.clone().lerp(b, k); p.y += lift * Math.sin(Math.PI * k); return p; };
   function advance(dt) {
-    if (!curStep && pending) { const a = pending; pending = null; setQueue(planAction(a, stateNow(), rand)); }
+    if (!curStep && pending) { const a = pending; pending = null; setQueue(planAction(a, stateNow(), rand, layout)); }
     if (!curStep && queue.length) begin(queue.shift());
     if (curStep) runStep(dt);
     if (!curStep && queue.length) begin(queue.shift()); // 手順の切れ目で、動きが止まらないように
@@ -732,7 +736,7 @@ export function createIntroRoom(opts = {}) {
       let action = p;
       if (p.type === 'sofa') { if (me.seat === 'sofa' && !curStep && !queue.length) return; action = { type: 'sofa' }; }
       if (curStep && ATOMIC.has(curStep.t)) { pending = action; queue = []; return; } // 立つ・座る・取る・置く の途中は、終わってから
-      const steps = planAction(action, stateNow(), rand);
+      const steps = planAction(action, stateNow(), rand, layout);
       if (!steps.length) return;
       if (curStep && curStep.t === 'do' && curStep.what !== 'pc') me.activity = 'idle';
       cam.locked = false; setQueue(steps); pending = null;
@@ -757,7 +761,7 @@ export function createIntroRoom(opts = {}) {
     isBusy: () => !!curStep || queue.length > 0,
     /** カメラが、いま、決まった画角に固定されているか(モニターの場面)。 */
     isCameraLocked: () => cam.locked,
-    debug: { tvScreen, tvStand, padA, padB, kettle, tape, vhsPile, sofa2, OBJ, get wipeView() { return wipeView; }, getCameraView, get player() { return player; }, handNote, audio, world, ikErr, pcOp, pcDrink, synthHome, headsetRest, pickAt, setView, city, clock, bookObj, sideTable, bigSynth, lamp, lampLightPt, midi, headset, mixer, cup, nowFn, kbObj, book, kbHome, screenState, get launchedFlag() { return launched; }, get stepInfo() { return curStep && { t: curStep.t, what: curStep.what, at: curStep.at, from: curStep.from }; }, get queue() { return queue.map((s) => s.t); }, get step() { return curStep && curStep.t; }, cam, SHELVES, pathLength },
+    debug: { layout, tvScreen, tvStand, padA, padB, kettle, tape, vhsPile, sofa2, OBJ, get wipeView() { return wipeView; }, getCameraView, get player() { return player; }, handNote, audio, world, ikErr, pcOp, pcDrink, synthHome, headsetRest, pickAt, setView, city, clock, bookObj, sideTable, bigSynth, lamp, lampLightPt, midi, headset, mixer, cup, nowFn, kbObj, book, kbHome, screenState, get launchedFlag() { return launched; }, get stepInfo() { return curStep && { t: curStep.t, what: curStep.what, at: curStep.at, from: curStep.from }; }, get queue() { return queue.map((s) => s.t); }, get step() { return curStep && curStep.t; }, cam, SHELVES, pathLength },
     dispose() {
       if (player) { player.stop(); player = null; }
       try { scene.traverse((o) => { if (o.geometry) o.geometry.dispose(); }); for (const x of owned) if (x && x.dispose) x.dispose(); renderer.dispose(); renderer.forceContextLoss(); } catch (e) { /* もう、捨てられている */ }
