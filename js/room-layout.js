@@ -4,6 +4,8 @@
 //   ・将来(ドールハウスで、ユーザーが家具を動かす時): makeLayout({ sofa: { x, z, ry } }) のように、置き場所だけを渡せば、
 //     使う位置・向き・足あと(障害物)が、家具といっしょに、動く。経路(room-nav.js)と行動の計画(intro-room-core.js)は、その layout を使う。
 //   ・「spots」の数字は、既定の置き場所での、世界座標。置き場所が動くと、家具との相対位置を保ったまま、まるごと動く(移動+回転)。
+//   v1.123: 家具には、「初期から部屋にある物(core)」と「地形から回収して、Dollhouseで置く物」がある。置いてある物だけで、レイアウトを作れる
+//   (makeLayout の opts.only)。置いていない家具は、使う位置も、足あとも、行動も、無い。置く・外すの記録は、room-state.js。
 //   座標: x=右, z=手前(奥の窓の壁が z=-2.3)。単位 m。ry=three.js の rotation.y(正面の向きは (sin ry, cos ry))。yaw も同じ向き。
 
 export const ROOM = { x0: -3.6, x1: 3.9, z0: -2.3, z1: 7.0, h: 3.3 }; // 部屋の広さ(m)。stream-room.js も、これを使う
@@ -16,6 +18,8 @@ const PI = Math.PI;
  * 既定の家具。
  *   id / place {x,z,ry} / foot {ox,oz,hw,hd}(家具の局所座標。hw=局所xの半分の幅・hd=局所zの半分の奥行き。low=true は、またげる低い物で、障害物にしない)
  *   spots {名前: 位置} / shelf {id,w}(本棚)
+ *   core=true: 初期から部屋にある物(デスク一式。外せない)。movable=false: 置き場所を、まだ動かせない(机まわりの小物が、椅子・机の位置から、決められているため)。
+ *   attachedTo='desk': 机の上の小物(位置は、机・椅子に対して決まる。場所は、動かせない)。
  * 足あとは、実際の3Dの大きさ(Box3)から取った(verify_roomlayout.mjs が、実物とのずれを調べる)。
  */
 export const FURNITURE = [
@@ -23,12 +27,12 @@ export const FURNITURE = [
     spots: { sofa: { seat: { x: -2.95, z: 2.5 }, seatY: 0.45, yaw: PI / 2, front: { x: -2.0, z: 2.5 }, frontYaw: -PI / 2, bookTarget: { x: -2.95, y: 0.5, z: 2.1 }, bookRest: { x: -2.95, y: 0.452, z: 2.05 } } } },
   { id: 'sofa2', place: { x: 3.05, z: 4.9, ry: -PI / 2 }, foot: { ox: 0, oz: 0, hw: 1.0, hd: 0.55 },
     spots: { sofa2: { seat: { x: 2.95, z: 4.9 }, seatY: 0.45, yaw: -PI / 2, front: { x: 2.0, z: 4.9 } } } },
-  { id: 'desk', place: { x: -1.1, z: 0.75, ry: 0 }, foot: { ox: 0, oz: 0, hw: 1.0, hd: 0.7 },
+  { id: 'desk', core: true, movable: false, place: { x: -1.1, z: 0.75, ry: 0 }, foot: { ox: 0, oz: 0, hw: 1.0, hd: 0.7 },
     spots: {
       cupDesk: { stand: { x: 0.2, z: 1.97 }, yaw: PI, target: { x: -0.26, y: 0.9, z: 1.24 } },
       headsetDesk: { stand: { x: -2.0, z: 1.97 }, yaw: PI, target: { x: -1.55, y: 0.92, z: 1.25 } },
     } },
-  { id: 'chair', place: { x: 0.4, z: 0.35, ry: FACE_YAW }, foot: { ox: 0, oz: 0, hw: 0.45, hd: 0.45 },
+  { id: 'chair', core: true, movable: false, place: { x: 0.4, z: 0.35, ry: FACE_YAW }, foot: { ox: 0, oz: 0, hw: 0.45, hd: 0.45 },
     spots: { chair: { seat: { x: 0.4, z: 0.35 }, seatY: 0.42, yaw: FACE_YAW, side: { x: 0.71, z: 1.25 } } } },
   { id: 'sideTable', place: { x: -2.95, z: 3.95, ry: 0 }, foot: { ox: 0, oz: 0, hw: 0.27, hd: 0.27 },
     spots: { table: { stand: { x: -2.2, z: 3.49 }, yaw: -PI / 2, target: { x: -2.8, y: 0.6, z: 3.95 } } } },
@@ -51,6 +55,15 @@ export const FURNITURE = [
     spots: { vhsPile: { stand: { x: 2.1, z: -1.15 }, yaw: PI, target: { x: 2.2, y: 0.15, z: -1.95 } } } },
   { id: 'kettle', place: { x: -0.95, z: -1.45, ry: 0 }, foot: { ox: 0, oz: 0, hw: 0.11, hd: 0.11 }, // 窓の前の、運動用のマットと、ケトルベル
     spots: { kettle: { stand: { x: -0.95, z: -0.85 }, yaw: PI, target: { x: -0.95, y: 0.14, z: -1.45 } } } },
+  // ---- 机の上の小物(回収して、置く物。机・椅子に対して位置が決まるので、場所は、まだ動かせない) ----
+  { id: 'cup', attachedTo: 'desk', movable: false, place: { x: -0.26, z: 1.24, ry: 0 } }, // コーヒーカップ
+  { id: 'headset', attachedTo: 'desk', movable: false, place: { x: -1.55, z: 1.25, ry: 0 } }, // ヘッドホン(ヘッドセット)
+  { id: 'mixer', attachedTo: 'desk', movable: false, place: { x: -0.8, z: 1.22, ry: 0.15 } }, // 小型ミキサー
+  { id: 'mic', attachedTo: 'desk', movable: false, place: { x: 0.05, z: 1.5, ry: 0 } }, // 卓上マイク
+  // ---- 見た目だけの物(行動には使わない) ----
+  { id: 'clock', place: { x: 2.6, z: -2.3, ry: 0 } }, // 壁の振り子時計(奥の右の壁)
+  { id: 'rugRound', place: { x: 0.1, z: 0.35, ry: 0 } }, // 机の下の、丸い敷物
+  { id: 'floorLampR', place: { x: 3.5, z: 4.9, ry: 0 }, foot: { ox: 0, oz: 0, hw: 0.2, hd: 0.2 } }, // 右手前の、床置きのスタンド
   // ---- 本棚(壁ぎわ)。w=横幅、d=奥行き(stream-room.js の makeBookshelf と同じ) ----
   { id: 'shelfR', place: { x: 3.71, z: 1.6, ry: -PI / 2 }, shelf: { id: 'R', w: 3.6 }, foot: { ox: 0, oz: 0, hw: 1.8, hd: 0.19 } }, // 右の壁の大きな本棚
   { id: 'shelfF1', place: { x: -2.75, z: 6.83, ry: PI }, shelf: { id: 'F1', w: 1.5 }, foot: { ox: 0, oz: 0, hw: 0.75, hd: 0.17 } }, // 手前の壁(ドアの左)
@@ -84,15 +97,23 @@ function moveSpot(o, p0, p1) {
   return out;
 }
 const samePlace = (a, b) => a.x === b.x && a.z === b.z && a.ry === b.ry;
+/** 家具が p0 から p1 へ動いた時に、その家具に付いている点(世界の x,z。家具の明かり・敷物など)が、動く先。置き場所が同じなら、そのまま。 */
+export function rigidMove(pt, p0, p1) {
+  if (samePlace(p0, p1)) return { x: pt.x, z: pt.z };
+  const [rx, rz] = rotY(pt.x - p0.x, pt.z - p0.z, p1.ry - p0.ry); return { x: p1.x + rx, z: p1.z + rz };
+}
 
 /**
  * 家具の置き場所を決めて、レイアウトを作る。
  * placements = { 家具のid: { x?, z?, ry? } }(書かなかった家具は、既定の場所)。
+ * opts.only = 置いてある家具のid(配列・Set)。指定すると、それ以外の家具は、レイアウトに入らない(使う位置も、足あとも、無い)。省くと、全部。
  * 戻り値: { furniture[{id,place,foot,w?,spots}], byId, spots(名前→位置), shelves[{id,x,z,ry,w}], obstacles[{id,cx,cz,hw,hd,ry}] }
  */
-export function makeLayout(placements = {}) {
+export function makeLayout(placements = {}, opts = {}) {
   const furniture = [], spots = { hub: { ...HUB } }, shelves = [], obstacles = [], byId = {};
+  const only = opts.only ? new Set(opts.only) : null;
   for (const f of FURNITURE) {
+    if (only && !only.has(f.id)) continue;
     const p0 = f.place, p1 = placements[f.id] ? { ...p0, ...placements[f.id] } : { ...p0 }, moved = !samePlace(p0, p1);
     const mySpots = {};
     for (const [name, sp] of Object.entries(f.spots || {})) { mySpots[name] = moved ? moveSpot(sp, p0, p1) : clone(sp); spots[name] = mySpots[name]; }
@@ -105,3 +126,7 @@ export function makeLayout(placements = {}) {
 }
 
 export const DEFAULT_LAYOUT = makeLayout();
+/** 初期から部屋にある家具のid(外せない)。 */
+export const CORE_IDS = FURNITURE.filter((f) => f.core).map((f) => f.id);
+/** 家具のid → 定義(既定の置き場所つき)。 */
+export const FURNITURE_BY_ID = Object.fromEntries(FURNITURE.map((f) => [f.id, f]));

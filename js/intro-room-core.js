@@ -121,23 +121,43 @@ export function tidy(st, opt = {}) {
 }
 
 /**
+ * v1.123: 行動が成り立つのに、部屋に置いてある必要がある家具(room-layout.js の id)。ぜんぶ、置いてある時だけ、その行動を選べる。
+ * (book は、本棚のどれか1つ + ソファ。)置いていない家具を使う行動は、計画が、空になる(部屋は、何もしない)。
+ * 将来の新しい行動は、ここに「必要な家具」を足す。monitor(パソコン)は、デスク一式(初期から、ある)だけで成り立つ。
+ */
+export const ACTION_NEEDS = {
+  monitor: [], sofa: ['sofa'], sofa2: ['sofa2'], lamp: ['lampPumpkin'], keyboard: ['kb', 'sofa'], synth: ['synth', 'floorRug'],
+  cup: ['cup', 'sideTable', 'sofa'], kettle: ['kettle'], tv: ['tvStand', 'tvCushion'], vhs: ['tvStand', 'tvCushion', 'vhsPile'], console: ['tvStand', 'tvCushion'],
+  book: ['sofa'],
+};
+const SHELF_IDS = ['shelfR', 'shelfF1', 'shelfF2', 'shelfL'];
+/** この layout で、その行動を計画できるか(必要な家具が、ぜんぶ置いてあるか)。 */
+export function canPlan(action, layout = DEFAULT_LAYOUT) {
+  if (!action || !(action.type in ACTION_NEEDS)) return false;
+  if (!ACTION_NEEDS[action.type].every((id) => layout.byId[id])) return false;
+  return action.type !== 'book' || SHELF_IDS.some((id) => layout.byId[id]);
+}
+/** この layout で、選べる行動の種類(ACTION_NEEDS の名前)。 */
+export function availableActions(layout = DEFAULT_LAYOUT) { return Object.keys(ACTION_NEEDS).filter((type) => canPlan({ type }, layout)); }
+
+/**
  * クリックされたものに応じた、一連の手順。
  * action = { type: 'book', shelf: 'R'|'F1'|'F2'|'L' } | { type: 'keyboard' } | { type: 'monitor' } | { type: 'sofa' }
  * st = { x, z, seat, carry, launched }。手順の種類:
  *   walk{path} / face{yaw} / sit{seat} / stand{seat} / reach / pick{what} / place{what,at} / camera{view} / do{what,dur} / emit{event}
  */
 export function planAction(action, st, rand = Math.random, layout = DEFAULT_LAYOUT) {
-  if (!action) return [];
+  if (!action || !canPlan(action, layout)) return []; // v1.123: 必要な家具が、置いていなければ、何もしない
   const L = layout, S = L.spots, walk = (a, b) => walkIn(a, b, L);
   if (action.type === 'monitor') {
     if (st.seat === 'chair') return [{ t: 'camera', view: 'monitor' }, { t: 'do', what: 'pc' }];
     const td = tidy(st, { cupTo: 'desk', layout: L }); const steps = [...td.steps]; let pos = td.pos;
     const go = (to) => { const w = walk(pos, to); if (w) steps.push(w); pos = { x: to.x, z: to.z }; };
-    if (st.cupAt === 'table' && st.carry !== 'cup') { // サイドテーブルのカップを、先に、机へ移す
+    if (st.cupAt === 'table' && st.carry !== 'cup' && L.byId.cup && L.byId.sideTable) { // サイドテーブルのカップを、先に、机へ移す
       go(S.table.stand); steps.push({ t: 'face', yaw: S.table.yaw }, { t: 'reach', target: S.table.target }, { t: 'pick', what: 'cup', from: 'table' });
       go(S.cupDesk.stand); steps.push({ t: 'face', yaw: S.cupDesk.yaw }, { t: 'reach', target: S.cupDesk.target }, { t: 'place', what: 'cup', at: 'desk' });
     }
-    if ((st.headset || 'desk') === 'desk') { // 机の上のヘッドセットを、頭にかけてから、座る
+    if ((st.headset || 'desk') === 'desk' && L.byId.headset) { // 机の上のヘッドセットを、頭にかけてから、座る
       const sp = S.headsetDesk; go(sp.stand); steps.push({ t: 'face', yaw: sp.yaw }, { t: 'reach', target: sp.target }, { t: 'pick', what: 'headset', from: 'desk' }, { t: 'equip', on: true });
     }
     go(S.chair.side);
@@ -161,7 +181,8 @@ export function planAction(action, st, rand = Math.random, layout = DEFAULT_LAYO
     const td = tidy(st, { layout: L }); const steps = [...td.steps]; let pos = td.pos;
     const w = walk(pos, S.lamp.stand); if (w) steps.push(w); pos = { ...S.lamp.stand };
     steps.push({ t: 'face', yaw: S.lamp.yaw }, { t: 'reach', target: S.lamp.target }, { t: 'toggle', what: 'lamp' });
-    const w2 = walk(pos, S.sofa.front); if (w2) steps.push(w2); steps.push({ t: 'sit', seat: 'sofa' }); return steps;
+    if (S.sofa) { const w2 = walk(pos, S.sofa.front); if (w2) steps.push(w2); steps.push({ t: 'sit', seat: 'sofa' }); } // ソファが、あれば、座る
+    return steps;
   }
   if (action.type === 'synth') { // 大きなシンセ(14.2kg): 重そうに運んで、床へ寝かせ、床に座って弾く
     if (st.seat === 'floor' && st.synthAt === 'floor') return [];

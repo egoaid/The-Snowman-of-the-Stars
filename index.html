@@ -646,6 +646,7 @@ import { normalizeWipe, wipeLayout } from './js/video-recorder-core.js'; // v1.1
 import { formatElapsed, formatBytes } from './js/video-recorder-core.js';
 import { createIntroLayer } from './js/intro-layer.js'; // v1.113: 起動の「部屋の演出」(部屋が全画面で始まり、ゲームへ入ると右下のワイプになる)
 import { createIntroRoom } from './js/visual3d/intro-room.js';
+import { resolveRoomSet, layoutFromState } from './js/room-state.js'; // v1.123: 部屋の状態(どの家具が、置いてあるか)
 import { createRoomAudio } from './js/audio/room-audio.js'; // v1.116: 部屋の音(環境音・効果音・ピアノ・4オペFMブラス)
 import { createMidiInput } from './js/music/midi-input.js'; // v1.104: 外部MIDIキーボード(設置した3Dキーボードを弾く)
 
@@ -663,10 +664,13 @@ import { createMidiInput } from './js/music/midi-input.js'; // v1.104: 外部MID
     // v1.113: 起動の「部屋の演出」。ほかの入力の受け口より先に作る(部屋が全画面の間、ゲームへキーを渡さないため)。作れなくても、ゲームには影響しない
     const roomAudio = createRoomAudio(); // ゲーム本編と同じ AudioContext・バスにつなぐ(録画にも入る)。最初の操作まで、音は出さない
     { const unlock = () => roomAudio.unlock(); window.addEventListener('pointerdown', unlock, { capture: true, once: true }); window.addEventListener('keydown', unlock, { capture: true, once: true }); }
-    const outsideRef = { get: null }; // v1.119: 窓の外の天気・季節(シーンができたら、ここへ、つなぐ)
+    // v1.123: 部屋の家具のレイアウト。いまは、全部入り(v1.122までと同じ)。URL に ?roomset=min を付けると、初期の殺風景な部屋(デスク一式だけ)を確認できる。
+//   ドールハウス(家具を回収して置く仕組み)ができたら、ここを、保存された room_state から作る(新しい世界は、初期の部屋から)。
+const roomLayout = layoutFromState(resolveRoomSet(new URLSearchParams(location.search).get('roomset')));
+const outsideRef = { get: null }; // v1.119: 窓の外の天気・季節(シーンができたら、ここへ、つなぐ)
     const introLayer = createIntroLayer({
       setGameAudio: (on) => { const se = window.SoundEngine; if (se && se.setGameGate) se.setGameGate(on); }, // v1.120: 部屋が全画面の間は、ゲームの音を、完全に消す(ゲームの間は、部屋の音が消える)
-      createRoom: (o) => createIntroRoom({ ...o, audio: roomAudio, getOutside: () => (outsideRef.get ? outsideRef.get() : null) }), title: APP.titleJa, titleEn: APP.titleEn,
+      createRoom: (o) => createIntroRoom({ ...o, layout: roomLayout, audio: roomAudio, getOutside: () => (outsideRef.get ? outsideRef.get() : null) }), title: APP.titleJa, titleEn: APP.titleEn,
       labels: () => ({ book: tr('intro.book'), keyboard: tr('intro.keyboard'), monitor: tr('intro.monitor'), cup: tr('intro.cup'), lamp: tr('intro.lamp'), lampOff: tr('intro.lampOff'), synth: tr('intro.synth'), sofa: tr('intro.sofa'), sofa2: tr('intro.sofa2'), tv: tr('intro.tv'), vhs: tr('intro.vhs'), console: tr('intro.console'), kettle: tr('intro.kettle'), snowman: tr('intro.snowman'), wipe: tr('intro.wipe'), skip: tr('intro.skip'), guide: tr('intro.guide') }),
     });
     live.push(() => { if (introLayer.refreshTexts) introLayer.refreshTexts(); });

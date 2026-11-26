@@ -18,7 +18,7 @@ const BOOK_COLORS = ['#8c3b3b', '#3b5c8c', '#3f7a55', '#c9a24a', '#6b4a8c', '#d2
 /**
  * 部屋の飾りを作って、scene へ足す。
  * ctx = { scene, toon(色) → 材質, keep(捨てるもの), box(w,h,d,材質,x,y,z,親), wallMat, trimMat, woodMat, darkMat }
- * 戻り値: { ceilingLight, floorLampLight, shelves(本棚4つ), kb(MIDIキーボード), update(t) }
+ * 戻り値: { ceilingLight, floorLampLight, shelves(本棚4つ), kb(MIDIキーボード), parts(v1.123: 家具のid → { objs, lights }。見せる・隠す用), update(t) }
  */
 export function buildStreamRoom(ctx) {
   const { scene, toon, keep, box, wallMat, trimMat, woodMat, darkMat } = ctx;
@@ -146,7 +146,7 @@ export function buildStreamRoom(ctx) {
     const shade = new THREE.Mesh(keep(new THREE.CylinderGeometry(0.15, 0.22, 0.28, 12, 1, true)), keep(new THREE.MeshBasicMaterial({ color: 0xffdca0, side: THREE.DoubleSide, toneMapped: false }))); shade.position.y = 1.72; fl.add(shade); }
   function plant(x, z, s) { const g = new THREE.Group(); g.position.set(x, 0, z); g.scale.setScalar(s); add(g); const pot = new THREE.Mesh(keep(new THREE.CylinderGeometry(0.2, 0.15, 0.3, 10)), potMat); pot.position.y = 0.15; g.add(pot);
     for (let i = 0; i < 9; i++) { const a = (i / 9) * Math.PI * 2, leaf = new THREE.Mesh(keep(new THREE.ConeGeometry(0.1, 0.62 + (i % 3) * 0.12, 5)), i % 2 ? leafMat : leafMat2); leaf.position.set(Math.cos(a) * 0.1, 0.55 + (i % 3) * 0.06, Math.sin(a) * 0.1); leaf.rotation.set(Math.sin(a) * 0.5, 0, -Math.cos(a) * 0.5); g.add(leaf); } return g; }
-  plant(-3.2, 6.4, 1.15); if (!omit.cornerPlant) plant(ROOM.x1 - 0.35, -1.7, 1.0); // v1.121: 部屋の演出では、奥の右の角に、テレビデオを置くので、省く plant(-3.2, -1.7, 0.9);
+  const plantCorner = plant(-3.2, 6.4, 1.15); if (!omit.cornerPlant) plant(ROOM.x1 - 0.35, -1.7, 1.0); // v1.121: 部屋の演出では、奥の右の角に、テレビデオを置くので、省く plant(-3.2, -1.7, 0.9);
   if (!omit.bean) { // ビーンバッグ(部屋の演出では、ソファを置くので、省く)
     const bean = new THREE.Mesh(keep(new THREE.SphereGeometry(0.5, 12, 9)), keep(toon(0x4a8c8c))); bean.scale.set(1, 0.62, 0.95); bean.position.set(-2.6, 0.31, 2.9); add(bean); // ビーンバッグ
     const bean2 = new THREE.Mesh(keep(new THREE.SphereGeometry(0.22, 8, 6)), keep(toon(0xf2d34f))); bean2.scale.set(1, 0.5, 0.9); bean2.position.set(-2.5, 0.64, 2.8); add(bean2);
@@ -159,5 +159,7 @@ export function buildStreamRoom(ctx) {
   const floorLampLight = new THREE.PointLight(0xffc27a, 3.2, 6, 1.6); floorLampLight.position.set(3.3, 1.65, 4.7); scene.add(floorLampLight);
   const sideLight = new THREE.PointLight(0xbfd2ff, 2.2, 7, 1.5); sideLight.position.set(-2.6, 2.4, 1.6); scene.add(sideLight); // 左がわを、うっすら青白く(窓の月明かり)
 
-  return { ceilingLight, floorLampLight, shelves: [shelfR, shelfF1, shelfF2, shelfL], kb, update(t) { for (let i = 0; i < bulbs.length; i++) bulbs[i].scale.setScalar(0.92 + 0.1 * Math.sin(t * 2 + i * 1.3)); } };
+  // v1.123: 家具ごとに、見せる・隠す(部屋に置いてある物だけを見せる)ための、取っ手。objs=その家具の3D、lights=その家具の明かり
+  const parts = { armchair: { objs: [arm] }, sideTableR: { objs: [sideT] }, floorLampR: { objs: [fl], lights: [floorLampLight] }, plantCorner: { objs: [plantCorner] }, floorRug: { objs: [rug2, rug2b] } };
+  return { ceilingLight, floorLampLight, shelves: [shelfR, shelfF1, shelfF2, shelfL], kb, parts, update(t) { for (let i = 0; i < bulbs.length; i++) bulbs[i].scale.setScalar(0.92 + 0.1 * Math.sin(t * 2 + i * 1.3)); } };
 }
