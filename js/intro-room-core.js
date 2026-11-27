@@ -127,7 +127,7 @@ export function tidy(st, opt = {}) {
  */
 export const ACTION_NEEDS = {
   monitor: [], sofa: ['sofa'], sofa2: ['sofa2'], lamp: ['lampPumpkin'], keyboard: ['kb', 'sofa'], synth: ['synth', 'floorRug'],
-  cup: ['cup', 'sideTable', 'sofa'], kettle: ['kettle'], tv: ['tvStand', 'tvCushion'], vhs: ['tvStand', 'tvCushion', 'vhsPile'], console: ['tvStand', 'tvCushion'],
+  cup: ['cup', 'sideTable', 'sofa'], kettle: ['kettle'], tv: ['tvStand', 'tvCushion'], vhs: ['tvStand', 'tvCushion', 'vhsPile'], console: ['tvStand', 'tvCushion', 'console'],
   book: ['sofa'],
 };
 const SHELF_IDS = ['shelfR', 'shelfF1', 'shelfF2', 'shelfL'];

@@ -79,10 +79,7 @@ export function buildStreamRoom(ctx) {
   const shelfF1 = makeBookshelf(1.5, 2.3, 0.34, 6, 23); shelfF1.position.set(-2.75, 0, ROOM.z1 - 0.17); shelfF1.rotation.y = Math.PI; add(shelfF1);
   const shelfF2 = makeBookshelf(1.2, 2.0, 0.32, 5, 37); shelfF2.position.set(3.0, 0, ROOM.z1 - 0.16); shelfF2.rotation.y = Math.PI; add(shelfF2);
   const shelfL = makeBookshelf(2.4, 1.5, 0.34, 4, 51); shelfL.position.set(ROOM.x0 + 0.17, 0, 4.7); shelfL.rotation.y = Math.PI / 2; add(shelfL);
-  // 低い本棚の上: 地球儀と、観葉植物、積んだ本
-  const globe = new THREE.Group(); globe.position.set(ROOM.x0 + 0.2, 1.5, 4.2); add(globe);
-  { const b = new THREE.Mesh(keep(new THREE.CylinderGeometry(0.07, 0.08, 0.03, 10)), darkMat); b.position.y = 0.015; globe.add(b); const s = new THREE.Mesh(keep(new THREE.SphereGeometry(0.11, 12, 9)), keep(toon(0x3f7aa8))); s.position.y = 0.18; globe.add(s);
-    const land = new THREE.Mesh(keep(new THREE.SphereGeometry(0.112, 6, 5, 0.3, 1.4, 0.9, 1.2)), keep(toon(0x5aa05a))); land.position.y = 0.18; globe.add(land); }
+  // v1.124: 低い本棚の上の、青い地球儀(青い球体)は、削除した(仕様: 本棚の上の青い球体は、いらない)
 
   // ---- 手前の壁(窓の反対側): ドア・MIDIキーボード・額・床の植物 ----
   const doorMat = toon(0x7a5238); keep(doorMat);
@@ -106,16 +103,19 @@ export function buildStreamRoom(ctx) {
   const picMountain = pictureTexture((c) => { const g = c.createLinearGradient(0, 0, 0, 32); g.addColorStop(0, '#f2a65a'); g.addColorStop(1, '#f7e0a8'); c.fillStyle = g; c.fillRect(0, 0, 48, 32); c.fillStyle = '#fff3c4'; c.beginPath(); c.arc(34, 11, 4, 0, 7); c.fill(); c.fillStyle = '#5a6a8c'; c.beginPath(); c.moveTo(0, 32); c.lineTo(14, 12); c.lineTo(26, 32); c.fill(); c.fillStyle = '#3f4a6a'; c.beginPath(); c.moveTo(16, 32); c.lineTo(32, 16); c.lineTo(48, 32); c.fill(); });
   const picSea = pictureTexture((c) => { c.fillStyle = '#9fd0e8'; c.fillRect(0, 0, 48, 32); c.fillStyle = '#2f6aa0'; c.fillRect(0, 18, 48, 14); c.fillStyle = '#e8f4ff'; for (let i = 0; i < 6; i++) c.fillRect(4 + i * 8, 22 + (i % 3) * 3, 5, 1); c.fillStyle = '#fff'; c.fillRect(30, 6, 8, 3); c.fillRect(33, 4, 8, 3); });
   const picCat = pictureTexture((c) => { c.fillStyle = '#e7d9bd'; c.fillRect(0, 0, 48, 32); c.fillStyle = '#4a4a55'; c.fillRect(14, 12, 20, 14); c.fillRect(14, 8, 5, 5); c.fillRect(29, 8, 5, 5); c.fillStyle = '#f2d34f'; c.fillRect(18, 16, 3, 3); c.fillRect(27, 16, 3, 3); c.fillStyle = '#e88a9a'; c.fillRect(23, 21, 2, 2); });
-  frame(0.62, 0.42, picMountain, -1.25, 2.0, ROOM.z1 - 0.05, Math.PI); frame(0.42, 0.62, picSea, -0.55, 2.0, ROOM.z1 - 0.05, Math.PI); frame(0.5, 0.34, picCat, 0.15, 2.05, ROOM.z1 - 0.05, Math.PI);
-  frame(0.7, 0.46, picMountain, ROOM.x0 + 0.04, 2.1, 1.0, Math.PI / 2); frame(0.46, 0.46, picCat, ROOM.x0 + 0.04, 2.0, 2.0, Math.PI / 2); // 左の壁の額
+  const frameFrontMountain = frame(0.62, 0.42, picMountain, -1.25, 2.0, ROOM.z1 - 0.05, Math.PI), frameFrontSea = frame(0.42, 0.62, picSea, -0.55, 2.0, ROOM.z1 - 0.05, Math.PI), frameFrontCat = frame(0.5, 0.34, picCat, 0.15, 2.05, ROOM.z1 - 0.05, Math.PI);
+  const pictureFairy = frame(0.7, 0.46, picMountain, ROOM.x0 + 0.04, 2.1, 1.0, Math.PI / 2), frameLeftCat = frame(0.46, 0.46, picCat, ROOM.x0 + 0.04, 2.0, 2.0, Math.PI / 2); // 左の壁の額(山=フェアリーライトの下の絵)
 
   // ---- 左の壁: 星のランプのひも(電球が、ゆるく弧を描く)・コルクボード ----
   const bulbMat = keep(new THREE.MeshBasicMaterial({ color: 0xffd98a, toneMapped: false }));
+  const fairyStart = scene.children.length; // v1.124: フェアリーライト・コルクボードを、家具の部品として取り出す(置いてある時だけ見せる)
   const bulbs = [];
   for (let i = 0; i < 14; i++) { const u = i / 13, z = 0.2 + u * 5.0, y = 2.95 - Math.sin(u * Math.PI) * 0.28; const bl = new THREE.Mesh(keep(new THREE.SphereGeometry(0.03, 6, 5)), bulbMat); bl.position.set(ROOM.x0 + 0.08, y, z); add(bl); bulbs.push(bl); }
   box(0.02, 0.01, 5.1, darkMat, ROOM.x0 + 0.07, 2.84, 2.75); // ひも(細い板で代用)
+  const fairyObjs = scene.children.slice(fairyStart), corkStart = scene.children.length;
   box(0.03, 0.62, 0.9, woodMat, ROOM.x0 + 0.04, 1.75, 3.0); // コルクボード
   { const cork = toon(0xb98a52); keep(cork); box(0.02, 0.54, 0.82, cork, ROOM.x0 + 0.06, 1.75, 3.0); const memo = [[0xf2d34f, 2.8, 1.9], [0xe88a9a, 3.1, 1.8], [0x8fd0a0, 3.0, 1.62], [0xffffff, 3.25, 1.95]]; for (const [c, z, y] of memo) { box(0.012, 0.11, 0.1, toon(c), ROOM.x0 + 0.075, y, z); } }
+  const corkObjs = scene.children.slice(corkStart);
 
   // ---- 奥の壁: 銀の盾(動画サイトの「銀の盾」のような、記念の盾) ----
   function plaqueTexture() {
@@ -160,6 +160,7 @@ export function buildStreamRoom(ctx) {
   const sideLight = new THREE.PointLight(0xbfd2ff, 2.2, 7, 1.5); sideLight.position.set(-2.6, 2.4, 1.6); scene.add(sideLight); // 左がわを、うっすら青白く(窓の月明かり)
 
   // v1.123: 家具ごとに、見せる・隠す(部屋に置いてある物だけを見せる)ための、取っ手。objs=その家具の3D、lights=その家具の明かり
-  const parts = { armchair: { objs: [arm] }, sideTableR: { objs: [sideT] }, floorLampR: { objs: [fl], lights: [floorLampLight] }, plantCorner: { objs: [plantCorner] }, floorRug: { objs: [rug2, rug2b] } };
+  const parts = { armchair: { objs: [arm] }, sideTableR: { objs: [sideT] }, floorLampR: { objs: [fl], lights: [floorLampLight] }, plantCorner: { objs: [plantCorner] }, floorRug: { objs: [rug2, rug2b] },
+    fairyLights: { objs: fairyObjs }, corkBoard: { objs: corkObjs }, pictureFairy: { objs: [pictureFairy] }, frameLeftCat: { objs: [frameLeftCat] }, frameFrontMountain: { objs: [frameFrontMountain] }, frameFrontSea: { objs: [frameFrontSea] }, frameFrontCat: { objs: [frameFrontCat] } };
   return { ceilingLight, floorLampLight, shelves: [shelfR, shelfF1, shelfF2, shelfL], kb, parts, update(t) { for (let i = 0; i < bulbs.length; i++) bulbs[i].scale.setScalar(0.92 + 0.1 * Math.sin(t * 2 + i * 1.3)); } };
 }

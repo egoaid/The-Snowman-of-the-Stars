@@ -83,8 +83,9 @@ export function createIntroRoom(opts = {}) {
     const v = [-1.7 + sx * db, 0.02, zb, -0.2 + sx * db, 0.02, zb, -0.2 + sx * dt2, 0.02, zt, -1.7 + sx * dt2, 0.02, zt];
     for (let i = 0; i < 12; i++) patchPos[i] = v[i]; patchGeo.attributes.position.needsUpdate = true;
   }
-  { const pm = keep(toon(0xf2d34f)); box(0.62, 0.8, 0.03, keep(toon(0x2a2f55)), 1.0, 2.0, -2.22); const st = new THREE.Mesh(keep(new THREE.CircleGeometry(0.2, 5)), pm); st.position.set(1.0, 2.04, -2.2); scene.add(st);
-    box(1.0, 0.05, 0.28, woodMat, -2.7, 1.55, -2.1); box(0.16, 0.22, 0.16, keep(toon(0x4a9a63)), -2.95, 1.69, -2.1); box(0.2, 0.14, 0.18, keep(toon(0xd2693a)), -2.55, 1.64, -2.1); }
+  let pictureWindowObjs = [], windowShelfObjs = [];
+  { const w0 = scene.children.length; const pm = keep(toon(0xf2d34f)); box(0.62, 0.8, 0.03, keep(toon(0x2a2f55)), 1.0, 2.0, -2.22); const st = new THREE.Mesh(keep(new THREE.CircleGeometry(0.2, 5)), pm); st.position.set(1.0, 2.04, -2.2); scene.add(st); pictureWindowObjs = scene.children.slice(w0); const w1 = scene.children.length; // 窓際の額なしの絵(星)
+    box(1.0, 0.05, 0.28, woodMat, -2.7, 1.55, -2.1); box(0.16, 0.22, 0.16, keep(toon(0x4a9a63)), -2.95, 1.69, -2.1); box(0.2, 0.14, 0.18, keep(toon(0xd2693a)), -2.55, 1.64, -2.1); windowShelfObjs = scene.children.slice(w1); } // 窓際の小さな棚と、その上の2つのオブジェ
 
   // ---- ソファ(左の壁ぎわ。低い本棚のとなり。+x=部屋の中を向く) ----
   function makeSofa(c) { const sofa = new THREE.Group();
@@ -725,7 +726,7 @@ export function createIntroRoom(opts = {}) {
 
   // ---- v1.123: 家具の部品(置いてある物だけを見せる) ----
   //   部品は、全部、既定の場所で作ってある。ここで、家具ごとに「3D・明かり・クリックの対象・いっしょに動く物」をまとめ、applyLayout が、見せる・隠す・動かす。
-  const fol = (obj) => ({ obj, x0: obj.position.x, z0: obj.position.z, ry0: obj.rotation.y }); // その家具について行く物(いまの位置を、基準として覚える)
+  const fol = (obj) => ({ obj, x0: obj.position.x, y0: obj.position.y, z0: obj.position.z, ry0: obj.rotation.y }); // その家具について行く物(いまの位置を、基準として覚える)
   const part = (objs, o = {}) => { const lights = o.lights || []; return { objs, lights, follow: (o.follow || [...objs, ...lights]).map(fol), picks: o.picks || [] }; };
   const sp = room.parts, shelf = (id) => shelfGroups.get(id);
   const PARTS = {
@@ -733,7 +734,9 @@ export function createIntroRoom(opts = {}) {
     floorLamp: part([floorLampS]),
     sideTable: part([sideTable.group]),
     sofa2: part([sofa2], { picks: [sofa2] }),
-    tvStand: part([tvStand.group, ...cords.map((c) => c.line)], { lights: [tvLight], follow: [tvStand.group, tvLight], picks: [tvStand.group] }),
+    tvStand: part([tvStand.group], { lights: [tvLight], follow: [tvStand.group, tvLight], picks: [tvStand.group] }),
+    console: part([tvStand.con, padA, padB, ...cords.map((c) => c.line)], { follow: [] }), // ゲーム機・コントローラー・ケーブル(テレビ台について行く。別の回収品)
+    pictureWindow: part(pictureWindowObjs), windowShelf: part(windowShelfObjs),
     tvCushion: part([cushion]),
     vhsPile: part([vhsPile.group], { picks: [vhsPile.group] }),
     kettle: part([kettle.group, exMat], { picks: [kettle.group] }),
@@ -748,6 +751,7 @@ export function createIntroRoom(opts = {}) {
     mic: part([mic.group], { follow: [] }),
     shelfR: part([shelf('R')], { picks: [shelf('R')] }), shelfF1: part([shelf('F1')], { picks: [shelf('F1')] }), shelfF2: part([shelf('F2')], { picks: [shelf('F2')] }), shelfL: part([shelf('L')], { picks: [shelf('L')] }),
     armchair: part(sp.armchair.objs), sideTableR: part(sp.sideTableR.objs), floorLampR: part(sp.floorLampR.objs, { lights: sp.floorLampR.lights }), plantCorner: part(sp.plantCorner.objs), floorRug: part(sp.floorRug.objs),
+    fairyLights: part(sp.fairyLights.objs), corkBoard: part(sp.corkBoard.objs), pictureFairy: part(sp.pictureFairy.objs), frameLeftCat: part(sp.frameLeftCat.objs), frameFrontMountain: part(sp.frameFrontMountain.objs), frameFrontSea: part(sp.frameFrontSea.objs), frameFrontCat: part(sp.frameFrontCat.objs), // 壁の飾り(stream-room.js)
   };
   const furniturePicks = new Set(Object.values(PARTS).flatMap((q) => q.picks));
   const pickBase = pickRoots.filter((o) => !furniturePicks.has(o)); // 机・モニター・椅子・キーボード・雪だるま(いつも、クリックできる)
@@ -776,7 +780,11 @@ export function createIntroRoom(opts = {}) {
       const f = L.byId[id], on = !!f;
       for (const o of pt.objs) o.visible = on;
       for (const l of pt.lights) l.visible = on;
-      if (on) { const p0 = DEFAULT_LAYOUT.byId[id].place, p1 = f.place; for (const fo of pt.follow) { const m = rigidMove({ x: fo.x0, z: fo.z0 }, p0, p1); fo.obj.position.x = m.x; fo.obj.position.z = m.z; if (!fo.obj.isLight) fo.obj.rotation.y = fo.ry0 + (p1.ry - p0.ry); } }
+      if (on) {
+        const p0 = DEFAULT_LAYOUT.byId[id].place, p1 = f.place;
+        if (p0.wall) { const du = p1.u - p0.u, dy = p1.y - p0.y, alongX = p0.wall === 'N' || p0.wall === 'S'; for (const fo of pt.follow) { if (alongX) fo.obj.position.x = fo.x0 + du; else fo.obj.position.z = fo.z0 + du; fo.obj.position.y = fo.y0 + dy; } } // 壁の飾り: 壁に沿って、動かす
+        else for (const fo of pt.follow) { const m = rigidMove({ x: fo.x0, z: fo.z0 }, p0, p1); fo.obj.position.x = m.x; fo.obj.position.z = m.z; if (!fo.obj.isLight) fo.obj.rotation.y = fo.ry0 + (p1.ry - p0.ry); }
+      }
     }
     pickRoots.length = 0; pickRoots.push(...pickBase); for (const [id, pt] of Object.entries(PARTS)) if (L.byId[id]) pickRoots.push(...pt.picks);
     resetRuntime();
@@ -830,7 +838,7 @@ export function createIntroRoom(opts = {}) {
     isBusy: () => !!curStep || queue.length > 0,
     /** カメラが、いま、決まった画角に固定されているか(モニターの場面)。 */
     isCameraLocked: () => cam.locked,
-    debug: { get layout() { return layout; }, get pickRoots() { return pickRoots; }, tvScreen, tvStand, padA, padB, kettle, tape, vhsPile, sofa2, OBJ, get wipeView() { return wipeView; }, getCameraView, get player() { return player; }, handNote, audio, world, ikErr, pcOp, pcDrink, synthHome, headsetRest, pickAt, setView, city, clock, bookObj, sideTable, bigSynth, lamp, lampLightPt, midi, headset, mixer, cup, nowFn, kbObj, book, kbHome, screenState, get launchedFlag() { return launched; }, get stepInfo() { return curStep && { t: curStep.t, what: curStep.what, at: curStep.at, from: curStep.from }; }, get queue() { return queue.map((s) => s.t); }, get step() { return curStep && curStep.t; }, cam, SHELVES, pathLength },
+    debug: { get layout() { return layout; }, get pickRoots() { return pickRoots; }, get parts() { return PARTS; }, tvScreen, tvStand, padA, padB, kettle, tape, vhsPile, sofa2, OBJ, get wipeView() { return wipeView; }, getCameraView, get player() { return player; }, handNote, audio, world, ikErr, pcOp, pcDrink, synthHome, headsetRest, pickAt, setView, city, clock, bookObj, sideTable, bigSynth, lamp, lampLightPt, midi, headset, mixer, cup, nowFn, kbObj, book, kbHome, screenState, get launchedFlag() { return launched; }, get stepInfo() { return curStep && { t: curStep.t, what: curStep.what, at: curStep.at, from: curStep.from }; }, get queue() { return queue.map((s) => s.t); }, get step() { return curStep && curStep.t; }, cam, SHELVES, pathLength },
     dispose() {
       if (player) { player.stop(); player = null; }
       try { scene.traverse((o) => { if (o.geometry) o.geometry.dispose(); }); for (const x of owned) if (x && x.dispose) x.dispose(); renderer.dispose(); renderer.forceContextLoss(); } catch (e) { /* もう、捨てられている */ }
